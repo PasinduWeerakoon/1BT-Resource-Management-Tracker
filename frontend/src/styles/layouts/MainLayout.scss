@@ -1,0 +1,38 @@
+.main-layout {
+  min-height: 100vh;
+  display: flex;
+
+  .main-layout-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    margin-left: 250px;
+    min-height: 100vh;
+    padding-top: 64px; // Account for fixed header
+    padding-bottom: 48px; // Account for fixed footer
+
+    &.collapsed {
+      margin-left: 80px;
+    }
+
+    @media (max-width: 768px) {
+      margin-left: 0;
+
+      &.collapsed {
+        margin-left: 0;
+      }
+    }
+  }
+
+  .main-layout-body {
+    flex: 1;
+    padding: 24px;
+    overflow-y: auto;
+    background: #fff;
+    min-height: calc(100vh - 64px - 48px); // Subtract header and footer height
+
+    @media (max-width: 768px) {
+      padding: 16px;
+    }
+  }
+}

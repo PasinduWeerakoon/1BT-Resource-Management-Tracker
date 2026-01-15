@@ -1,0 +1,248 @@
+.bench-report-page {
+  padding: 24px;
+  background: #fff;
+  min-height: 100%;
+
+  .report-header {
+    margin-bottom: 24px;
+
+    .report-title {
+      margin: 0;
+      font-size: 28px;
+      font-weight: 700;
+      font-family: "Poppins", sans-serif;
+      color: #262626;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+  }
+
+  .filters-card {
+    margin-bottom: 24px;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+
+    .filters-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 0;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #f0f0f0;
+      transition: all 0.3s ease;
+      user-select: none;
+      cursor: pointer;
+
+      &:hover {
+        background: #fafafa;
+        margin: -16px -16px 0 -16px;
+        padding: 12px 16px;
+        border-radius: 8px 8px 0 0;
+      }
+
+      .filters-header-left {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex: 1;
+      }
+
+      .filter-icon {
+        font-size: 18px;
+        color: #97230c;
+      }
+
+      .filters-title {
+        font-size: 16px;
+        font-weight: 600;
+        font-family: "Poppins", sans-serif;
+        color: #262626;
+        margin-right: 12px;
+      }
+
+      .active-filters-badge {
+        margin-right: 8px;
+
+        .ant-badge-count {
+          background: #97230c;
+          font-family: "Poppins", sans-serif;
+          font-size: 11px;
+          font-weight: 600;
+          min-width: 20px;
+          height: 20px;
+          line-height: 20px;
+          padding: 0 6px;
+          box-shadow: 0 0 0 1px #fff;
+        }
+      }
+
+      .reset-filters-btn {
+        font-family: "Poppins", sans-serif;
+        font-size: 12px;
+        color: #97230c;
+        padding: 0 8px;
+        height: 24px;
+
+        &:hover {
+          color: #c42d1a;
+          background: #fff5f5;
+        }
+      }
+
+      .collapse-icon {
+        font-size: 14px;
+        color: #595959;
+        transition: transform 0.3s ease;
+      }
+    }
+
+    .filters-content {
+      margin-top: 16px;
+      overflow: hidden;
+      transition: all 0.3s ease;
+      animation: slideDown 0.3s ease;
+    }
+
+    @keyframes slideDown {
+      from {
+        opacity: 0;
+        transform: translateY(-10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .filters-row {
+      .filter-item {
+        label {
+          display: block;
+          margin-bottom: 6px;
+          font-size: 13px;
+          font-weight: 500;
+          font-family: "Poppins", sans-serif;
+          color: #595959;
+        }
+      }
+    }
+  }
+
+  .kpi-section {
+    margin-bottom: 24px;
+
+    .kpi-card {
+      text-align: center;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+      transition: all 0.3s ease;
+      border: 2px solid #f0f0f0;
+
+      &:hover {
+        border-color: #97230c;
+        box-shadow: 0 4px 12px rgba(151, 35, 12, 0.15);
+        transform: translateY(-2px);
+      }
+
+      .kpi-value {
+        font-size: 36px;
+        font-weight: 700;
+        font-family: "Poppins", sans-serif;
+        color: #262626;
+        margin-bottom: 8px;
+        line-height: 1.2;
+      }
+
+      .kpi-label {
+        font-size: 12px;
+        font-weight: 500;
+        font-family: "Poppins", sans-serif;
+        color: #595959;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+    }
+  }
+
+  .table-card {
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+    margin-bottom: 16px;
+
+    .ant-card-head {
+      border-bottom: 1px solid #f0f0f0;
+
+      .ant-card-head-title {
+        font-family: "Poppins", sans-serif;
+        font-weight: 600;
+        font-size: 14px;
+        color: #262626;
+        width: 100%;
+      }
+    }
+
+    .ant-table {
+      font-family: "Poppins", sans-serif;
+
+      .ant-table-thead > tr > th {
+        background: #fafafa;
+        font-weight: 600;
+        font-size: 12px;
+        color: #262626;
+        border-bottom: 2px solid #f0f0f0;
+      }
+
+      .ant-table-tbody > tr > td {
+        font-size: 13px;
+        color: #595959;
+      }
+
+      .ant-table-tbody > tr:hover > td {
+        background: #fafafa;
+      }
+
+      // Style for Duration column with light red background
+      .ant-table-tbody > tr > td:nth-child(8) {
+        background: #fff5f5;
+        font-weight: 500;
+      }
+
+      .ant-table-tbody > tr:hover > td:nth-child(8) {
+        background: #ffe0e0;
+      }
+    }
+  }
+
+  @media (max-width: 768px) {
+    padding: 16px;
+
+    .report-header {
+      .report-title {
+        font-size: 20px;
+      }
+    }
+
+    .filters-card {
+      .filters-row {
+        .filter-item {
+          label {
+            font-size: 12px;
+          }
+        }
+      }
+    }
+
+    .kpi-section {
+      .kpi-card {
+        .kpi-value {
+          font-size: 24px;
+        }
+
+        .kpi-label {
+          font-size: 10px;
+        }
+      }
+    }
+  }
+}

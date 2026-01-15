@@ -1,0 +1,79 @@
+// Global styles
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: #fff;
+}
+
+#root {
+  min-height: 100vh;
+  background: #fff;
+}
+
+// Ant Design overrides
+.ant-layout {
+  min-height: 100vh;
+  background: #fff;
+}
+
+.ant-layout-sider {
+  background: #fff !important;
+}
+
+// Button overrides
+.ant-btn-primary {
+  background-color: #97230C;
+  border-color: #97230C;
+  
+  &:hover,
+  &:focus {
+    background-color: #b82a0f;
+    border-color: #b82a0f;
+  }
+  
+  &:active {
+    background-color: #7a1c09;
+    border-color: #7a1c09;
+  }
+}
+
+// Table overrides
+.ant-table {
+  font-family: 'Poppins', sans-serif;
+}
+
+.ant-table-thead > tr > th {
+  font-family: 'Poppins', sans-serif;
+  font-weight: 600;
+}
+
+.ant-table-tbody > tr > td {
+  font-family: 'Poppins', sans-serif;
+}
+
+// Typography overrides
+.ant-typography {
+  font-family: 'Poppins', sans-serif;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Poppins', sans-serif;
+  font-weight: 600;
+}
+
+// Input and form overrides
+.ant-input,
+.ant-select-selector,
+.ant-picker,
+.ant-input-number {
+  font-family: 'Poppins', sans-serif;
+}

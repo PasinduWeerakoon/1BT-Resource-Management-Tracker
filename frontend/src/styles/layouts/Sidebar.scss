@@ -1,0 +1,317 @@
+.app-sidebar {
+  position: fixed;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 99;
+  height: 100vh;
+  overflow: hidden;
+  overflow-x: hidden;
+  background: #fff !important;
+  border-right: 1px solid #f0f0f0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  
+  // Smooth scrolling
+  &::-webkit-scrollbar {
+    width: 6px;
+  }
+  
+  &::-webkit-scrollbar-track {
+    background: #f5f5f5;
+  }
+  
+  &::-webkit-scrollbar-thumb {
+    background: #d9d9d9;
+    border-radius: 3px;
+    
+    &:hover {
+      background: #bfbfbf;
+    }
+  }
+
+  .sidebar-content {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    padding: 0;
+    height: 100%;
+    position: relative;
+  }
+
+  .sidebar-header {
+    height: 64px; // Match header height
+    padding: 0 12px;
+    border-bottom: 1px solid #f0f0f0;
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    position: relative;
+
+    // When sidebar is expanded (open), button on the right
+    &.expanded {
+      justify-content: flex-end;
+    }
+
+    // When sidebar is collapsed (closed), button on the left
+    &.collapsed {
+      justify-content: flex-start;
+    }
+
+    .sidebar-toggle-btn {
+      background: #fff !important;
+      color: #262626 !important;
+      border: 1px solid #f0f0f0 !important;
+      border-radius: 4px;
+      width: 28px;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      transition: all 0.2s ease;
+
+      &:hover {
+        background: #f5f5f5 !important;
+        color: #262626 !important;
+        border-color: #d9d9d9 !important;
+      }
+
+      &:focus {
+        background: #fff !important;
+        color: #262626 !important;
+      }
+
+      .anticon {
+        color: #262626 !important;
+        font-size: 14px !important;
+      }
+    }
+  }
+
+  .ant-menu {
+    border-right: none;
+    background: #fff;
+    padding: 0 12px;
+    flex: 1;
+    overflow-y: auto;
+    margin-bottom: 60px; // Space for user profile at bottom
+    margin-top: 0;
+    
+    .ant-menu-item {
+      height: 56px !important;
+      line-height: 56px !important;
+      margin: 6px 0 !important;
+      padding: 0 16px !important;
+      border-radius: 10px;
+      border: none;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      display: flex;
+      align-items: center;
+      
+      &.ant-menu-item-selected {
+        background-color: #f5f5f5 !important;
+        color: #262626 !important;
+        box-shadow: 0 2px 4px rgba(151, 35, 12, 0.1);
+        
+        &::after {
+          display: none;
+        }
+        
+        .ant-menu-title-content {
+          color: #97230C !important;
+          font-weight: 600;
+          font-size: 14px;
+        }
+        
+        .anticon {
+          color: #97230C !important;
+          font-size: 18px;
+        }
+      }
+      
+      &:hover {
+        background-color: #fafafa !important;
+        color: #262626;
+        transform: translateX(2px);
+        
+        .anticon {
+          color: #97230C;
+        }
+        
+        .ant-menu-title-content {
+          color: #97230C;
+        }
+      }
+    }
+    
+    .ant-menu-item-icon {
+      color: #595959;
+      font-size: 18px;
+      margin-right: 12px;
+      transition: color 0.3s ease;
+    }
+    
+    .ant-menu-title-content {
+      color: #595959;
+      font-family: 'Poppins', sans-serif;
+      font-size: 14px;
+      font-weight: 500;
+      transition: color 0.3s ease;
+    }
+  }
+
+  .sidebar-footer {
+    height: 48px; // Match footer height
+    margin-top: auto;
+    padding: 0 12px;
+    border-top: 1px solid #f0f0f0;
+    background: #fff;
+    flex-shrink: 0;
+    margin-bottom: 0;
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    display: flex;
+    align-items: center;
+  }
+
+  .sidebar-user-profile {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0;
+    border-radius: 0;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    background: transparent;
+    width: 100%;
+    height: 100%;
+
+    &:hover {
+      background: #f5f5f5;
+    }
+
+    // Collapsed state
+    .ant-layout-sider-collapsed & {
+      justify-content: center;
+      padding: 0;
+      
+      .sidebar-user-details {
+        display: none;
+      }
+    }
+
+    .sidebar-user-details {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .sidebar-user-name-text {
+      font-family: 'Poppins', sans-serif;
+      font-size: 13px;
+      font-weight: 600;
+      color: #262626;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 1.2;
+    }
+
+    .sidebar-user-role-text {
+      font-family: 'Poppins', sans-serif;
+      font-size: 11px;
+      color: #8c8c8c;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 1.2;
+    }
+  }
+
+  @media (max-width: 768px) {
+    position: fixed;
+    height: 100vh;
+    z-index: 999;
+
+    &.ant-layout-sider-collapsed {
+      transform: translateX(-100%);
+    }
+  }
+}
+
+// Mobile overlay
+@media (max-width: 768px) {
+  .app-sidebar {
+    &::before {
+      content: '';
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.25);
+      z-index: -1;
+      opacity: 0;
+      transition: opacity 0.3s;
+      pointer-events: none;
+    }
+
+    &:not(.ant-layout-sider-collapsed)::before {
+      opacity: 1;
+      pointer-events: auto;
+    }
+  }
+}
+
+// User menu dropdown styles
+.sidebar-user-menu {
+  .ant-dropdown-menu {
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    padding: 8px;
+    min-width: 200px;
+
+    .sidebar-user-info {
+      padding: 8px 0;
+
+      .sidebar-user-name {
+        font-family: 'Poppins', sans-serif;
+        font-size: 14px;
+        font-weight: 600;
+        color: #262626;
+        margin-bottom: 4px;
+      }
+
+      .sidebar-user-email {
+        font-family: 'Poppins', sans-serif;
+        font-size: 12px;
+        color: #8c8c8c;
+      }
+    }
+
+    .ant-dropdown-menu-item {
+      font-family: 'Poppins', sans-serif;
+      padding: 10px 12px;
+      border-radius: 6px;
+      margin: 2px 0;
+      transition: all 0.2s ease;
+
+      &:hover {
+        background-color: #f5f5f5;
+      }
+
+      &.ant-dropdown-menu-item-danger {
+        color: #ff4d4f;
+
+        &:hover {
+          background-color: #fff1f0;
+        }
+      }
+    }
+  }
+}
