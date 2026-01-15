@@ -2,7 +2,7 @@ import React from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Layout, Menu, Dropdown, Avatar, Button, Tooltip } from 'antd';
-import { LogoutOutlined, SettingOutlined, MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons';
+import { LogoutOutlined, SettingOutlined, MenuFoldOutlined, MenuUnfoldOutlined, TeamOutlined } from '@ant-design/icons';
 import { logout } from '@redux/slices/authSlice';
 import { toggleSidebar } from '@redux/slices/layoutSlice';
 import { getMenuItems } from '@navigation/menuItems';
@@ -55,6 +55,20 @@ const Sidebar = () => {
         </div>
       ),
       disabled: true,
+    },
+    {
+      type: 'divider',
+    },
+    {
+      key: 'employee-management',
+      label: 'Employee Management',
+      icon: <TeamOutlined />,
+      onClick: () => {
+        navigate('/resources');
+        if (isMobile) {
+          dispatch(toggleSidebar());
+        }
+      },
     },
     {
       type: 'divider',

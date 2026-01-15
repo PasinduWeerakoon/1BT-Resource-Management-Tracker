@@ -135,10 +135,11 @@ const AllocationHistory = () => {
       y: {
         ...commonOptions.scales.y,
         min: 0,
-        max: 120,
+        max: 130,
         ticks: {
           ...commonOptions.scales.y.ticks,
           stepSize: 20,
+          maxTicksLimit: 8,
           callback: function(value) {
             return value + '%';
           },
@@ -151,6 +152,14 @@ const AllocationHistory = () => {
         ...commonOptions.plugins.legend,
         position: 'bottom',
         align: 'end',
+      },
+    },
+    layout: {
+      padding: {
+        top: 20,
+        bottom: 10,
+        left: 10,
+        right: 10,
       },
     },
   };

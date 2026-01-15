@@ -11,6 +11,7 @@ import {
   GlobalOutlined,
   CalendarOutlined,
   ShoppingOutlined,
+  TeamOutlined,
 } from '@ant-design/icons';
 
 export const getMenuItems = (role) => {
