@@ -66,6 +66,10 @@ This document outlines a production-grade, serverless backend architecture for t
     └───────────────────────────┘
 ```
 
+### 2.1 Architecture Diagram
+
+![High-Level AWS Serverless Architecture](./high_level_architecture.png)
+
 ---
 
 ## 3. AWS Services Architecture
@@ -95,7 +99,8 @@ This document outlines a production-grade, serverless backend architecture for t
 │   ├── GET    /{id}                # Get resource
 │   ├── PUT    /{id}                # Update resource
 │   ├── DELETE /{id}                # Soft delete resource
-│   └── GET    /{id}/allocations    # Get resource allocations
+│   ├── GET    /{id}/allocations    # Get resource allocations
+│   └── GET    /{id}/designation-history  # Get designation/career history
 ├── /projects
 │   ├── GET    /                    # List projects
 │   ├── POST   /                    # Create project
@@ -242,6 +247,10 @@ exports.handler = async (event) => {
 
 #### Database Schema (Industry Best Practices)
 
+##### Entity-Relationship Diagram
+
+![Database ER Diagram](./database_er_diagram.png)
+
 > **Design Principles Applied:**
 > - Soft delete pattern (no hard deletes for audit compliance)
 > - Version tracking for critical entities
@@ -346,9 +355,16 @@ CREATE TABLE resources (
     designation VARCHAR(50) NOT NULL,
     track track_type NOT NULL,
     
-    -- Intern Classification
-    is_intern BOOLEAN DEFAULT FALSE NOT NULL,
-    intern_type VARCHAR(20) CHECK (intern_type IN ('Tech', 'Non-Tech') OR intern_type IS NULL),
+    -- Intern Classification (Only for Dev track interns: Tech or Non-Tech)
+    -- NOTE: is_intern is COMPUTED from designation - no manual input needed
+    intern_classification VARCHAR(20) CHECK (
+        intern_classification IN ('Tech', 'Non-Tech') OR intern_classification IS NULL
+    ),
+    
+    -- Computed Column: Derived from designation (always consistent, no duplication)
+    is_intern BOOLEAN GENERATED ALWAYS AS (
+        designation LIKE 'Intern%'
+    ) STORED,
     
     -- Skills & Experience
     skills TEXT[] DEFAULT '{}',
@@ -374,9 +390,11 @@ CREATE TABLE resources (
     CONSTRAINT resources_employee_id_unique UNIQUE (employee_id) WHERE deleted_at IS NULL,
     CONSTRAINT resources_employee_number_unique UNIQUE (employee_number) WHERE deleted_at IS NULL,
     CONSTRAINT resources_name_length CHECK (length(name) >= 2),
-    CONSTRAINT resources_intern_type_required CHECK (
-        (is_intern = TRUE AND intern_type IS NOT NULL) OR 
-        (is_intern = FALSE AND intern_type IS NULL)
+    -- Intern classification only valid for employees with Intern designation
+    CONSTRAINT resources_intern_classification_valid CHECK (
+        (designation LIKE 'Intern%' AND track IN ('FS', '.Net', 'DS', 'UI/UX') AND intern_classification IS NOT NULL) OR
+        (designation LIKE 'Intern%' AND track NOT IN ('FS', '.Net', 'DS', 'UI/UX')) OR
+        (designation NOT LIKE 'Intern%' AND intern_classification IS NULL)
     ),
     CONSTRAINT resources_notice_period_valid CHECK (
         (status = 'Serving Notice Period' AND notice_period_end_date IS NOT NULL) OR
@@ -574,6 +592,105 @@ CREATE INDEX idx_allocation_history_allocation ON allocation_history(allocation_
 CREATE INDEX idx_allocation_history_changed_at ON allocation_history(changed_at DESC);
 CREATE INDEX idx_allocation_history_effective_date ON allocation_history(effective_date);
 CREATE INDEX idx_allocation_history_resource_date ON allocation_history(resource_id, changed_at DESC);
+
+-- =====================================================
+-- DESIGNATION HISTORY TABLE (Career Progression Tracking)
+-- =====================================================
+-- Tracks all designation/role changes for each employee (promotions, transfers)
+CREATE TABLE designation_history (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    resource_id UUID NOT NULL REFERENCES resources(id) ON DELETE CASCADE,
+    
+    -- Designation Change Details
+    previous_designation VARCHAR(50),           -- NULL for initial record
+    new_designation VARCHAR(50) NOT NULL,
+    previous_track track_type,                  -- NULL for initial record
+    new_track track_type NOT NULL,
+    
+    -- Change Context
+    change_type VARCHAR(30) NOT NULL CHECK (
+        change_type IN ('INITIAL', 'PROMOTION', 'LATERAL_MOVE', 'TRACK_CHANGE', 'DEMOTION', 'CORRECTION')
+    ),
+    change_reason TEXT,                         -- Optional reason (e.g., "Performance review Q4 2025")
+    
+    -- Effective Period
+    effective_from DATE NOT NULL DEFAULT CURRENT_DATE,
+    effective_until DATE,                       -- NULL means current designation
+    
+    -- Audit Fields
+    changed_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    changed_by UUID REFERENCES users(id),
+    changed_by_username VARCHAR(50),
+    
+    -- Constraints
+    CONSTRAINT designation_history_dates_valid CHECK (
+        effective_until IS NULL OR effective_until >= effective_from
+    )
+);
+
+-- Indexes for efficient queries
+CREATE INDEX idx_designation_history_resource ON designation_history(resource_id);
+CREATE INDEX idx_designation_history_resource_date ON designation_history(resource_id, effective_from DESC);
+CREATE INDEX idx_designation_history_effective ON designation_history(effective_from, effective_until);
+
+-- =====================================================
+-- TRIGGER: Auto-capture designation changes
+-- =====================================================
+CREATE OR REPLACE FUNCTION capture_designation_history()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_change_type VARCHAR(30);
+BEGIN
+    -- Determine change type based on designation change
+    IF TG_OP = 'INSERT' THEN
+        v_change_type := 'INITIAL';
+        
+        INSERT INTO designation_history (
+            resource_id, previous_designation, new_designation,
+            previous_track, new_track, change_type, effective_from, changed_by
+        ) VALUES (
+            NEW.id, NULL, NEW.designation,
+            NULL, NEW.track, v_change_type, COALESCE(NEW.date_of_joining, CURRENT_DATE), NEW.created_by
+        );
+        RETURN NEW;
+        
+    ELSIF TG_OP = 'UPDATE' THEN
+        -- Only track if designation or track actually changed
+        IF OLD.designation != NEW.designation OR OLD.track != NEW.track THEN
+            -- Determine change type
+            IF OLD.track != NEW.track THEN
+                v_change_type := 'TRACK_CHANGE';
+            ELSIF NEW.designation LIKE '%Senior%' OR NEW.designation LIKE '%Lead%' OR 
+                  NEW.designation LIKE 'STL%' OR NEW.designation LIKE 'ATL%' THEN
+                v_change_type := 'PROMOTION';
+            ELSE
+                v_change_type := 'LATERAL_MOVE';
+            END IF;
+            
+            -- Close out the previous designation period
+            UPDATE designation_history
+            SET effective_until = CURRENT_DATE - INTERVAL '1 day'
+            WHERE resource_id = NEW.id 
+              AND effective_until IS NULL;
+            
+            -- Insert new designation record
+            INSERT INTO designation_history (
+                resource_id, previous_designation, new_designation,
+                previous_track, new_track, change_type, effective_from, changed_by
+            ) VALUES (
+                NEW.id, OLD.designation, NEW.designation,
+                OLD.track, NEW.track, v_change_type, CURRENT_DATE, NEW.updated_by
+            );
+        END IF;
+        RETURN NEW;
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Attach trigger to resources table
+CREATE TRIGGER trg_designation_history
+    AFTER INSERT OR UPDATE ON resources
+    FOR EACH ROW EXECUTE FUNCTION capture_designation_history();
 
 -- Users Table
 CREATE TABLE users (
