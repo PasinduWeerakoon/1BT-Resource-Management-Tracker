@@ -1,0 +1,23 @@
+.settings-page {
+  padding: 24px;
+  background: #fff;
+  min-height: 100%;
+
+  .settings-header {
+    margin-bottom: 24px;
+
+    .page-title {
+      margin: 0;
+      font-size: 28px;
+      font-weight: 700;
+      font-family: "Poppins", sans-serif;
+      color: #262626;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+  }
+
+  .settings-content {
+    font-family: "Poppins", sans-serif;
+  }
+}
