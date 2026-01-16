@@ -1,39 +1,41 @@
 # =====================================================
 # PRODUCTION Environment Configuration
 # =====================================================
-# This file contains environment-specific variables for Production
-# CRITICAL: Ensure all secrets are stored in SSM Parameter Store
+# CRITICAL: All secrets stored in SSM Parameter Store
 
 # Environment
 NODE_ENV: production
 LOG_LEVEL: warn
 
-# Database Configuration (Multi-AZ RDS)
-DATABASE_HOST: your-prod-rds-endpoint.ap-south-1.rds.amazonaws.com
+# Database Configuration
+DATABASE_HOST: ${cf:1bt-rds-prod.RDSEndpoint}
 DATABASE_PORT: 5432
 DATABASE_NAME: resource_management_prod
-DATABASE_USER: prod_admin
+DATABASE_USER: dbadmin
 DATABASE_PASSWORD: ${ssm:/1bt/prod/db-password}
 
-# VPC Configuration (Production VPC with multiple AZs)
-VPC_ID: vpc-xxxxxxxxxxxxxxxxx
+# VPC Configuration
+VPC_ID: ${cf:1bt-vpc-prod.VPCId}
 SUBNET_IDS:
-  - subnet-xxxxxxxxxxxxxxxxx
-  - subnet-yyyyyyyyyyyyyyyyy
-  - subnet-zzzzzzzzzzzzzzzzz
+  - ${cf:1bt-vpc-prod.PrivateSubnet1Id}
+  - ${cf:1bt-vpc-prod.PrivateSubnet2Id}
 
-# Encryption Key (Production encryption key)
+# Security Group
+LAMBDA_SECURITY_GROUP: ${cf:1bt-vpc-prod.LambdaSecurityGroupId}
+
+# Encryption Key
 ENCRYPTION_KEY: ${ssm:/1bt/prod/encryption-key}
 
-# RDS Scheduler (DISABLED for production - 24/7 availability)
+# RDS Scheduler (DISABLED for prod - 24/7 availability)
 RDS_SCHEDULER_ENABLED: false
+RDS_INSTANCE_ID: ${cf:1bt-rds-prod.RDSInstanceId}
 
-# Log Retention (days) - Longer retention for compliance
+# Log Retention (days) - Compliance requirement
 LOG_RETENTION_DAYS: 90
 
 # CORS Origins (production domains only)
 CORS_ORIGINS: 'https://resource.1bt.com,https://admin.1bt.com'
 
-# Rate Limiting (strict for production)
+# Rate Limiting (strict)
 RATE_LIMIT_MAX: 100
 RATE_LIMIT_WINDOW: 60

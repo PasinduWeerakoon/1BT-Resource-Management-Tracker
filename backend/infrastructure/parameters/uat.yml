@@ -1,37 +1,40 @@
 # =====================================================
 # UAT Environment Configuration
 # =====================================================
-# This file contains environment-specific variables for UAT (User Acceptance Testing)
 
 # Environment
 NODE_ENV: uat
 LOG_LEVEL: info
 
 # Database Configuration
-DATABASE_HOST: your-uat-rds-endpoint.ap-south-1.rds.amazonaws.com
+DATABASE_HOST: ${cf:1bt-rds-uat.RDSEndpoint}
 DATABASE_PORT: 5432
 DATABASE_NAME: resource_management_uat
-DATABASE_USER: uat_admin
+DATABASE_USER: dbadmin
 DATABASE_PASSWORD: ${ssm:/1bt/uat/db-password}
 
 # VPC Configuration
-VPC_ID: vpc-xxxxxxxxxxxxxxxxx
+VPC_ID: ${cf:1bt-vpc-uat.VPCId}
 SUBNET_IDS:
-  - subnet-xxxxxxxxxxxxxxxxx
-  - subnet-yyyyyyyyyyyyyyyyy
+  - ${cf:1bt-vpc-uat.PrivateSubnet1Id}
+  - ${cf:1bt-vpc-uat.PrivateSubnet2Id}
+
+# Security Group
+LAMBDA_SECURITY_GROUP: ${cf:1bt-vpc-uat.LambdaSecurityGroupId}
 
 # Encryption Key
 ENCRYPTION_KEY: ${ssm:/1bt/uat/encryption-key}
 
-# RDS Scheduler (enabled for UAT to save costs)
+# RDS Scheduler (enabled for UAT)
 RDS_SCHEDULER_ENABLED: true
+RDS_INSTANCE_ID: ${cf:1bt-rds-uat.RDSInstanceId}
 
 # Log Retention (days)
 LOG_RETENTION_DAYS: 30
 
-# CORS Origins (specific domains for UAT)
-CORS_ORIGINS: 'https://uat.1bt-resource.com,https://uat-admin.1bt-resource.com'
+# CORS Origins
+CORS_ORIGINS: 'https://uat.1bt-resource.com'
 
-# Rate Limiting (production-like for UAT)
+# Rate Limiting
 RATE_LIMIT_MAX: 200
 RATE_LIMIT_WINDOW: 60

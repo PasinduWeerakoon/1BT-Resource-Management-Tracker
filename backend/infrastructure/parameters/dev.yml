@@ -1,39 +1,41 @@
 # =====================================================
 # DEV Environment Configuration
 # =====================================================
-# This file contains environment-specific variables for development
+# Uses 'onebt-rm' prefix to comply with CloudFormation naming (must start with letter)
 
 # Environment
 NODE_ENV: development
 LOG_LEVEL: debug
 
-# Database Configuration
-# Note: Use your own RDS instance or local database for dev
-DATABASE_HOST: your-dev-rds-endpoint.ap-south-1.rds.amazonaws.com
+# Database Configuration (from CloudFormation Exports)
+DATABASE_HOST: ${cf:onebt-rm-dev-rds.RDSEndpoint}
 DATABASE_PORT: 5432
 DATABASE_NAME: resource_management_dev
-DATABASE_USER: dev_admin
-DATABASE_PASSWORD: ${ssm:/1bt/dev/db-password}  # Store in SSM Parameter Store
+DATABASE_USER: dbadmin
+DATABASE_PASSWORD: ${ssm:/1bt/dev/db-password}
 
-# VPC Configuration
-# Replace with your actual VPC and Subnet IDs
-VPC_ID: vpc-xxxxxxxxxxxxxxxxx
+# VPC Configuration (from CloudFormation Exports)
+VPC_ID: ${cf:onebt-rm-dev-vpc.VPCId}
 SUBNET_IDS:
-  - subnet-xxxxxxxxxxxxxxxxx
-  - subnet-yyyyyyyyyyyyyyyyy
+  - ${cf:onebt-rm-dev-vpc.PrivateSubnet1Id}
+  - ${cf:onebt-rm-dev-vpc.PrivateSubnet2Id}
 
-# Encryption Key (32 bytes for AES-256)
+# Security Group
+LAMBDA_SECURITY_GROUP: ${cf:onebt-rm-dev-vpc.LambdaSecurityGroupId}
+
+# Encryption Key
 ENCRYPTION_KEY: ${ssm:/1bt/dev/encryption-key}
 
-# RDS Scheduler (disabled for dev - always on or use local)
-RDS_SCHEDULER_ENABLED: false
+# RDS Scheduler
+RDS_SCHEDULER_ENABLED: true
+RDS_INSTANCE_ID: ${cf:onebt-rm-dev-rds.RDSInstanceId}
 
 # Log Retention (days)
 LOG_RETENTION_DAYS: 7
 
-# CORS Origins (allow all for dev)
+# CORS Origins
 CORS_ORIGINS: '*'
 
-# Rate Limiting (relaxed for dev)
+# Rate Limiting
 RATE_LIMIT_MAX: 1000
 RATE_LIMIT_WINDOW: 60

@@ -1,0 +1,279 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: |
+  1BT Resource Management - RDS PostgreSQL Database
+  Cost-Optimized Database Setup with Environment-Specific Configurations
+  
+  COST CONSIDERATIONS:
+  - Dev/QA: db.t3.micro (~$12/month) with auto-shutdown
+  - UAT: db.t3.small (~$24/month)
+  - Prod: db.t3.medium (~$48/month) with Multi-AZ (~$96/month total)
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - qa
+      - uat
+      - prod
+
+  DBMasterUsername:
+    Type: String
+    Default: dbadmin
+    NoEcho: true
+    MinLength: 1
+    MaxLength: 16
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+    ConstraintDescription: Must begin with a letter and contain only alphanumeric characters
+
+  DBMasterPassword:
+    Type: String
+    NoEcho: true
+    MinLength: 12
+    MaxLength: 41
+    Description: Master password for the database (min 12 characters)
+
+Conditions:
+  IsProd: !Equals [!Ref Environment, 'prod']
+  IsDevOrQA: !Or
+    - !Equals [!Ref Environment, 'dev']
+    - !Equals [!Ref Environment, 'qa']
+
+Mappings:
+  EnvironmentConfig:
+    dev:
+      DBInstanceClass: db.t3.micro
+      AllocatedStorage: 20
+      MaxAllocatedStorage: 50
+      BackupRetentionPeriod: 1
+      DeleteProtection: false
+      MultiAZ: false
+    qa:
+      DBInstanceClass: db.t3.micro
+      AllocatedStorage: 20
+      MaxAllocatedStorage: 50
+      BackupRetentionPeriod: 3
+      DeleteProtection: false
+      MultiAZ: false
+    uat:
+      DBInstanceClass: db.t3.small
+      AllocatedStorage: 30
+      MaxAllocatedStorage: 100
+      BackupRetentionPeriod: 7
+      DeleteProtection: true
+      MultiAZ: false
+    prod:
+      DBInstanceClass: db.t3.medium
+      AllocatedStorage: 50
+      MaxAllocatedStorage: 200
+      BackupRetentionPeriod: 30
+      DeleteProtection: true
+      MultiAZ: true
+
+Resources:
+  # ============================================
+  # DATABASE CREDENTIALS (Secrets Manager)
+  # ============================================
+  DBCredentialsSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub onebt-db-credentials-${Environment}
+      Description: !Sub RDS credentials for 1BT Resource Management - ${Environment}
+      SecretString: !Sub |
+        {
+          "username": "${DBMasterUsername}",
+          "password": "${DBMasterPassword}",
+          "engine": "postgres",
+          "host": "${RDSInstance.Endpoint.Address}",
+          "port": "5432",
+          "dbname": "resource_management_${Environment}"
+        }
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: 1BT-Resource-Management
+
+  # ============================================
+  # RDS PARAMETER GROUP
+  # ============================================
+  RDSParameterGroup:
+    Type: AWS::RDS::DBParameterGroup
+    Properties:
+      Description: !Sub Parameter group for 1BT RDS - ${Environment}
+      Family: postgres15
+      Parameters:
+        log_statement: all
+        log_min_duration_statement: 1000  # Log queries > 1 second
+        shared_preload_libraries: pg_stat_statements
+      Tags:
+        - Key: Name
+          Value: !Sub onebt-db-params-${Environment}
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ============================================
+  # RDS INSTANCE
+  # ============================================
+  RDSInstance:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: !If [IsProd, Retain, Delete]
+    UpdateReplacePolicy: !If [IsProd, Retain, Delete]
+    Properties:
+      DBInstanceIdentifier: !Sub onebt-db-${Environment}
+      DBInstanceClass: !FindInMap [EnvironmentConfig, !Ref Environment, DBInstanceClass]
+      Engine: postgres
+      EngineVersion: '15.4'
+      MasterUsername: !Ref DBMasterUsername
+      MasterUserPassword: !Ref DBMasterPassword
+      DBName: !Sub resource_management_${Environment}
+      
+      # Storage
+      AllocatedStorage: !FindInMap [EnvironmentConfig, !Ref Environment, AllocatedStorage]
+      MaxAllocatedStorage: !FindInMap [EnvironmentConfig, !Ref Environment, MaxAllocatedStorage]
+      StorageType: gp3
+      StorageEncrypted: true
+      
+      # Network
+      DBSubnetGroupName: !ImportValue 
+        Fn::Sub: onebt-rm-${Environment}-RDSSubnetGroupName
+      VPCSecurityGroups:
+        - !ImportValue 
+          Fn::Sub: onebt-rm-${Environment}-RDSSecurityGroupId
+      PubliclyAccessible: false
+      
+      # Availability
+      MultiAZ: !FindInMap [EnvironmentConfig, !Ref Environment, MultiAZ]
+      
+      # Backup & Maintenance
+      BackupRetentionPeriod: !FindInMap [EnvironmentConfig, !Ref Environment, BackupRetentionPeriod]
+      PreferredBackupWindow: '03:00-04:00'
+      PreferredMaintenanceWindow: 'sun:04:00-sun:05:00'
+      AutoMinorVersionUpgrade: true
+      
+      # Monitoring
+      EnablePerformanceInsights: !If [IsProd, true, false]
+      PerformanceInsightsRetentionPeriod: !If [IsProd, 7, !Ref 'AWS::NoValue']
+      EnableCloudwatchLogsExports:
+        - postgresql
+        - upgrade
+      MonitoringInterval: !If [IsProd, 60, 0]
+      MonitoringRoleArn: !If [IsProd, !GetAtt RDSMonitoringRole.Arn, !Ref 'AWS::NoValue']
+      
+      # Protection
+      DeletionProtection: !FindInMap [EnvironmentConfig, !Ref Environment, DeleteProtection]
+      CopyTagsToSnapshot: true
+      
+      # Parameter Group
+      DBParameterGroupName: !Ref RDSParameterGroup
+      
+      Tags:
+        - Key: Name
+          Value: !Sub onebt-db-${Environment}
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: 1BT-Resource-Management
+        - Key: AutoShutdown
+          Value: !If [IsDevOrQA, 'true', 'false']
+
+  # ============================================
+  # RDS MONITORING ROLE (for Enhanced Monitoring)
+  # ============================================
+  RDSMonitoringRole:
+    Type: AWS::IAM::Role
+    Condition: IsProd
+    Properties:
+      RoleName: !Sub 1bt-rds-monitoring-role-${Environment}
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: monitoring.rds.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonRDSEnhancedMonitoringRole
+
+  # ============================================
+  # CLOUDWATCH ALARMS
+  # ============================================
+  CPUUtilizationAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: IsProd
+    Properties:
+      AlarmName: !Sub onebt-db-cpu-high-${Environment}
+      AlarmDescription: RDS CPU utilization is too high
+      MetricName: CPUUtilization
+      Namespace: AWS/RDS
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 3
+      Threshold: 80
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: DBInstanceIdentifier
+          Value: !Ref RDSInstance
+
+  FreeStorageSpaceAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: IsProd
+    Properties:
+      AlarmName: !Sub onebt-db-storage-low-${Environment}
+      AlarmDescription: RDS free storage space is running low
+      MetricName: FreeStorageSpace
+      Namespace: AWS/RDS
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 5368709120  # 5 GB in bytes
+      ComparisonOperator: LessThanThreshold
+      Dimensions:
+        - Name: DBInstanceIdentifier
+          Value: !Ref RDSInstance
+
+# ============================================
+# OUTPUTS
+# ============================================
+Outputs:
+  RDSEndpoint:
+    Description: RDS Instance Endpoint
+    Value: !GetAtt RDSInstance.Endpoint.Address
+    Export:
+      Name: !Sub onebt-rm-${Environment}-RDSEndpoint
+
+  RDSPort:
+    Description: RDS Instance Port
+    Value: !GetAtt RDSInstance.Endpoint.Port
+    Export:
+      Name: !Sub onebt-rm-${Environment}-RDSPort
+
+  DBName:
+    Description: Database Name
+    Value: !Sub resource_management_${Environment}
+    Export:
+      Name: !Sub onebt-rm-${Environment}-DBName
+
+  DBSecretArn:
+    Description: Secrets Manager Secret ARN for DB credentials
+    Value: !Ref DBCredentialsSecret
+    Export:
+      Name: !Sub onebt-rm-${Environment}-DBSecretArn
+
+  RDSInstanceId:
+    Description: RDS Instance Identifier
+    Value: !Ref RDSInstance
+    Export:
+      Name: !Sub onebt-rm-${Environment}-RDSInstanceId
+
+  MonthlyCostEstimate:
+    Description: Estimated monthly cost for this RDS instance
+    Value: !If 
+      - IsProd
+      - 'Prod (db.t3.medium Multi-AZ): ~$96/month + storage'
+      - !If 
+        - IsDevOrQA
+        - 'Dev/QA (db.t3.micro): ~$12/month + storage (auto-shutdown recommended)'
+        - 'UAT (db.t3.small): ~$24/month + storage'
+

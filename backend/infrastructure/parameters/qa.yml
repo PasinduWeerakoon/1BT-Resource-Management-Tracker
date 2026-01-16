@@ -1,37 +1,40 @@
 # =====================================================
 # QA Environment Configuration
 # =====================================================
-# This file contains environment-specific variables for QA/Testing
 
 # Environment
 NODE_ENV: qa
 LOG_LEVEL: debug
 
 # Database Configuration
-DATABASE_HOST: your-qa-rds-endpoint.ap-south-1.rds.amazonaws.com
+DATABASE_HOST: ${cf:1bt-rds-qa.RDSEndpoint}
 DATABASE_PORT: 5432
 DATABASE_NAME: resource_management_qa
-DATABASE_USER: qa_admin
+DATABASE_USER: dbadmin
 DATABASE_PASSWORD: ${ssm:/1bt/qa/db-password}
 
 # VPC Configuration
-VPC_ID: vpc-xxxxxxxxxxxxxxxxx
+VPC_ID: ${cf:1bt-vpc-qa.VPCId}
 SUBNET_IDS:
-  - subnet-xxxxxxxxxxxxxxxxx
-  - subnet-yyyyyyyyyyyyyyyyy
+  - ${cf:1bt-vpc-qa.PrivateSubnet1Id}
+  - ${cf:1bt-vpc-qa.PrivateSubnet2Id}
+
+# Security Group
+LAMBDA_SECURITY_GROUP: ${cf:1bt-vpc-qa.LambdaSecurityGroupId}
 
 # Encryption Key
 ENCRYPTION_KEY: ${ssm:/1bt/qa/encryption-key}
 
-# RDS Scheduler (enabled for QA to save costs)
+# RDS Scheduler
 RDS_SCHEDULER_ENABLED: true
+RDS_INSTANCE_ID: ${cf:1bt-rds-qa.RDSInstanceId}
 
 # Log Retention (days)
 LOG_RETENTION_DAYS: 14
 
-# CORS Origins (specific domains for QA)
-CORS_ORIGINS: 'https://qa.1bt-resource.com,https://qa-admin.1bt-resource.com'
+# CORS Origins
+CORS_ORIGINS: 'https://qa.1bt-resource.com'
 
-# Rate Limiting (moderate for QA)
+# Rate Limiting
 RATE_LIMIT_MAX: 500
 RATE_LIMIT_WINDOW: 60
