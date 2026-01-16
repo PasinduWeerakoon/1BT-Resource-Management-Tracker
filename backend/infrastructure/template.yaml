@@ -1,0 +1,236 @@
+/**
+ * AWS SAM Template
+ * Infrastructure as Code for 1BT Resource Management System
+ */
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: 1BT Resource Management System - Serverless Backend
+
+Globals:
+  Function:
+    Runtime: nodejs20.x
+    Timeout: 30
+    MemorySize: 512
+    Environment:
+      Variables:
+        NODE_ENV: !Ref Environment
+        DATABASE_URL: !Sub '{{resolve:secretsmanager:${DatabaseSecret}:SecretString:url}}'
+        COGNITO_USER_POOL_ID: !Ref CognitoUserPool
+        COGNITO_CLIENT_ID: !Ref CognitoUserPoolClient
+        S3_BUCKET_DOCUMENTS: !Ref DocumentsBucket
+    VpcConfig:
+      SecurityGroupIds:
+        - !Ref LambdaSecurityGroup
+      SubnetIds: !Ref PrivateSubnets
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+  PrivateSubnets:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Private subnets for Lambda functions
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC ID for security groups
+
+Resources:
+  # ============================================
+  # API Gateway
+  # ============================================
+  ApiGateway:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub 1bt-resource-api-${Environment}
+      StageName: !Ref Environment
+      Cors:
+        AllowOrigin: "'*'"
+        AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
+        AllowHeaders: "'Content-Type,Authorization'"
+      Auth:
+        DefaultAuthorizer: CognitoAuthorizer
+        Authorizers:
+          CognitoAuthorizer:
+            UserPoolArn: !GetAtt CognitoUserPool.Arn
+
+  # ============================================
+  # Lambda Functions - Resources
+  # ============================================
+  ResourceHandler:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub 1bt-resource-handler-${Environment}
+      CodeUri: src/
+      Handler: handlers/resources/index.handler
+      Description: Resource (Employee) CRUD operations
+      Events:
+        ListResources:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /api/v1/resources
+            Method: GET
+        CreateResource:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /api/v1/resources
+            Method: POST
+        GetResource:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /api/v1/resources/{id}
+            Method: GET
+        UpdateResource:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /api/v1/resources/{id}
+            Method: PUT
+        DeleteResource:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /api/v1/resources/{id}
+            Method: DELETE
+
+  # ============================================
+  # Lambda Functions - Projects
+  # ============================================
+  ProjectHandler:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub 1bt-project-handler-${Environment}
+      CodeUri: src/
+      Handler: handlers/projects/index.handler
+      Description: Project CRUD operations
+      Events:
+        ListProjects:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /api/v1/projects
+            Method: GET
+        CreateProject:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /api/v1/projects
+            Method: POST
+        GetProject:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /api/v1/projects/{id}
+            Method: GET
+        UpdateProject:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /api/v1/projects/{id}
+            Method: PUT
+        DeleteProject:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /api/v1/projects/{id}
+            Method: DELETE
+
+  # ============================================
+  # Lambda Functions - Allocations
+  # ============================================
+  AllocationHandler:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub 1bt-allocation-handler-${Environment}
+      CodeUri: src/
+      Handler: handlers/allocations/index.handler
+      Description: Allocation management
+      Events:
+        ListAllocations:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /api/v1/allocations
+            Method: GET
+        CreateAllocation:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /api/v1/allocations
+            Method: POST
+
+  # ============================================
+  # Cognito User Pool
+  # ============================================
+  CognitoUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub 1bt-users-${Environment}
+      AutoVerifiedAttributes:
+        - email
+      UsernameAttributes:
+        - email
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 12
+          RequireUppercase: true
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: true
+
+  CognitoUserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref CognitoUserPool
+      ClientName: !Sub 1bt-web-client-${Environment}
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+
+  # ============================================
+  # S3 Buckets
+  # ============================================
+  DocumentsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 1bt-documents-${Environment}-${AWS::AccountId}
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  # ============================================
+  # Security Group
+  # ============================================
+  LambdaSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Lambda functions
+      VpcId: !Ref VpcId
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+
+Outputs:
+  ApiEndpoint:
+    Description: API Gateway endpoint URL
+    Value: !Sub https://${ApiGateway}.execute-api.${AWS::Region}.amazonaws.com/${Environment}
+  UserPoolId:
+    Description: Cognito User Pool ID
+    Value: !Ref CognitoUserPool
+  UserPoolClientId:
+    Description: Cognito User Pool Client ID
+    Value: !Ref CognitoUserPoolClient
+  DocumentsBucketName:
+    Description: S3 Bucket for documents
+    Value: !Ref DocumentsBucket

@@ -1,0 +1,53 @@
+{
+  "name": "1bt-resource-management-backend",
+  "version": "1.0.0",
+  "description": "AWS Serverless Backend for 1BT Resource Management System",
+  "main": "src/handlers/index.js",
+  "scripts": {
+    "test": "jest",
+    "test:unit": "jest --testPathPattern=tests/unit",
+    "test:integration": "jest --testPathPattern=tests/integration",
+    "lint": "eslint src/**/*.js",
+    "lint:fix": "eslint src/**/*.js --fix",
+    "migrate": "node-pg-migrate",
+    "migrate:up": "node-pg-migrate up",
+    "migrate:down": "node-pg-migrate down",
+    "seed": "node database/scripts/seed.js",
+    "local": "sam local start-api",
+    "deploy:dev": "sam deploy --config-env dev",
+    "deploy:staging": "sam deploy --config-env staging",
+    "deploy:prod": "sam deploy --config-env prod"
+  },
+  "keywords": [
+    "aws",
+    "lambda",
+    "serverless",
+    "resource-management"
+  ],
+  "author": "1BT Tech Team",
+  "license": "UNLICENSED",
+  "private": true,
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@aws-sdk/client-cognito-identity-provider": "^3.490.0",
+    "@aws-sdk/client-rds": "^3.490.0",
+    "@aws-sdk/client-s3": "^3.490.0",
+    "@aws-sdk/client-secrets-manager": "^3.490.0",
+    "@middy/core": "^5.2.0",
+    "@middy/http-cors": "^5.2.0",
+    "@middy/http-error-handler": "^5.2.0",
+    "@middy/http-json-body-parser": "^5.2.0",
+    "@middy/validator": "^5.2.0",
+    "joi": "^17.11.0",
+    "pg": "^8.11.3",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "eslint": "^8.56.0",
+    "jest": "^29.7.0",
+    "node-pg-migrate": "^6.2.2",
+    "dotenv": "^16.3.1"
+  }
+}
