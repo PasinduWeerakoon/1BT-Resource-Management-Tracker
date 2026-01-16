@@ -113,6 +113,12 @@ This document outlines a production-grade, serverless backend architecture for t
 │   ├── GET    /{id}                # Get track
 │   ├── PUT    /{id}                # Update track
 │   └── DELETE /{id}                # Soft delete track
+├── /clients
+│   ├── GET    /                    # List clients
+│   ├── POST   /                    # Create client
+│   ├── GET    /{id}                # Get client
+│   ├── PUT    /{id}                # Update client
+│   └── DELETE /{id}                # Soft delete client
 ├── /projects
 │   ├── GET    /                    # List projects
 │   ├── POST   /                    # Create project
@@ -435,6 +441,25 @@ CREATE TRIGGER resources_updated_at
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- =====================================================
+-- CLIENTS TABLE
+-- =====================================================
+CREATE TABLE clients (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    client_name VARCHAR(100) NOT NULL UNIQUE,
+    client_code VARCHAR(20) UNIQUE,     -- Short code e.g., 'MSFT'
+    contact_person VARCHAR(100),
+    contact_email VARCHAR(100),
+    contact_phone VARCHAR(50),
+    address VARCHAR(500),
+    billing_address VARCHAR(500),       -- Specifically for invoicing
+    currency VARCHAR(3) DEFAULT 'USD',
+    status VARCHAR(20) DEFAULT 'Active',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    created_by UUID REFERENCES users(id)
+);
+
+-- =====================================================
 -- PROJECTS TABLE
 -- =====================================================
 CREATE TABLE projects (
@@ -454,12 +479,8 @@ CREATE TABLE projects (
     account_manager VARCHAR(100) NOT NULL,
     account_reg_sales_owner VARCHAR(100),
     
-    -- Client Information (for External projects)
-    client_name VARCHAR(100),
-    client_contact VARCHAR(100),
-    client_email VARCHAR(100),
-    client_phone VARCHAR(50),
-    client_address VARCHAR(500),
+    -- Client Information (Linked)
+    client_id UUID REFERENCES clients(id),  -- Required if account_type = External
     
     -- Timeline
     project_start_date DATE,
@@ -494,16 +515,12 @@ CREATE TABLE projects (
         project_end_date >= project_start_date
     ),
     CONSTRAINT projects_client_required_for_external CHECK (
-        (account_type = 'External' AND client_name IS NOT NULL) OR
+        (account_type = 'External' AND client_id IS NOT NULL) OR
         (account_type = 'Internal')
     ),
     CONSTRAINT projects_budget_disabled_for_non_billing CHECK (
         (billing_type = 'Non-Billing' AND budget IS NULL) OR
         (billing_type = 'Billing')
-    ),
-    CONSTRAINT projects_email_format CHECK (
-        client_email IS NULL OR 
-        client_email ~* '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$'
     )
 );
 
