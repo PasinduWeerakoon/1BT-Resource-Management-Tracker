@@ -102,7 +102,7 @@ Resources:
     Type: AWS::RDS::DBParameterGroup
     Properties:
       Description: !Sub Parameter group for 1BT RDS - ${Environment}
-      Family: postgres15
+      Family: postgres16
       Parameters:
         log_statement: all
         log_min_duration_statement: 1000  # Log queries > 1 second
@@ -124,7 +124,7 @@ Resources:
       DBInstanceIdentifier: !Sub onebt-db-${Environment}
       DBInstanceClass: !FindInMap [EnvironmentConfig, !Ref Environment, DBInstanceClass]
       Engine: postgres
-      EngineVersion: '15.4'
+      EngineVersion: '16'
       MasterUsername: !Ref DBMasterUsername
       MasterUserPassword: !Ref DBMasterPassword
       DBName: !Sub resource_management_${Environment}
