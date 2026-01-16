@@ -1,9 +1,238 @@
 .resources-page {
-  h1 {
+  padding: 24px;
+  background: #fff;
+  min-height: 100%;
+
+  .resources-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
     margin-bottom: 24px;
-    font-size: 24px;
-    font-weight: 600;
-    font-family: 'Poppins', sans-serif;
+
+    .page-title {
+      margin: 0;
+      font-size: 28px;
+      font-weight: 700;
+      font-family: "Poppins", sans-serif;
+      color: #262626;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+  }
+
+  .filters-card {
+    margin-bottom: 24px;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+
+    .filters-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 0;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #f0f0f0;
+      transition: all 0.3s ease;
+      user-select: none;
+      cursor: pointer;
+
+      &:hover {
+        background: #fafafa;
+        margin: -16px -16px 0 -16px;
+        padding: 12px 16px;
+        border-radius: 8px 8px 0 0;
+      }
+
+      .filters-header-left {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex: 1;
+      }
+
+      .filter-icon {
+        font-size: 18px;
+        color: #97230c;
+      }
+
+      .filters-title {
+        font-size: 16px;
+        font-weight: 600;
+        font-family: "Poppins", sans-serif;
+        color: #262626;
+        margin-right: 12px;
+      }
+
+      .active-filters-badge {
+        margin-right: 8px;
+        
+        .ant-badge-count {
+          background: #97230c;
+          font-family: "Poppins", sans-serif;
+          font-size: 11px;
+          font-weight: 600;
+          min-width: 20px;
+          height: 20px;
+          line-height: 20px;
+          padding: 0 6px;
+          box-shadow: 0 0 0 1px #fff;
+        }
+      }
+
+      .reset-filters-btn {
+        font-family: "Poppins", sans-serif;
+        font-size: 12px;
+        color: #97230c;
+        padding: 0 8px;
+        height: 24px;
+        
+        &:hover {
+          color: #c42d1a;
+          background: #fff5f5;
+        }
+      }
+
+      .collapse-icon {
+        font-size: 14px;
+        color: #595959;
+        transition: transform 0.3s ease;
+      }
+    }
+
+    .filters-content {
+      margin-top: 16px;
+      overflow: hidden;
+      transition: all 0.3s ease;
+      animation: slideDown 0.3s ease;
+    }
+
+    @keyframes slideDown {
+      from {
+        opacity: 0;
+        transform: translateY(-10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .filters-row {
+      .filter-item {
+        label {
+          display: block;
+          margin-bottom: 6px;
+          font-size: 13px;
+          font-weight: 500;
+          font-family: "Poppins", sans-serif;
+          color: #595959;
+        }
+      }
+    }
+  }
+
+  .employees-table-card {
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+
+    .employees-table-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #f0f0f0;
+
+      .table-header-left {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+
+        .table-title {
+          font-size: 16px;
+          font-weight: 600;
+          font-family: "Poppins", sans-serif;
+          color: #262626;
+        }
+      }
+
+      .table-header-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+    }
+  }
+
+  .action-icon-btn {
+    width: 32px;
+    height: 32px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid #d9d9d9;
+    border-radius: 4px;
+    background: #fff;
     color: #262626;
+    transition: all 0.3s ease;
+
+    &:hover {
+      border-color: #97230c;
+      color: #97230c;
+      background: #fff5f5;
+    }
+  }
+
+  @media (max-width: 768px) {
+    padding: 16px;
+
+    .resources-header {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 16px;
+
+      .page-title {
+        font-size: 20px;
+      }
+    }
+  }
+}
+
+// Employee Profile Modal Styles
+.employee-profile-modal {
+  .custom-modal-container {
+    display: flex;
+    flex-direction: column;
+    height: 80vh;
+    max-height: 900px;
+    min-height: 600px;
+  }
+
+  .custom-modal-content {
+    flex: 1;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+
+    .ant-tabs {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+
+      .ant-tabs-content-holder {
+        flex: 1;
+        overflow: hidden;
+
+        .ant-tabs-content {
+          height: 100%;
+
+          .ant-tabs-tabpane {
+            height: 100%;
+            overflow-y: auto;
+          }
+        }
+      }
+    }
   }
 }

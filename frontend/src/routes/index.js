@@ -17,6 +17,9 @@ import ExternalConsultantsReport from '@pages/ExternalConsultantsReport';
 import EmployeeReport from '@pages/EmployeeReport';
 import MonthlyAllocationReport from '@pages/MonthlyAllocationReport';
 import PreSaleReport from '@pages/PreSaleReport';
+import Settings from '@pages/Settings';
+import Configurations from '@pages/Configurations';
+import SystemUsers from '@pages/SystemUsers';
 
 export const routes = [
   {
@@ -112,6 +115,26 @@ export const routes = [
   {
     path: '/users',
     component: Users,
+    isPrivate: true,
+  },
+  {
+    path: '/settings',
+    component: Settings,
+    isPrivate: true,
+  },
+  {
+    path: '/configurations',
+    component: Configurations,
+    isPrivate: true,
+  },
+  {
+    path: '/employee-management',
+    component: Resources,
+    isPrivate: true,
+  },
+  {
+    path: '/system-users',
+    component: SystemUsers,
     isPrivate: true,
   },
 ];

@@ -2,7 +2,7 @@ import React from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Layout, Menu, Dropdown, Avatar, Button, Tooltip } from 'antd';
-import { LogoutOutlined, SettingOutlined, MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons';
+import { LogoutOutlined, SettingOutlined, MenuFoldOutlined, MenuUnfoldOutlined, TeamOutlined, UserOutlined } from '@ant-design/icons';
 import { logout } from '@redux/slices/authSlice';
 import { toggleSidebar } from '@redux/slices/layoutSlice';
 import { getMenuItems } from '@navigation/menuItems';
@@ -60,11 +60,50 @@ const Sidebar = () => {
       type: 'divider',
     },
     {
+      key: 'employee-management',
+      label: 'Employee Management',
+      icon: <TeamOutlined />,
+      onClick: () => {
+        navigate('/resources');
+        if (isMobile) {
+          dispatch(toggleSidebar());
+        }
+      },
+    },
+    {
+      key: 'system-users',
+      label: 'System Users',
+      icon: <UserOutlined />,
+      onClick: () => {
+        navigate('/system-users');
+        if (isMobile) {
+          dispatch(toggleSidebar());
+        }
+      },
+    },
+    {
+      type: 'divider',
+    },
+    {
+      key: 'configurations',
+      label: 'Configurations',
+      icon: <SettingOutlined />,
+      onClick: () => {
+        navigate('/configurations');
+        if (isMobile) {
+          dispatch(toggleSidebar());
+        }
+      },
+    },
+    {
       key: 'settings',
       label: 'Settings',
       icon: <SettingOutlined />,
       onClick: () => {
-        // Navigate to settings if needed
+        navigate('/settings');
+        if (isMobile) {
+          dispatch(toggleSidebar());
+        }
       },
     },
     {
