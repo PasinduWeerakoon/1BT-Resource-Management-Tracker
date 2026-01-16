@@ -101,6 +101,18 @@ This document outlines a production-grade, serverless backend architecture for t
 │   ├── DELETE /{id}                # Soft delete resource
 │   ├── GET    /{id}/allocations    # Get resource allocations
 │   └── GET    /{id}/designation-history  # Get designation/career history
+├── /designations
+│   ├── GET    /                    # List designations
+│   ├── POST   /                    # Create designation
+│   ├── GET    /{id}                # Get designation
+│   ├── PUT    /{id}                # Update designation
+│   └── DELETE /{id}                # Soft delete designation
+├── /tracks
+│   ├── GET    /                    # List tracks
+│   ├── POST   /                    # Create track
+│   ├── GET    /{id}                # Get track
+│   ├── PUT    /{id}                # Update track
+│   └── DELETE /{id}                # Soft delete track
 ├── /projects
 │   ├── GET    /                    # List projects
 │   ├── POST   /                    # Create project
@@ -276,8 +288,8 @@ CREATE TYPE resource_status AS ENUM ('Active', 'Inactive', 'Serving Notice Perio
 CREATE TYPE project_status AS ENUM ('Active', 'Inactive', 'Completed', 'On Hold');
 CREATE TYPE project_type AS ENUM ('Client', 'Bench', 'Training', 'POC', 'Presale', 'Research');
 CREATE TYPE account_type AS ENUM ('Internal', 'External');
-CREATE TYPE billing_status AS ENUM ('Billing', 'Non-Billing', 'Bench', 'Training', 'Presale');
-CREATE TYPE track_type AS ENUM ('FS', '.Net', 'DS', 'UI/UX', 'QA', 'PM/BA');
+-- Simplified per user request: only 'Billing' or 'Non-Billing'. Rest are project types.
+CREATE TYPE billing_status AS ENUM ('Billing', 'Non-Billing');
 CREATE TYPE change_type AS ENUM ('CREATED', 'UPDATED', 'DELETED', 'RESTORED');
 
 -- =====================================================
@@ -306,6 +318,7 @@ CREATE TABLE users (
     
     -- Authorization Fields
     role user_role NOT NULL DEFAULT 'User',
+    resource_id UUID UNIQUE REFERENCES resources(id) ON DELETE SET NULL,  -- Link to Employee profile
     
     -- Security Fields
     failed_login_attempts INTEGER DEFAULT 0 CHECK (failed_login_attempts >= 0),
@@ -335,6 +348,33 @@ CREATE TRIGGER users_updated_at
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- =====================================================
+-- TRACKS TABLE (Dynamic)
+-- =====================================================
+CREATE TABLE tracks (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(50) NOT NULL UNIQUE,  -- e.g., 'FS', '.Net', 'DS', 'QA'
+    description TEXT,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    created_by UUID REFERENCES users(id)
+);
+
+-- =====================================================
+-- DESIGNATIONS TABLE (Dynamic)
+-- =====================================================
+CREATE TABLE designations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(50) NOT NULL UNIQUE,  -- e.g., 'Senior Software Engineer', 'Intern - SE'
+    level INTEGER,                     -- Optional hierarchy level
+    is_intern_role BOOLEAN DEFAULT FALSE, -- Flag to identify intern roles
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    created_by UUID REFERENCES users(id)
+);
+
+-- =====================================================
 -- RESOURCES TABLE (Employees)
 -- =====================================================
 CREATE TABLE resources (
@@ -351,20 +391,14 @@ CREATE TABLE resources (
     email VARCHAR(100),
     address VARCHAR(500),
     
-    -- Role Information
-    designation VARCHAR(50) NOT NULL,
-    track track_type NOT NULL,
+    -- Role Information (Linked to dynamic tables)
+    designation_id UUID NOT NULL REFERENCES designations(id),
+    track_id UUID NOT NULL REFERENCES tracks(id),
     
     -- Intern Classification (Only for Dev track interns: Tech or Non-Tech)
-    -- NOTE: is_intern is COMPUTED from designation - no manual input needed
     intern_classification VARCHAR(20) CHECK (
         intern_classification IN ('Tech', 'Non-Tech') OR intern_classification IS NULL
     ),
-    
-    -- Computed Column: Derived from designation (always consistent, no duplication)
-    is_intern BOOLEAN GENERATED ALWAYS AS (
-        designation LIKE 'Intern%'
-    ) STORED,
     
     -- Skills & Experience
     skills TEXT[] DEFAULT '{}',
@@ -390,12 +424,6 @@ CREATE TABLE resources (
     CONSTRAINT resources_employee_id_unique UNIQUE (employee_id) WHERE deleted_at IS NULL,
     CONSTRAINT resources_employee_number_unique UNIQUE (employee_number) WHERE deleted_at IS NULL,
     CONSTRAINT resources_name_length CHECK (length(name) >= 2),
-    -- Intern classification only valid for employees with Intern designation
-    CONSTRAINT resources_intern_classification_valid CHECK (
-        (designation LIKE 'Intern%' AND track IN ('FS', '.Net', 'DS', 'UI/UX') AND intern_classification IS NOT NULL) OR
-        (designation LIKE 'Intern%' AND track NOT IN ('FS', '.Net', 'DS', 'UI/UX')) OR
-        (designation NOT LIKE 'Intern%' AND intern_classification IS NULL)
-    ),
     CONSTRAINT resources_notice_period_valid CHECK (
         (status = 'Serving Notice Period' AND notice_period_end_date IS NOT NULL) OR
         (status != 'Serving Notice Period')
@@ -602,10 +630,10 @@ CREATE TABLE designation_history (
     resource_id UUID NOT NULL REFERENCES resources(id) ON DELETE CASCADE,
     
     -- Designation Change Details
-    previous_designation VARCHAR(50),           -- NULL for initial record
-    new_designation VARCHAR(50) NOT NULL,
-    previous_track track_type,                  -- NULL for initial record
-    new_track track_type NOT NULL,
+    previous_designation_id UUID REFERENCES designations(id),
+    new_designation_id UUID NOT NULL REFERENCES designations(id),
+    previous_track_id UUID REFERENCES tracks(id),
+    new_track_id UUID NOT NULL REFERENCES tracks(id),
     
     -- Change Context
     change_type VARCHAR(30) NOT NULL CHECK (
@@ -646,24 +674,23 @@ BEGIN
         v_change_type := 'INITIAL';
         
         INSERT INTO designation_history (
-            resource_id, previous_designation, new_designation,
-            previous_track, new_track, change_type, effective_from, changed_by
+            resource_id, previous_designation_id, new_designation_id,
+            previous_track_id, new_track_id, change_type, effective_from, changed_by
         ) VALUES (
-            NEW.id, NULL, NEW.designation,
-            NULL, NEW.track, v_change_type, COALESCE(NEW.date_of_joining, CURRENT_DATE), NEW.created_by
+            NEW.id, NULL, NEW.designation_id,
+            NULL, NEW.track_id, v_change_type, COALESCE(NEW.date_of_joining, CURRENT_DATE), NEW.created_by
         );
         RETURN NEW;
         
     ELSIF TG_OP = 'UPDATE' THEN
         -- Only track if designation or track actually changed
-        IF OLD.designation != NEW.designation OR OLD.track != NEW.track THEN
+        IF OLD.designation_id != NEW.designation_id OR OLD.track_id != NEW.track_id THEN
             -- Determine change type
-            IF OLD.track != NEW.track THEN
+            IF OLD.track_id != NEW.track_id THEN
                 v_change_type := 'TRACK_CHANGE';
-            ELSIF NEW.designation LIKE '%Senior%' OR NEW.designation LIKE '%Lead%' OR 
-                  NEW.designation LIKE 'STL%' OR NEW.designation LIKE 'ATL%' THEN
-                v_change_type := 'PROMOTION';
             ELSE
+                -- Logic to detect promotion vs lateral move would require querying designation levels
+                -- Defaulting to UPDATED/LATERAL_MOVE for now
                 v_change_type := 'LATERAL_MOVE';
             END IF;
             
@@ -675,11 +702,11 @@ BEGIN
             
             -- Insert new designation record
             INSERT INTO designation_history (
-                resource_id, previous_designation, new_designation,
-                previous_track, new_track, change_type, effective_from, changed_by
+                resource_id, previous_designation_id, new_designation_id,
+                previous_track_id, new_track_id, change_type, effective_from, changed_by
             ) VALUES (
-                NEW.id, OLD.designation, NEW.designation,
-                OLD.track, NEW.track, v_change_type, CURRENT_DATE, NEW.updated_by
+                NEW.id, OLD.designation_id, NEW.designation_id,
+                OLD.track_id, NEW.track_id, v_change_type, CURRENT_DATE, NEW.updated_by
             );
         END IF;
         RETURN NEW;
@@ -691,22 +718,6 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER trg_designation_history
     AFTER INSERT OR UPDATE ON resources
     FOR EACH ROW EXECUTE FUNCTION capture_designation_history();
-
--- Users Table
-CREATE TABLE users (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    username VARCHAR(50) NOT NULL UNIQUE,
-    email VARCHAR(100) NOT NULL UNIQUE,
-    password_hash VARCHAR(255) NOT NULL,
-    role VARCHAR(20) NOT NULL,
-    status VARCHAR(20) DEFAULT 'Active',
-    last_login TIMESTAMP,
-    failed_login_attempts INTEGER DEFAULT 0,
-    locked_until TIMESTAMP,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    created_by UUID REFERENCES users(id)
-);
 
 -- Permissions Table
 CREATE TABLE permissions (
