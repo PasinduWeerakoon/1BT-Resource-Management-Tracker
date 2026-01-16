@@ -1,0 +1,39 @@
+# =====================================================
+# DEV Environment Configuration
+# =====================================================
+# This file contains environment-specific variables for development
+
+# Environment
+NODE_ENV: development
+LOG_LEVEL: debug
+
+# Database Configuration
+# Note: Use your own RDS instance or local database for dev
+DATABASE_HOST: your-dev-rds-endpoint.ap-south-1.rds.amazonaws.com
+DATABASE_PORT: 5432
+DATABASE_NAME: resource_management_dev
+DATABASE_USER: dev_admin
+DATABASE_PASSWORD: ${ssm:/1bt/dev/db-password}  # Store in SSM Parameter Store
+
+# VPC Configuration
+# Replace with your actual VPC and Subnet IDs
+VPC_ID: vpc-xxxxxxxxxxxxxxxxx
+SUBNET_IDS:
+  - subnet-xxxxxxxxxxxxxxxxx
+  - subnet-yyyyyyyyyyyyyyyyy
+
+# Encryption Key (32 bytes for AES-256)
+ENCRYPTION_KEY: ${ssm:/1bt/dev/encryption-key}
+
+# RDS Scheduler (disabled for dev - always on or use local)
+RDS_SCHEDULER_ENABLED: false
+
+# Log Retention (days)
+LOG_RETENTION_DAYS: 7
+
+# CORS Origins (allow all for dev)
+CORS_ORIGINS: '*'
+
+# Rate Limiting (relaxed for dev)
+RATE_LIMIT_MAX: 1000
+RATE_LIMIT_WINDOW: 60

@@ -1,0 +1,39 @@
+# =====================================================
+# PRODUCTION Environment Configuration
+# =====================================================
+# This file contains environment-specific variables for Production
+# CRITICAL: Ensure all secrets are stored in SSM Parameter Store
+
+# Environment
+NODE_ENV: production
+LOG_LEVEL: warn
+
+# Database Configuration (Multi-AZ RDS)
+DATABASE_HOST: your-prod-rds-endpoint.ap-south-1.rds.amazonaws.com
+DATABASE_PORT: 5432
+DATABASE_NAME: resource_management_prod
+DATABASE_USER: prod_admin
+DATABASE_PASSWORD: ${ssm:/1bt/prod/db-password}
+
+# VPC Configuration (Production VPC with multiple AZs)
+VPC_ID: vpc-xxxxxxxxxxxxxxxxx
+SUBNET_IDS:
+  - subnet-xxxxxxxxxxxxxxxxx
+  - subnet-yyyyyyyyyyyyyyyyy
+  - subnet-zzzzzzzzzzzzzzzzz
+
+# Encryption Key (Production encryption key)
+ENCRYPTION_KEY: ${ssm:/1bt/prod/encryption-key}
+
+# RDS Scheduler (DISABLED for production - 24/7 availability)
+RDS_SCHEDULER_ENABLED: false
+
+# Log Retention (days) - Longer retention for compliance
+LOG_RETENTION_DAYS: 90
+
+# CORS Origins (production domains only)
+CORS_ORIGINS: 'https://resource.1bt.com,https://admin.1bt.com'
+
+# Rate Limiting (strict for production)
+RATE_LIMIT_MAX: 100
+RATE_LIMIT_WINDOW: 60

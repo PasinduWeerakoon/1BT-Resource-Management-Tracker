@@ -1,0 +1,37 @@
+# =====================================================
+# QA Environment Configuration
+# =====================================================
+# This file contains environment-specific variables for QA/Testing
+
+# Environment
+NODE_ENV: qa
+LOG_LEVEL: debug
+
+# Database Configuration
+DATABASE_HOST: your-qa-rds-endpoint.ap-south-1.rds.amazonaws.com
+DATABASE_PORT: 5432
+DATABASE_NAME: resource_management_qa
+DATABASE_USER: qa_admin
+DATABASE_PASSWORD: ${ssm:/1bt/qa/db-password}
+
+# VPC Configuration
+VPC_ID: vpc-xxxxxxxxxxxxxxxxx
+SUBNET_IDS:
+  - subnet-xxxxxxxxxxxxxxxxx
+  - subnet-yyyyyyyyyyyyyyyyy
+
+# Encryption Key
+ENCRYPTION_KEY: ${ssm:/1bt/qa/encryption-key}
+
+# RDS Scheduler (enabled for QA to save costs)
+RDS_SCHEDULER_ENABLED: true
+
+# Log Retention (days)
+LOG_RETENTION_DAYS: 14
+
+# CORS Origins (specific domains for QA)
+CORS_ORIGINS: 'https://qa.1bt-resource.com,https://qa-admin.1bt-resource.com'
+
+# Rate Limiting (moderate for QA)
+RATE_LIMIT_MAX: 500
+RATE_LIMIT_WINDOW: 60
