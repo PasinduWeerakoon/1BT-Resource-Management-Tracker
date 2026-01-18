@@ -57,4 +57,4 @@ temp/
 *.tmp
 
 # Serverless
-backend/.serverless/
+.serverless/
