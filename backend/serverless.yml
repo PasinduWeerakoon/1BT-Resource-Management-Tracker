@@ -307,6 +307,31 @@ functions:
           method: get
           cors: true
 
+  # ============================================
+  # DATABASE MIGRATION Handler (VPC-enabled)
+  # ============================================
+  migrationHandler:
+    handler: src/handlers/migrations/index.handler
+    description: Database migration function (runs in VPC)
+    timeout: 300
+    memorySize: 1024
+    vpc:
+      securityGroupIds:
+        - Fn::ImportValue: !Sub onebt-rm-${self:provider.stage}-LambdaSecurityGroupId
+      subnetIds:
+        - Fn::ImportValue: !Sub onebt-rm-${self:provider.stage}-PrivateSubnet1Id
+        - Fn::ImportValue: !Sub onebt-rm-${self:provider.stage}-PrivateSubnet2Id
+    environment:
+      DATABASE_HOST:
+        Fn::ImportValue: !Sub onebt-rm-${self:provider.stage}-RDSEndpoint
+      DATABASE_PORT: '5432'
+      DATABASE_NAME: resource_management_${self:provider.stage}
+      DATABASE_USER: dbadmin
+      DATABASE_PASSWORD: ${ssm:/1bt/${self:provider.stage}/db-password}
+    package:
+      patterns:
+        - src/handlers/migrations/**
+
 # CloudFormation Resources
 resources:
   Resources:

@@ -1,0 +1,140 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: |
+  1BT Resource Management - Bastion Host for Secure RDS Access
+  Uses AWS Systems Manager Session Manager (no SSH key required)
+  
+  COST: ~$4/month for t3.micro (can be stopped when not in use)
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - qa
+      - uat
+      - prod
+
+  InstanceType:
+    Type: String
+    Default: t3.micro
+    Description: EC2 instance type for bastion
+
+Mappings:
+  RegionAMI:
+    ap-southeast-1:
+      AMI: ami-0c55b159cbfafe1f0  # Amazon Linux 2023 - update as needed
+    ap-south-1:
+      AMI: ami-0f5ee92e2d63afc18
+
+Resources:
+  # ============================================
+  # IAM ROLE FOR SESSION MANAGER
+  # ============================================
+  BastionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub onebt-bastion-role-${Environment}
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  BastionInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Sub onebt-bastion-profile-${Environment}
+      Roles:
+        - !Ref BastionRole
+
+  # ============================================
+  # SECURITY GROUP
+  # ============================================
+  BastionSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Bastion host
+      GroupName: !Sub onebt-bastion-sg-${Environment}
+      VpcId: !ImportValue 
+        Fn::Sub: onebt-rm-${Environment}-VPCId
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: HTTPS for SSM
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          CidrIp: 0.0.0.0/0
+          Description: PostgreSQL to RDS
+      Tags:
+        - Key: Name
+          Value: !Sub onebt-bastion-sg-${Environment}
+
+  # Add bastion to RDS security group ingress
+  RDSFromBastionIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !ImportValue 
+        Fn::Sub: onebt-rm-${Environment}-RDSSecurityGroupId
+      IpProtocol: tcp
+      FromPort: 5432
+      ToPort: 5432
+      SourceSecurityGroupId: !Ref BastionSecurityGroup
+      Description: PostgreSQL from Bastion
+
+  # ============================================
+  # BASTION EC2 INSTANCE
+  # ============================================
+  BastionInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: !FindInMap [RegionAMI, !Ref 'AWS::Region', AMI]
+      IamInstanceProfile: !Ref BastionInstanceProfile
+      SubnetId: !ImportValue 
+        Fn::Sub: onebt-rm-${Environment}-PrivateSubnet1Id
+      SecurityGroupIds:
+        - !Ref BastionSecurityGroup
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y
+          yum install -y postgresql15
+          # Install Node.js for running migrations
+          curl -fsSL https://rpm.nodesource.com/setup_20.x | bash -
+          yum install -y nodejs
+          npm install -g node-pg-migrate
+      Tags:
+        - Key: Name
+          Value: !Sub onebt-bastion-${Environment}
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: AutoStop
+          Value: 'true'
+
+Outputs:
+  BastionInstanceId:
+    Description: Bastion Instance ID (use with SSM Session Manager)
+    Value: !Ref BastionInstance
+    Export:
+      Name: !Sub onebt-rm-${Environment}-BastionInstanceId
+
+  SSMConnectCommand:
+    Description: Command to connect via Session Manager
+    Value: !Sub 'aws ssm start-session --target ${BastionInstance} --region ${AWS::Region}'
+
+  BastionSecurityGroupId:
+    Description: Bastion Security Group ID
+    Value: !Ref BastionSecurityGroup
+    Export:
+      Name: !Sub onebt-rm-${Environment}-BastionSecurityGroupId
