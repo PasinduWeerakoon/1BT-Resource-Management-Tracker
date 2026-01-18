@@ -5,7 +5,7 @@
 
 import { withMiddleware } from '../../middleware/index.js';
 import resourceService from '../../services/resourceService.js';
-import { resourceSchemas, validate } from '../../lib/validation/index.js';
+import { resourceSchemas, validate, uuid } from '../../lib/validation/index.js';
 import { success, created, noContent, errors, paginated } from '../../utils/response.js';
 import logger from '../../lib/logger/index.js';
 
@@ -40,7 +40,7 @@ const listResources = async (event) => {
 const getResource = async (event) => {
     try {
         const { id } = event.pathParameters;
-        validate({ id }, { id: require('../../lib/validation').uuid.required() });
+        validate({ id }, { id: uuid.required() });
 
         const resource = await resourceService.getById(id);
 

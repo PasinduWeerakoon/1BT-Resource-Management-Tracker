@@ -164,6 +164,40 @@ const clientSchemas = {
 };
 
 /**
+ * Track Schemas
+ */
+const trackSchemas = {
+    create: Joi.object({
+        name: Joi.string().min(2).max(50).required(),
+        description: Joi.string().max(255),
+        is_active: Joi.boolean().default(true),
+    }),
+    update: Joi.object({
+        name: Joi.string().min(2).max(50),
+        description: Joi.string().max(255),
+        is_active: Joi.boolean(),
+    }),
+};
+
+/**
+ * Designation Schemas
+ */
+const designationSchemas = {
+    create: Joi.object({
+        name: Joi.string().min(2).max(100).required(),
+        level: Joi.number().integer().min(1).max(10).required(),
+        is_intern_role: Joi.boolean().default(false),
+        is_active: Joi.boolean().default(true),
+    }),
+    update: Joi.object({
+        name: Joi.string().min(2).max(100),
+        level: Joi.number().integer().min(1).max(10),
+        is_intern_role: Joi.boolean(),
+        is_active: Joi.boolean(),
+    }),
+};
+
+/**
  * Validate request data against schema
  * @param {object} data - Data to validate
  * @param {Joi.Schema} schema - Joi schema
@@ -194,6 +228,8 @@ export {
     projectSchemas,
     allocationSchemas,
     clientSchemas,
+    trackSchemas,
+    designationSchemas,
     validate,
     uuid,
     pagination,
