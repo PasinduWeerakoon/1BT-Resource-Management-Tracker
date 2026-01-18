@@ -50,7 +50,9 @@
     "@middy/http-error-handler": "^5.2.0",
     "@middy/http-json-body-parser": "^5.2.0",
     "@middy/validator": "^5.2.0",
+    "http-errors": "^2.0.1",
     "joi": "^17.11.0",
+    "jsonwebtoken": "^9.0.3",
     "pg": "^8.11.3",
     "uuid": "^9.0.1"
   },
