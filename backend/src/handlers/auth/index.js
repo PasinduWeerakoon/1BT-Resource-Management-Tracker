@@ -10,7 +10,7 @@ const {
 } = require('@aws-sdk/client-cognito-identity-provider');
 const { withMiddleware } = require('../../middleware');
 const createError = require('http-errors');
-const { apiResponse } = require('../../utils/response');
+const { success: apiResponse } = require('../../utils/response');
 
 const cognito = new CognitoIdentityProviderClient({ region: process.env.AWS_REGION });
 const USER_POOL_ID = process.env.COGNITO_USER_POOL_ID;
@@ -52,7 +52,7 @@ const login = async (event) => {
             expiresIn: response.AuthenticationResult.ExpiresIn
         });
     } catch (error) {
-        console.error('Login Error:', error);
+        console.error('Login Error Full Object:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
         throw createError(401, 'Invalid credentials');
     }
 };
