@@ -20,12 +20,11 @@ Parameters:
     Default: t3.micro
     Description: EC2 instance type for bastion
 
-Mappings:
-  RegionAMI:
-    ap-southeast-1:
-      AMI: ami-0c55b159cbfafe1f0  # Amazon Linux 2023 - update as needed
-    ap-south-1:
-      AMI: ami-0f5ee92e2d63afc18
+  # Use SSM Parameter for latest AMI
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-6.1-x86_64
+    Description: Latest Amazon Linux 2023 AMI
 
 Resources:
   # ============================================
@@ -99,7 +98,7 @@ Resources:
     Type: AWS::EC2::Instance
     Properties:
       InstanceType: !Ref InstanceType
-      ImageId: !FindInMap [RegionAMI, !Ref 'AWS::Region', AMI]
+      ImageId: !Ref LatestAmiId
       IamInstanceProfile: !Ref BastionInstanceProfile
       SubnetId: !ImportValue 
         Fn::Sub: onebt-rm-${Environment}-PrivateSubnet1Id
@@ -108,12 +107,11 @@ Resources:
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash
-          yum update -y
-          yum install -y postgresql15
+          dnf update -y
+          dnf install -y postgresql15
           # Install Node.js for running migrations
           curl -fsSL https://rpm.nodesource.com/setup_20.x | bash -
-          yum install -y nodejs
-          npm install -g node-pg-migrate
+          dnf install -y nodejs
       Tags:
         - Key: Name
           Value: !Sub onebt-bastion-${Environment}
