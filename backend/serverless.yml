@@ -14,6 +14,8 @@ provider:
   environment:
     NODE_ENV: ${self:custom.environment.NODE_ENV}
     LOG_LEVEL: ${self:custom.environment.LOG_LEVEL}
+    COGNITO_USER_POOL_ID: !Ref CognitoUserPool
+    COGNITO_CLIENT_ID: !Ref CognitoUserPoolClient
 
   # IAM Role statements
   iam:
@@ -27,6 +29,10 @@ provider:
             - cognito-idp:AdminGetUser
             - cognito-idp:AdminInitiateAuth
             - cognito-idp:AdminRespondToAuthChallenge
+            - cognito-idp:AdminAddUserToGroup
+            - cognito-idp:GlobalSignOut
+            - cognito-idp:ForgotPassword
+            - cognito-idp:ConfirmForgotPassword
           Resource: !GetAtt CognitoUserPool.Arn
         - Effect: Allow
           Action:
@@ -100,6 +106,14 @@ functions:
           cors: true
       - http:
           path: /api/v1/auth/reset-password
+          method: post
+          cors: true
+      - http:
+          path: /api/v1/auth/invite
+          method: post
+          cors: true
+      - http:
+          path: /api/v1/auth/complete-invite
           method: post
           cors: true
 
