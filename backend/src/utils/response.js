@@ -114,12 +114,13 @@ const noContent = () => ({
     body: '',
 });
 
-module.exports = {
+// Export individual functions as they are defined
+export {
     success,
     error,
     errors,
     paginated,
     created,
     noContent,
-    CORS_HEADERS,
+    CORS_HEADERS
 };

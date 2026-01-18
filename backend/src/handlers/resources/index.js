@@ -3,11 +3,11 @@
  * Entry point for Resource (Employee) CRUD operations
  */
 
-const { withMiddleware } = require('../../middleware');
-const resourceService = require('../../services/resourceService');
-const { resourceSchemas, validate } = require('../../lib/validation');
-const { success, created, noContent, errors, paginated } = require('../../utils/response');
-const logger = require('../../lib/logger');
+import { withMiddleware } from '../../middleware/index.js';
+import resourceService from '../../services/resourceService.js';
+import { resourceSchemas, validate } from '../../lib/validation/index.js';
+import { success, created, noContent, errors, paginated } from '../../utils/response.js';
+import logger from '../../lib/logger/index.js';
 
 /**
  * List resources with pagination and filtering
@@ -180,7 +180,7 @@ const getDesignationHistory = async (event) => {
 /**
  * Main handler - routes requests to appropriate function
  */
-const handler = async (event, context) => {
+const handlerFn = async (event, context) => {
     const { httpMethod, path, resource } = event;
 
     // Route based on method and path pattern
@@ -216,10 +216,10 @@ const handler = async (event, context) => {
 };
 
 // Export wrapped handler with middleware
-module.exports.handler = withMiddleware(handler);
+export const handler = withMiddleware(handlerFn);
 
 // Export individual functions for testing
-module.exports = {
+export {
     listResources,
     getResource,
     createResource,

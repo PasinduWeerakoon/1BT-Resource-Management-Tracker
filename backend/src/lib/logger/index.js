@@ -3,7 +3,7 @@
  * Provides consistent logging format for Lambda functions
  */
 
-const config = require('../../config');
+import config from '../../config/index.js';
 
 const LOG_LEVELS = {
     error: 0,
@@ -82,4 +82,4 @@ const logger = {
     },
 };
 
-module.exports = logger;
+export default logger;

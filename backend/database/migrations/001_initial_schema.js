@@ -3,9 +3,9 @@
  * Creates extensions, enums, and base tables
  */
 
-exports.shorthands = undefined;
+export const shorthands = undefined;
 
-exports.up = (pgm) => {
+export const up = (pgm) => {
     // =====================================================
     // EXTENSIONS
     // =====================================================
@@ -171,7 +171,7 @@ exports.up = (pgm) => {
     });
 };
 
-exports.down = (pgm) => {
+export const down = (pgm) => {
     pgm.dropTable('users', { cascade: true });
     pgm.dropTable('resources', { cascade: true });
     pgm.dropTable('designations', { cascade: true });

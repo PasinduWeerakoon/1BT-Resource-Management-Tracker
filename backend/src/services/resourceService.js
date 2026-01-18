@@ -3,59 +3,59 @@
  * Business logic for Resource (Employee) management
  */
 
-const db = require('../lib/database');
-const logger = require('../lib/logger');
+import * as db from '../lib/database/index.js';
+import logger from '../lib/logger/index.js';
 
 /**
  * List resources with pagination and filtering
  */
 const list = async ({ page = 1, limit = 20, search, track_id, designation_id, status, is_intern }) => {
-    const offset = (page - 1) * limit;
-    const params = [];
-    let paramIndex = 1;
+  const offset = (page - 1) * limit;
+  const params = [];
+  let paramIndex = 1;
 
-    let whereClause = 'WHERE r.deleted_at IS NULL';
+  let whereClause = 'WHERE r.deleted_at IS NULL';
 
-    if (search) {
-        whereClause += ` AND (r.name ILIKE $${paramIndex} OR r.employee_id ILIKE $${paramIndex} OR r.employee_number ILIKE $${paramIndex})`;
-        params.push(`%${search}%`);
-        paramIndex++;
-    }
+  if (search) {
+    whereClause += ` AND (r.name ILIKE $${paramIndex} OR r.employee_id ILIKE $${paramIndex} OR r.employee_number ILIKE $${paramIndex})`;
+    params.push(`%${search}%`);
+    paramIndex++;
+  }
 
-    if (track_id) {
-        whereClause += ` AND r.track_id = $${paramIndex}`;
-        params.push(track_id);
-        paramIndex++;
-    }
+  if (track_id) {
+    whereClause += ` AND r.track_id = $${paramIndex}`;
+    params.push(track_id);
+    paramIndex++;
+  }
 
-    if (designation_id) {
-        whereClause += ` AND r.designation_id = $${paramIndex}`;
-        params.push(designation_id);
-        paramIndex++;
-    }
+  if (designation_id) {
+    whereClause += ` AND r.designation_id = $${paramIndex}`;
+    params.push(designation_id);
+    paramIndex++;
+  }
 
-    if (status) {
-        whereClause += ` AND r.status = $${paramIndex}`;
-        params.push(status);
-        paramIndex++;
-    }
+  if (status) {
+    whereClause += ` AND r.status = $${paramIndex}`;
+    params.push(status);
+    paramIndex++;
+  }
 
-    if (is_intern !== undefined) {
-        whereClause += ` AND d.is_intern_role = $${paramIndex}`;
-        params.push(is_intern);
-        paramIndex++;
-    }
+  if (is_intern !== undefined) {
+    whereClause += ` AND d.is_intern_role = $${paramIndex}`;
+    params.push(is_intern);
+    paramIndex++;
+  }
 
-    // Count query
-    const countQuery = `
+  // Count query
+  const countQuery = `
     SELECT COUNT(*) as total
     FROM resources r
     LEFT JOIN designations d ON r.designation_id = d.id
     ${whereClause}
   `;
 
-    // Data query
-    const dataQuery = `
+  // Data query
+  const dataQuery = `
     SELECT 
       r.id,
       r.employee_id,
@@ -83,24 +83,24 @@ const list = async ({ page = 1, limit = 20, search, track_id, designation_id, st
     LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
   `;
 
-    params.push(limit, offset);
+  params.push(limit, offset);
 
-    const [countResult, dataResult] = await Promise.all([
-        db.query(countQuery, params.slice(0, -2)),
-        db.query(dataQuery, params),
-    ]);
+  const [countResult, dataResult] = await Promise.all([
+    db.query(countQuery, params.slice(0, -2)),
+    db.query(dataQuery, params),
+  ]);
 
-    return {
-        items: dataResult.rows,
-        total: parseInt(countResult.rows[0].total, 10),
-    };
+  return {
+    items: dataResult.rows,
+    total: parseInt(countResult.rows[0].total, 10),
+  };
 };
 
 /**
  * Get a single resource by ID
  */
 const getById = async (id) => {
-    const query = `
+  const query = `
     SELECT 
       r.*,
       d.name as designation_name,
@@ -114,15 +114,15 @@ const getById = async (id) => {
     WHERE r.id = $1 AND r.deleted_at IS NULL
   `;
 
-    const result = await db.query(query, [id]);
-    return result.rows[0] || null;
+  const result = await db.query(query, [id]);
+  return result.rows[0] || null;
 };
 
 /**
  * Create a new resource
  */
 const create = async (data, userId) => {
-    const query = `
+  const query = `
     INSERT INTO resources (
       employee_id,
       employee_number,
@@ -142,119 +142,119 @@ const create = async (data, userId) => {
     RETURNING *
   `;
 
-    const params = [
-        data.employee_id,
-        data.employee_number,
-        data.name,
-        data.phone_number,
-        data.email || null,
-        data.address || null,
-        data.designation_id,
-        data.track_id,
-        data.intern_classification || null,
-        data.skills || [],
-        data.date_of_joining || null,
-        data.status || 'Active',
-        data.notice_period_end_date || null,
-        userId,
-    ];
+  const params = [
+    data.employee_id,
+    data.employee_number,
+    data.name,
+    data.phone_number,
+    data.email || null,
+    data.address || null,
+    data.designation_id,
+    data.track_id,
+    data.intern_classification || null,
+    data.skills || [],
+    data.date_of_joining || null,
+    data.status || 'Active',
+    data.notice_period_end_date || null,
+    userId,
+  ];
 
-    const result = await db.query(query, params);
-    logger.info('Resource created', { resourceId: result.rows[0].id, createdBy: userId });
+  const result = await db.query(query, params);
+  logger.info('Resource created', { resourceId: result.rows[0].id, createdBy: userId });
 
-    return getById(result.rows[0].id);
+  return getById(result.rows[0].id);
 };
 
 /**
  * Update a resource with optimistic locking
  */
 const update = async (id, data, userId) => {
-    const { version, ...updateData } = data;
+  const { version, ...updateData } = data;
 
-    // Build dynamic update query
-    const setClauses = [];
-    const params = [id, version, userId];
-    let paramIndex = 4;
+  // Build dynamic update query
+  const setClauses = [];
+  const params = [id, version, userId];
+  let paramIndex = 4;
 
-    const fieldMappings = {
-        name: 'name',
-        phone_number: 'phone_number',
-        email: 'email',
-        address: 'address',
-        designation_id: 'designation_id',
-        track_id: 'track_id',
-        intern_classification: 'intern_classification',
-        skills: 'skills',
-        status: 'status',
-        notice_period_end_date: 'notice_period_end_date',
-    };
+  const fieldMappings = {
+    name: 'name',
+    phone_number: 'phone_number',
+    email: 'email',
+    address: 'address',
+    designation_id: 'designation_id',
+    track_id: 'track_id',
+    intern_classification: 'intern_classification',
+    skills: 'skills',
+    status: 'status',
+    notice_period_end_date: 'notice_period_end_date',
+  };
 
-    for (const [key, column] of Object.entries(fieldMappings)) {
-        if (updateData[key] !== undefined) {
-            setClauses.push(`${column} = $${paramIndex}`);
-            params.push(updateData[key]);
-            paramIndex++;
-        }
+  for (const [key, column] of Object.entries(fieldMappings)) {
+    if (updateData[key] !== undefined) {
+      setClauses.push(`${column} = $${paramIndex}`);
+      params.push(updateData[key]);
+      paramIndex++;
     }
+  }
 
-    if (setClauses.length === 0) {
-        // No fields to update, just return current
-        return getById(id);
-    }
+  if (setClauses.length === 0) {
+    // No fields to update, just return current
+    return getById(id);
+  }
 
-    setClauses.push('updated_by = $3');
-    setClauses.push('version = version + 1');
+  setClauses.push('updated_by = $3');
+  setClauses.push('version = version + 1');
 
-    const query = `
+  const query = `
     UPDATE resources
     SET ${setClauses.join(', ')}
     WHERE id = $1 AND version = $2 AND deleted_at IS NULL
     RETURNING *
   `;
 
-    const result = await db.query(query, params);
+  const result = await db.query(query, params);
 
-    if (result.rowCount === 0) {
-        // Check if resource exists
-        const existing = await getById(id);
-        if (!existing) {
-            return null;
-        }
-        // Version mismatch
-        const error = new Error('VERSION_CONFLICT');
-        throw error;
+  if (result.rowCount === 0) {
+    // Check if resource exists
+    const existing = await getById(id);
+    if (!existing) {
+      return null;
     }
+    // Version mismatch
+    const error = new Error('VERSION_CONFLICT');
+    throw error;
+  }
 
-    logger.info('Resource updated', { resourceId: id, updatedBy: userId });
-    return getById(id);
+  logger.info('Resource updated', { resourceId: id, updatedBy: userId });
+  return getById(id);
 };
 
 /**
  * Soft delete a resource
  */
 const softDelete = async (id, userId) => {
-    const query = `
+  const query = `
     UPDATE resources
     SET deleted_at = CURRENT_TIMESTAMP, updated_by = $2
     WHERE id = $1 AND deleted_at IS NULL
     RETURNING id
   `;
 
-    const result = await db.query(query, [id, userId]);
+  const result = await db.query(query, [id, userId]);
 
-    if (result.rowCount === 0) {
-        return false;
-    }
+  if (result.rowCount === 0) {
+    return false;
+  }
 
-    logger.info('Resource soft deleted', { resourceId: id, deletedBy: userId });
-    return true;
+  logger.info('Resource soft deleted', { resourceId: id, deletedBy: userId });
+  return true;
 };
 
 /**
  * Get allocations for a resource
  */
 const getAllocations = async (resourceId) => {
-    const query = `
+  const query = `
     SELECT 
       a.*,
       p.project_name,
@@ -267,15 +267,15 @@ const getAllocations = async (resourceId) => {
     ORDER BY a.start_date DESC
   `;
 
-    const result = await db.query(query, [resourceId]);
-    return result.rows;
+  const result = await db.query(query, [resourceId]);
+  return result.rows;
 };
 
 /**
  * Get designation history for a resource
  */
 const getDesignationHistory = async (resourceId) => {
-    const query = `
+  const query = `
     SELECT 
       dh.*,
       pd.name as previous_designation_name,
@@ -291,16 +291,16 @@ const getDesignationHistory = async (resourceId) => {
     ORDER BY dh.effective_from DESC
   `;
 
-    const result = await db.query(query, [resourceId]);
-    return result.rows;
+  const result = await db.query(query, [resourceId]);
+  return result.rows;
 };
 
-module.exports = {
-    list,
-    getById,
-    create,
-    update,
-    softDelete,
-    getAllocations,
-    getDesignationHistory,
+export default {
+  list,
+  getById,
+  create,
+  update,
+  softDelete,
+  getAllocations,
+  getDesignationHistory,
 };

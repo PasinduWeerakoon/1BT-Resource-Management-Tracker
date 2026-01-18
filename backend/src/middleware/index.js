@@ -3,12 +3,12 @@
  * Reusable middleware configuration for Lambda handlers
  */
 
-const middy = require('@middy/core');
-const httpJsonBodyParser = require('@middy/http-json-body-parser');
-const httpCors = require('@middy/http-cors');
-const httpErrorHandler = require('@middy/http-error-handler');
-const logger = require('../lib/logger');
-const { errors } = require('../utils/response');
+import middy from '@middy/core';
+import httpJsonBodyParser from '@middy/http-json-body-parser';
+import httpCors from '@middy/http-cors';
+import httpErrorHandler from '@middy/http-error-handler';
+import logger from '../lib/logger/index.js';
+import { errors } from '../utils/response.js';
 
 /**
  * Error handling middleware
@@ -88,7 +88,7 @@ const withMiddleware = (handler, options = {}) => {
     return wrapped;
 };
 
-module.exports = {
+export {
     withMiddleware,
     requestLogger,
     errorLogger,

@@ -3,10 +3,16 @@
  * Run this script locally or via Lambda to setup Auth state
  */
 
-const { CognitoIdentityProviderClient, CreateGroupCommand, AdminCreateUserCommand, AdminAddUserToGroupCommand, AdminSetUserPasswordCommand } = require('@aws-sdk/client-cognito-identity-provider');
-const { SSMClient, GetParameterCommand } = require('@aws-sdk/client-ssm');
-const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '../../.env') });
+import { CognitoIdentityProviderClient, CreateGroupCommand, AdminCreateUserCommand, AdminAddUserToGroupCommand, AdminSetUserPasswordCommand } from '@aws-sdk/client-cognito-identity-provider';
+import { SSMClient, GetParameterCommand } from '@aws-sdk/client-ssm';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import dotenv from 'dotenv';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+dotenv.config({ path: path.join(__dirname, '../../.env') });
 
 // Configuration
 const REGION = 'ap-southeast-1';

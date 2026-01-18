@@ -1,5 +1,6 @@
-const { decode } = require('jsonwebtoken');
-const createError = require('http-errors');
+import jwt from 'jsonwebtoken';
+const { decode } = jwt;
+import createError from 'http-errors';
 
 /**
  * Authentication Middleware
@@ -71,4 +72,4 @@ const authMiddleware = (allowedGroups = []) => {
     };
 };
 
-module.exports = authMiddleware;
+export default authMiddleware;

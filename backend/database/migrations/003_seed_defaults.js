@@ -3,13 +3,13 @@
  * Inserts initial tracks, designations, and admin user
  */
 
-exports.shorthands = undefined;
+export const shorthands = undefined;
 
-exports.up = async (pgm) => {
-    // =====================================================
-    // SEED TRACKS
-    // =====================================================
-    pgm.sql(`
+export const up = async (pgm) => {
+  // =====================================================
+  // SEED TRACKS
+  // =====================================================
+  pgm.sql(`
     INSERT INTO tracks (name, description, is_active) VALUES
     ('FS', 'Full Stack Development', true),
     ('.Net', '.NET Development', true),
@@ -19,10 +19,10 @@ exports.up = async (pgm) => {
     ('PM/BA', 'Project Management / Business Analysis', true);
   `);
 
-    // =====================================================
-    // SEED DESIGNATIONS
-    // =====================================================
-    pgm.sql(`
+  // =====================================================
+  // SEED DESIGNATIONS
+  // =====================================================
+  pgm.sql(`
     INSERT INTO designations (name, level, is_intern_role, is_active) VALUES
     -- Engineering Designations
     ('Intern - SE', 1, true, true),
@@ -57,19 +57,19 @@ exports.up = async (pgm) => {
     ('Lead UI/UX Designer', 5, false, true);
   `);
 
-    // =====================================================
-    // SEED SUPER ADMIN USER
-    // =====================================================
-    // Note: Password should be changed on first login
-    // Default password: Admin@123456 (bcrypt hashed)
-    pgm.sql(`
+  // =====================================================
+  // SEED SUPER ADMIN USER
+  // =====================================================
+  // Note: Password should be changed on first login
+  // Default password: Admin@123456 (bcrypt hashed)
+  pgm.sql(`
     INSERT INTO users (username, email, password_hash, role, status, must_change_password) VALUES
     ('superadmin', 'hirun.dealwis@1billiontech.com', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/X4YjKmKCDLNIKQoiG', 'Super User', 'Active', true);
   `);
 };
 
-exports.down = (pgm) => {
-    pgm.sql(`DELETE FROM users WHERE username = 'superadmin'`);
-    pgm.sql(`DELETE FROM designations`);
-    pgm.sql(`DELETE FROM tracks`);
+export const down = (pgm) => {
+  pgm.sql(`DELETE FROM users WHERE username = 'superadmin'`);
+  pgm.sql(`DELETE FROM designations`);
+  pgm.sql(`DELETE FROM tracks`);
 };

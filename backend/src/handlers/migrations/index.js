@@ -3,22 +3,23 @@
  * Runs SQL migration files directly for reliability
  */
 
-const { Pool } = require('pg');
+import pkg from 'pg';
+const { Pool } = pkg;
 
 // Get database connection from environment
 const getDbConfig = () => ({
-    host: process.env.DATABASE_HOST,
-    port: parseInt(process.env.DATABASE_PORT || '5432'),
-    database: process.env.DATABASE_NAME,
-    user: process.env.DATABASE_USER,
-    password: process.env.DATABASE_PASSWORD,
-    ssl: { rejectUnauthorized: false },
-    connectionTimeoutMillis: 30000,
+  host: process.env.DATABASE_HOST,
+  port: parseInt(process.env.DATABASE_PORT || '5432'),
+  database: process.env.DATABASE_NAME,
+  user: process.env.DATABASE_USER,
+  password: process.env.DATABASE_PASSWORD,
+  ssl: { rejectUnauthorized: false },
+  connectionTimeoutMillis: 30000,
 });
 
 // Migration SQL statements
 const MIGRATIONS = {
-    '001_initial_schema': `
+  '001_initial_schema': `
     -- Extensions
     CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
     CREATE EXTENSION IF NOT EXISTS "pgcrypto";
@@ -138,7 +139,7 @@ const MIGRATIONS = {
     CREATE TRIGGER users_updated_at BEFORE UPDATE ON users FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
   `,
 
-    '002_clients_projects_allocations': `
+  '002_clients_projects_allocations': `
     -- Clients Table
     CREATE TABLE IF NOT EXISTS clients (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -275,7 +276,7 @@ const MIGRATIONS = {
     FOR EACH ROW EXECUTE FUNCTION capture_designation_history();
   `,
 
-    '003_seed_defaults': `
+  '003_seed_defaults': `
     -- Seed Tracks
     INSERT INTO tracks (name, description, is_active) VALUES
     ('FS', 'Full Stack Development', true),
@@ -322,7 +323,7 @@ const MIGRATIONS = {
 
 // Create migrations tracking table if not exists
 const ensureMigrationsTable = async (pool) => {
-    await pool.query(`
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS pgmigrations (
       id SERIAL PRIMARY KEY,
       name VARCHAR(255) NOT NULL UNIQUE,
@@ -333,84 +334,84 @@ const ensureMigrationsTable = async (pool) => {
 
 // Get list of already run migrations
 const getRunMigrations = async (pool) => {
-    const result = await pool.query('SELECT name FROM pgmigrations ORDER BY id');
-    return result.rows.map(row => row.name);
+  const result = await pool.query('SELECT name FROM pgmigrations ORDER BY id');
+  return result.rows.map(row => row.name);
 };
 
 // Record migration as complete
 const recordMigration = async (pool, name) => {
-    await pool.query('INSERT INTO pgmigrations (name) VALUES ($1)', [name]);
+  await pool.query('INSERT INTO pgmigrations (name) VALUES ($1)', [name]);
 };
 
 // Main migration handler
-exports.handler = async (event) => {
-    console.log('Starting database migrations...');
-    console.log('Database host:', process.env.DATABASE_HOST);
+export const handler = async (event) => {
+  console.log('Starting database migrations...');
+  console.log('Database host:', process.env.DATABASE_HOST);
 
-    const pool = new Pool(getDbConfig());
+  const pool = new Pool(getDbConfig());
 
-    try {
-        // Test connection
-        const client = await pool.connect();
-        console.log('Connected to database successfully');
-        client.release();
+  try {
+    // Test connection
+    const client = await pool.connect();
+    console.log('Connected to database successfully');
+    client.release();
 
-        // Ensure migrations table exists
-        await ensureMigrationsTable(pool);
+    // Ensure migrations table exists
+    await ensureMigrationsTable(pool);
 
-        // Get already run migrations
-        const runMigrations = await getRunMigrations(pool);
-        console.log('Already run migrations:', runMigrations);
+    // Get already run migrations
+    const runMigrations = await getRunMigrations(pool);
+    console.log('Already run migrations:', runMigrations);
 
-        // Run pending migrations
-        const results = [];
-        const migrationOrder = ['001_initial_schema', '002_clients_projects_allocations', '003_seed_defaults'];
+    // Run pending migrations
+    const results = [];
+    const migrationOrder = ['001_initial_schema', '002_clients_projects_allocations', '003_seed_defaults'];
 
-        for (const migrationName of migrationOrder) {
-            if (runMigrations.includes(migrationName)) {
-                console.log(`Skipping ${migrationName} (already run)`);
-                results.push({ name: migrationName, status: 'skipped' });
-                continue;
-            }
+    for (const migrationName of migrationOrder) {
+      if (runMigrations.includes(migrationName)) {
+        console.log(`Skipping ${migrationName} (already run)`);
+        results.push({ name: migrationName, status: 'skipped' });
+        continue;
+      }
 
-            console.log(`Running migration: ${migrationName}`);
+      console.log(`Running migration: ${migrationName}`);
 
-            try {
-                const sql = MIGRATIONS[migrationName];
-                await pool.query(sql);
-                await recordMigration(pool, migrationName);
+      try {
+        const sql = MIGRATIONS[migrationName];
+        await pool.query(sql);
+        await recordMigration(pool, migrationName);
 
-                console.log(`Migration ${migrationName} completed successfully`);
-                results.push({ name: migrationName, status: 'success' });
+        console.log(`Migration ${migrationName} completed successfully`);
+        results.push({ name: migrationName, status: 'success' });
 
-            } catch (error) {
-                console.error(`Migration ${migrationName} failed:`, error);
-                results.push({ name: migrationName, status: 'failed', error: error.message });
-                throw error;
-            }
-        }
-
-        console.log('All migrations completed');
-
-        return {
-            statusCode: 200,
-            body: JSON.stringify({
-                message: 'Migrations completed successfully',
-                results
-            })
-        };
-
-    } catch (error) {
-        console.error('Migration error:', error);
-        return {
-            statusCode: 500,
-            body: JSON.stringify({
-                message: 'Migration failed',
-                error: error.message
-            })
-        };
-
-    } finally {
-        await pool.end();
+      } catch (error) {
+        console.error(`Migration ${migrationName} failed:`, error);
+        results.push({ name: migrationName, status: 'failed', error: error.message });
+        throw error;
+      }
     }
+
+    console.log('All migrations completed');
+
+    return {
+      statusCode: 200,
+      body: JSON.stringify({
+        message: 'Migrations completed successfully',
+        results
+      })
+    };
+
+  } catch (error) {
+    console.error('Migration error:', error);
+    return {
+      statusCode: 500,
+      body: JSON.stringify({
+        message: 'Migration failed',
+        error: error.message
+      })
+    };
+
+  } finally {
+    await pool.end();
+  }
 };

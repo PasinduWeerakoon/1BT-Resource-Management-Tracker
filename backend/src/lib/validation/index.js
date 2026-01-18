@@ -3,7 +3,7 @@
  * Joi schemas for request validation
  */
 
-const Joi = require('joi');
+import Joi from 'joi';
 
 // Common field patterns
 const uuid = Joi.string().uuid({ version: 'uuidv4' });
@@ -189,7 +189,7 @@ const validate = (data, schema) => {
     return value;
 };
 
-module.exports = {
+export {
     resourceSchemas,
     projectSchemas,
     allocationSchemas,

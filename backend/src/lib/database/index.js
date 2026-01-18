@@ -3,9 +3,10 @@
  * PostgreSQL connection pool with connection management
  */
 
-const { Pool } = require('pg');
-const config = require('../../config');
-const logger = require('../logger');
+import pkg from 'pg';
+const { Pool } = pkg;
+import config from '../../config/index.js';
+import logger from '../logger/index.js';
 
 let pool = null;
 
@@ -134,7 +135,7 @@ const close = async () => {
     }
 };
 
-module.exports = {
+export {
     query,
     getClient,
     transaction,

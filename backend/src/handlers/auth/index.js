@@ -1,4 +1,4 @@
-const {
+import {
     CognitoIdentityProviderClient,
     AdminInitiateAuthCommand,
     GlobalSignOutCommand,
@@ -7,10 +7,10 @@ const {
     ForgotPasswordCommand,
     ConfirmForgotPasswordCommand,
     ChangePasswordCommand
-} = require('@aws-sdk/client-cognito-identity-provider');
-const { withMiddleware } = require('../../middleware');
-const createError = require('http-errors');
-const { success: apiResponse } = require('../../utils/response');
+} from '@aws-sdk/client-cognito-identity-provider';
+import { withMiddleware } from '../../middleware/index.js';
+import createError from 'http-errors';
+import { success as apiResponse } from '../../utils/response.js';
 
 const cognito = new CognitoIdentityProviderClient({ region: process.env.AWS_REGION });
 const USER_POOL_ID = process.env.COGNITO_USER_POOL_ID;
@@ -270,7 +270,7 @@ const routes = {
 };
 
 // Main Handler
-const handler = withMiddleware(async (event) => {
+export const handler = withMiddleware(async (event) => {
     const route = routes[event.resource]; // APIGateway resource path
 
     if (route) {
@@ -280,4 +280,4 @@ const handler = withMiddleware(async (event) => {
     throw createError(404, 'Route not found');
 });
 
-exports.handler = handler;
+
