@@ -55,3 +55,6 @@ samconfig.toml
 tmp/
 temp/
 *.tmp
+
+# Serverless
+backend/.serverless/
