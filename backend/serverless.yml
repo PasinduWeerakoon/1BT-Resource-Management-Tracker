@@ -124,6 +124,19 @@ functions:
   resourceHandler:
     handler: src/handlers/resources/index.handler
     description: Resource (Employee) CRUD operations
+    vpc:
+      securityGroupIds:
+        - Fn::ImportValue: !Sub onebt-rm-${self:provider.stage}-LambdaSecurityGroupId
+      subnetIds:
+        - Fn::ImportValue: !Sub onebt-rm-${self:provider.stage}-PrivateSubnet1Id
+        - Fn::ImportValue: !Sub onebt-rm-${self:provider.stage}-PrivateSubnet2Id
+    environment:
+      DATABASE_HOST:
+        Fn::ImportValue: !Sub onebt-rm-${self:provider.stage}-RDSEndpoint
+      DATABASE_PORT: '5432'
+      DATABASE_NAME: resource_management_${self:provider.stage}
+      DATABASE_USER: dbadmin
+      DATABASE_PASSWORD: ${ssm:/1bt/${self:provider.stage}/db-password}
     events:
       - http:
           path: /api/v1/resources
@@ -160,6 +173,19 @@ functions:
   projectHandler:
     handler: src/handlers/projects/index.handler
     description: Project CRUD operations
+    vpc:
+      securityGroupIds:
+        - Fn::ImportValue: !Sub onebt-rm-${self:provider.stage}-LambdaSecurityGroupId
+      subnetIds:
+        - Fn::ImportValue: !Sub onebt-rm-${self:provider.stage}-PrivateSubnet1Id
+        - Fn::ImportValue: !Sub onebt-rm-${self:provider.stage}-PrivateSubnet2Id
+    environment:
+      DATABASE_HOST:
+        Fn::ImportValue: !Sub onebt-rm-${self:provider.stage}-RDSEndpoint
+      DATABASE_PORT: '5432'
+      DATABASE_NAME: resource_management_${self:provider.stage}
+      DATABASE_USER: dbadmin
+      DATABASE_PASSWORD: ${ssm:/1bt/${self:provider.stage}/db-password}
     events:
       - http:
           path: /api/v1/projects
@@ -188,6 +214,19 @@ functions:
   clientHandler:
     handler: src/handlers/clients/index.handler
     description: Client CRUD operations
+    vpc:
+      securityGroupIds:
+        - Fn::ImportValue: !Sub onebt-rm-${self:provider.stage}-LambdaSecurityGroupId
+      subnetIds:
+        - Fn::ImportValue: !Sub onebt-rm-${self:provider.stage}-PrivateSubnet1Id
+        - Fn::ImportValue: !Sub onebt-rm-${self:provider.stage}-PrivateSubnet2Id
+    environment:
+      DATABASE_HOST:
+        Fn::ImportValue: !Sub onebt-rm-${self:provider.stage}-RDSEndpoint
+      DATABASE_PORT: '5432'
+      DATABASE_NAME: resource_management_${self:provider.stage}
+      DATABASE_USER: dbadmin
+      DATABASE_PASSWORD: ${ssm:/1bt/${self:provider.stage}/db-password}
     events:
       - http:
           path: /api/v1/clients
@@ -216,6 +255,19 @@ functions:
   allocationHandler:
     handler: src/handlers/allocations/index.handler
     description: Allocation management
+    vpc:
+      securityGroupIds:
+        - Fn::ImportValue: !Sub onebt-rm-${self:provider.stage}-LambdaSecurityGroupId
+      subnetIds:
+        - Fn::ImportValue: !Sub onebt-rm-${self:provider.stage}-PrivateSubnet1Id
+        - Fn::ImportValue: !Sub onebt-rm-${self:provider.stage}-PrivateSubnet2Id
+    environment:
+      DATABASE_HOST:
+        Fn::ImportValue: !Sub onebt-rm-${self:provider.stage}-RDSEndpoint
+      DATABASE_PORT: '5432'
+      DATABASE_NAME: resource_management_${self:provider.stage}
+      DATABASE_USER: dbadmin
+      DATABASE_PASSWORD: ${ssm:/1bt/${self:provider.stage}/db-password}
     events:
       - http:
           path: /api/v1/allocations
@@ -244,6 +296,19 @@ functions:
   designationHandler:
     handler: src/handlers/designations/index.handler
     description: Designation management
+    vpc:
+      securityGroupIds:
+        - Fn::ImportValue: !Sub onebt-rm-${self:provider.stage}-LambdaSecurityGroupId
+      subnetIds:
+        - Fn::ImportValue: !Sub onebt-rm-${self:provider.stage}-PrivateSubnet1Id
+        - Fn::ImportValue: !Sub onebt-rm-${self:provider.stage}-PrivateSubnet2Id
+    environment:
+      DATABASE_HOST:
+        Fn::ImportValue: !Sub onebt-rm-${self:provider.stage}-RDSEndpoint
+      DATABASE_PORT: '5432'
+      DATABASE_NAME: resource_management_${self:provider.stage}
+      DATABASE_USER: dbadmin
+      DATABASE_PASSWORD: ${ssm:/1bt/${self:provider.stage}/db-password}
     events:
       - http:
           path: /api/v1/designations
@@ -264,6 +329,19 @@ functions:
   trackHandler:
     handler: src/handlers/tracks/index.handler
     description: Track management
+    vpc:
+      securityGroupIds:
+        - Fn::ImportValue: !Sub onebt-rm-${self:provider.stage}-LambdaSecurityGroupId
+      subnetIds:
+        - Fn::ImportValue: !Sub onebt-rm-${self:provider.stage}-PrivateSubnet1Id
+        - Fn::ImportValue: !Sub onebt-rm-${self:provider.stage}-PrivateSubnet2Id
+    environment:
+      DATABASE_HOST:
+        Fn::ImportValue: !Sub onebt-rm-${self:provider.stage}-RDSEndpoint
+      DATABASE_PORT: '5432'
+      DATABASE_NAME: resource_management_${self:provider.stage}
+      DATABASE_USER: dbadmin
+      DATABASE_PASSWORD: ${ssm:/1bt/${self:provider.stage}/db-password}
     events:
       - http:
           path: /api/v1/tracks
@@ -284,6 +362,19 @@ functions:
   userHandler:
     handler: src/handlers/users/index.handler
     description: User management
+    vpc:
+      securityGroupIds:
+        - Fn::ImportValue: !Sub onebt-rm-${self:provider.stage}-LambdaSecurityGroupId
+      subnetIds:
+        - Fn::ImportValue: !Sub onebt-rm-${self:provider.stage}-PrivateSubnet1Id
+        - Fn::ImportValue: !Sub onebt-rm-${self:provider.stage}-PrivateSubnet2Id
+    environment:
+      DATABASE_HOST:
+        Fn::ImportValue: !Sub onebt-rm-${self:provider.stage}-RDSEndpoint
+      DATABASE_PORT: '5432'
+      DATABASE_NAME: resource_management_${self:provider.stage}
+      DATABASE_USER: dbadmin
+      DATABASE_PASSWORD: ${ssm:/1bt/${self:provider.stage}/db-password}
     events:
       - http:
           path: /api/v1/users
@@ -308,6 +399,19 @@ functions:
   reportHandler:
     handler: src/handlers/reports/index.handler
     description: Dashboard and reports
+    vpc:
+      securityGroupIds:
+        - Fn::ImportValue: !Sub onebt-rm-${self:provider.stage}-LambdaSecurityGroupId
+      subnetIds:
+        - Fn::ImportValue: !Sub onebt-rm-${self:provider.stage}-PrivateSubnet1Id
+        - Fn::ImportValue: !Sub onebt-rm-${self:provider.stage}-PrivateSubnet2Id
+    environment:
+      DATABASE_HOST:
+        Fn::ImportValue: !Sub onebt-rm-${self:provider.stage}-RDSEndpoint
+      DATABASE_PORT: '5432'
+      DATABASE_NAME: resource_management_${self:provider.stage}
+      DATABASE_USER: dbadmin
+      DATABASE_PASSWORD: ${ssm:/1bt/${self:provider.stage}/db-password}
     events:
       - http:
           path: /api/v1/reports/dashboard
