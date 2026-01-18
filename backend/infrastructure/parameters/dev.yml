@@ -1,34 +1,30 @@
 # =====================================================
 # DEV Environment Configuration
 # =====================================================
-# Uses 'onebt-rm' prefix to comply with CloudFormation naming (must start with letter)
+# Simplified configuration with direct values for initial deployment
 
 # Environment
 NODE_ENV: development
 LOG_LEVEL: debug
 
-# Database Configuration (from CloudFormation Exports)
-DATABASE_HOST: ${cf:onebt-rm-dev-rds.RDSEndpoint}
-DATABASE_PORT: 5432
+# Database Configuration
+# Note: Get actual RDS endpoint after stack creation
+DATABASE_HOST: placeholder-until-rds-ready
+DATABASE_PORT: '5432'
 DATABASE_NAME: resource_management_dev
 DATABASE_USER: dbadmin
-DATABASE_PASSWORD: ${ssm:/1bt/dev/db-password}
+DATABASE_PASSWORD: placeholder
 
-# VPC Configuration (from CloudFormation Exports)
-VPC_ID: ${cf:onebt-rm-dev-vpc.VPCId}
-SUBNET_IDS:
-  - ${cf:onebt-rm-dev-vpc.PrivateSubnet1Id}
-  - ${cf:onebt-rm-dev-vpc.PrivateSubnet2Id}
-
-# Security Group
-LAMBDA_SECURITY_GROUP: ${cf:onebt-rm-dev-vpc.LambdaSecurityGroupId}
+# VPC Configuration - Using outputs from VPC stack
+# These will be populated after first VPC stack deployment
+VPC_ID: placeholder
+SUBNET_IDS: []
 
 # Encryption Key
-ENCRYPTION_KEY: ${ssm:/1bt/dev/encryption-key}
+ENCRYPTION_KEY: placeholder-dev-encryption-key-32chars
 
 # RDS Scheduler
-RDS_SCHEDULER_ENABLED: true
-RDS_INSTANCE_ID: ${cf:onebt-rm-dev-rds.RDSInstanceId}
+RDS_SCHEDULER_ENABLED: false
 
 # Log Retention (days)
 LOG_RETENTION_DAYS: 7

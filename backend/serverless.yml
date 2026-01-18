@@ -1,4 +1,4 @@
-service: 1bt-resource-management
+service: onebt-resource-management
 
 frameworkVersion: '3'
 
@@ -10,19 +10,11 @@ provider:
   memorySize: 512
   timeout: 30
   
-  # Environment variables (loaded from config files)
+  # Environment variables
   environment:
     NODE_ENV: ${self:custom.environment.NODE_ENV}
-    DATABASE_HOST: ${self:custom.environment.DATABASE_HOST}
-    DATABASE_PORT: ${self:custom.environment.DATABASE_PORT}
-    DATABASE_NAME: ${self:custom.environment.DATABASE_NAME}
-    DATABASE_USER: ${self:custom.environment.DATABASE_USER}
-    COGNITO_USER_POOL_ID: !Ref CognitoUserPool
-    COGNITO_CLIENT_ID: !Ref CognitoUserPoolClient
-    S3_BUCKET_DOCUMENTS: !Ref DocumentsBucket
-    ENCRYPTION_KEY: ${self:custom.environment.ENCRYPTION_KEY}
     LOG_LEVEL: ${self:custom.environment.LOG_LEVEL}
-  
+
   # IAM Role statements
   iam:
     role:
@@ -45,20 +37,10 @@ provider:
             - !Sub ${DocumentsBucket.Arn}/*
         - Effect: Allow
           Action:
-            - secretsmanager:GetSecretValue
-          Resource: !Ref DatabaseSecret
-        - Effect: Allow
-          Action:
             - rds:DescribeDBInstances
             - rds:StartDBInstance
             - rds:StopDBInstance
           Resource: '*'
-  
-  # VPC Configuration (for RDS access)
-  vpc:
-    securityGroupIds:
-      - !Ref LambdaSecurityGroup
-    subnetIds: ${self:custom.environment.SUBNET_IDS}
 
   # API Gateway settings
   apiGateway:
@@ -73,20 +55,9 @@ custom:
   serverless-offline:
     httpPort: 3000
     lambdaPort: 3002
-  
-  # Bundle config for esbuild (optional optimization)
-  esbuild:
-    bundle: true
-    minify: false
-    sourcemap: true
-    exclude:
-      - aws-sdk
-    target: node20
-    platform: node
 
 plugins:
   - serverless-offline
-  - serverless-dotenv-plugin
 
 # Package configuration
 package:
@@ -105,7 +76,7 @@ package:
 # Lambda Functions
 functions:
   # ============================================
-  # AUTH Handler
+  # AUTH Handler (No authorizer - public endpoints)
   # ============================================
   authHandler:
     handler: src/handlers/auth/index.handler
@@ -143,51 +114,30 @@ functions:
           path: /api/v1/resources
           method: get
           cors: true
-          authorizer:
-            type: COGNITO_USER_POOLS
-            authorizerId: !Ref ApiGatewayAuthorizer
       - http:
           path: /api/v1/resources
           method: post
           cors: true
-          authorizer:
-            type: COGNITO_USER_POOLS
-            authorizerId: !Ref ApiGatewayAuthorizer
       - http:
           path: /api/v1/resources/{id}
           method: get
           cors: true
-          authorizer:
-            type: COGNITO_USER_POOLS
-            authorizerId: !Ref ApiGatewayAuthorizer
       - http:
           path: /api/v1/resources/{id}
           method: put
           cors: true
-          authorizer:
-            type: COGNITO_USER_POOLS
-            authorizerId: !Ref ApiGatewayAuthorizer
       - http:
           path: /api/v1/resources/{id}
           method: delete
           cors: true
-          authorizer:
-            type: COGNITO_USER_POOLS
-            authorizerId: !Ref ApiGatewayAuthorizer
       - http:
           path: /api/v1/resources/{id}/allocations
           method: get
           cors: true
-          authorizer:
-            type: COGNITO_USER_POOLS
-            authorizerId: !Ref ApiGatewayAuthorizer
       - http:
           path: /api/v1/resources/{id}/designation-history
           method: get
           cors: true
-          authorizer:
-            type: COGNITO_USER_POOLS
-            authorizerId: !Ref ApiGatewayAuthorizer
 
   # ============================================
   # PROJECTS Handler
@@ -200,37 +150,22 @@ functions:
           path: /api/v1/projects
           method: get
           cors: true
-          authorizer:
-            type: COGNITO_USER_POOLS
-            authorizerId: !Ref ApiGatewayAuthorizer
       - http:
           path: /api/v1/projects
           method: post
           cors: true
-          authorizer:
-            type: COGNITO_USER_POOLS
-            authorizerId: !Ref ApiGatewayAuthorizer
       - http:
           path: /api/v1/projects/{id}
           method: get
           cors: true
-          authorizer:
-            type: COGNITO_USER_POOLS
-            authorizerId: !Ref ApiGatewayAuthorizer
       - http:
           path: /api/v1/projects/{id}
           method: put
           cors: true
-          authorizer:
-            type: COGNITO_USER_POOLS
-            authorizerId: !Ref ApiGatewayAuthorizer
       - http:
           path: /api/v1/projects/{id}
           method: delete
           cors: true
-          authorizer:
-            type: COGNITO_USER_POOLS
-            authorizerId: !Ref ApiGatewayAuthorizer
 
   # ============================================
   # CLIENTS Handler
@@ -243,37 +178,22 @@ functions:
           path: /api/v1/clients
           method: get
           cors: true
-          authorizer:
-            type: COGNITO_USER_POOLS
-            authorizerId: !Ref ApiGatewayAuthorizer
       - http:
           path: /api/v1/clients
           method: post
           cors: true
-          authorizer:
-            type: COGNITO_USER_POOLS
-            authorizerId: !Ref ApiGatewayAuthorizer
       - http:
           path: /api/v1/clients/{id}
           method: get
           cors: true
-          authorizer:
-            type: COGNITO_USER_POOLS
-            authorizerId: !Ref ApiGatewayAuthorizer
       - http:
           path: /api/v1/clients/{id}
           method: put
           cors: true
-          authorizer:
-            type: COGNITO_USER_POOLS
-            authorizerId: !Ref ApiGatewayAuthorizer
       - http:
           path: /api/v1/clients/{id}
           method: delete
           cors: true
-          authorizer:
-            type: COGNITO_USER_POOLS
-            authorizerId: !Ref ApiGatewayAuthorizer
 
   # ============================================
   # ALLOCATIONS Handler
@@ -286,44 +206,22 @@ functions:
           path: /api/v1/allocations
           method: get
           cors: true
-          authorizer:
-            type: COGNITO_USER_POOLS
-            authorizerId: !Ref ApiGatewayAuthorizer
       - http:
           path: /api/v1/allocations
           method: post
           cors: true
-          authorizer:
-            type: COGNITO_USER_POOLS
-            authorizerId: !Ref ApiGatewayAuthorizer
       - http:
           path: /api/v1/allocations/{id}
           method: get
           cors: true
-          authorizer:
-            type: COGNITO_USER_POOLS
-            authorizerId: !Ref ApiGatewayAuthorizer
       - http:
           path: /api/v1/allocations/{id}
           method: put
           cors: true
-          authorizer:
-            type: COGNITO_USER_POOLS
-            authorizerId: !Ref ApiGatewayAuthorizer
       - http:
           path: /api/v1/allocations/{id}
           method: delete
           cors: true
-          authorizer:
-            type: COGNITO_USER_POOLS
-            authorizerId: !Ref ApiGatewayAuthorizer
-      - http:
-          path: /api/v1/allocations/resource/{resourceId}
-          method: get
-          cors: true
-          authorizer:
-            type: COGNITO_USER_POOLS
-            authorizerId: !Ref ApiGatewayAuthorizer
 
   # ============================================
   # DESIGNATIONS Handler
@@ -336,23 +234,14 @@ functions:
           path: /api/v1/designations
           method: get
           cors: true
-          authorizer:
-            type: COGNITO_USER_POOLS
-            authorizerId: !Ref ApiGatewayAuthorizer
       - http:
           path: /api/v1/designations
           method: post
           cors: true
-          authorizer:
-            type: COGNITO_USER_POOLS
-            authorizerId: !Ref ApiGatewayAuthorizer
       - http:
           path: /api/v1/designations/{id}
           method: put
           cors: true
-          authorizer:
-            type: COGNITO_USER_POOLS
-            authorizerId: !Ref ApiGatewayAuthorizer
 
   # ============================================
   # TRACKS Handler
@@ -365,23 +254,14 @@ functions:
           path: /api/v1/tracks
           method: get
           cors: true
-          authorizer:
-            type: COGNITO_USER_POOLS
-            authorizerId: !Ref ApiGatewayAuthorizer
       - http:
           path: /api/v1/tracks
           method: post
           cors: true
-          authorizer:
-            type: COGNITO_USER_POOLS
-            authorizerId: !Ref ApiGatewayAuthorizer
       - http:
           path: /api/v1/tracks/{id}
           method: put
           cors: true
-          authorizer:
-            type: COGNITO_USER_POOLS
-            authorizerId: !Ref ApiGatewayAuthorizer
 
   # ============================================
   # USERS Handler
@@ -394,44 +274,18 @@ functions:
           path: /api/v1/users
           method: get
           cors: true
-          authorizer:
-            type: COGNITO_USER_POOLS
-            authorizerId: !Ref ApiGatewayAuthorizer
       - http:
           path: /api/v1/users
           method: post
           cors: true
-          authorizer:
-            type: COGNITO_USER_POOLS
-            authorizerId: !Ref ApiGatewayAuthorizer
       - http:
           path: /api/v1/users/{id}
           method: get
           cors: true
-          authorizer:
-            type: COGNITO_USER_POOLS
-            authorizerId: !Ref ApiGatewayAuthorizer
       - http:
           path: /api/v1/users/{id}
           method: put
           cors: true
-          authorizer:
-            type: COGNITO_USER_POOLS
-            authorizerId: !Ref ApiGatewayAuthorizer
-      - http:
-          path: /api/v1/users/{id}/permissions
-          method: get
-          cors: true
-          authorizer:
-            type: COGNITO_USER_POOLS
-            authorizerId: !Ref ApiGatewayAuthorizer
-      - http:
-          path: /api/v1/users/{id}/permissions
-          method: put
-          cors: true
-          authorizer:
-            type: COGNITO_USER_POOLS
-            authorizerId: !Ref ApiGatewayAuthorizer
 
   # ============================================
   # REPORTS Handler
@@ -444,42 +298,14 @@ functions:
           path: /api/v1/reports/dashboard
           method: get
           cors: true
-          authorizer:
-            type: COGNITO_USER_POOLS
-            authorizerId: !Ref ApiGatewayAuthorizer
       - http:
           path: /api/v1/reports/utilization
           method: get
           cors: true
-          authorizer:
-            type: COGNITO_USER_POOLS
-            authorizerId: !Ref ApiGatewayAuthorizer
       - http:
           path: /api/v1/reports/billing
           method: get
           cors: true
-          authorizer:
-            type: COGNITO_USER_POOLS
-            authorizerId: !Ref ApiGatewayAuthorizer
-
-  # ============================================
-  # RDS Scheduler (Start/Stop)
-  # ============================================
-  rdsSchedulerStart:
-    handler: src/handlers/scheduler/rdsScheduler.start
-    description: Start RDS instance (7 AM IST)
-    events:
-      - schedule:
-          rate: cron(30 1 ? * MON-FRI *)  # 7 AM IST = 1:30 AM UTC
-          enabled: ${self:custom.environment.RDS_SCHEDULER_ENABLED}
-
-  rdsSchedulerStop:
-    handler: src/handlers/scheduler/rdsScheduler.stop
-    description: Stop RDS instance (9 PM IST)
-    events:
-      - schedule:
-          rate: cron(30 15 ? * MON-FRI *)  # 9 PM IST = 3:30 PM UTC
-          enabled: ${self:custom.environment.RDS_SCHEDULER_ENABLED}
 
 # CloudFormation Resources
 resources:
@@ -490,7 +316,7 @@ resources:
     CognitoUserPool:
       Type: AWS::Cognito::UserPool
       Properties:
-        UserPoolName: 1bt-resource-users-${self:provider.stage}
+        UserPoolName: onebt-resource-users-${self:provider.stage}
         AutoVerifiedAttributes:
           - email
         UsernameAttributes:
@@ -517,10 +343,7 @@ resources:
           - Name: name
             AttributeDataType: String
             Mutable: true
-            Required: true
-          - Name: role
-            AttributeDataType: String
-            Mutable: true
+            Required: false
         UserPoolTags:
           Environment: ${self:provider.stage}
           Project: 1BT-Resource-Management
@@ -528,7 +351,7 @@ resources:
     CognitoUserPoolClient:
       Type: AWS::Cognito::UserPoolClient
       Properties:
-        ClientName: 1bt-web-client-${self:provider.stage}
+        ClientName: onebt-web-client-${self:provider.stage}
         UserPoolId: !Ref CognitoUserPool
         GenerateSecret: false
         ExplicitAuthFlows:
@@ -545,25 +368,12 @@ resources:
           RefreshToken: days
 
     # ============================================
-    # API GATEWAY AUTHORIZER
-    # ============================================
-    ApiGatewayAuthorizer:
-      Type: AWS::ApiGateway::Authorizer
-      Properties:
-        Name: CognitoAuthorizer-${self:provider.stage}
-        Type: COGNITO_USER_POOLS
-        IdentitySource: method.request.header.Authorization
-        RestApiId: !Ref ApiGatewayRestApi
-        ProviderARNs:
-          - !GetAtt CognitoUserPool.Arn
-
-    # ============================================
     # S3 BUCKET - Documents
     # ============================================
     DocumentsBucket:
       Type: AWS::S3::Bucket
       Properties:
-        BucketName: 1bt-documents-${self:provider.stage}-${aws:accountId}
+        BucketName: onebt-documents-${self:provider.stage}-${aws:accountId}
         BucketEncryption:
           ServerSideEncryptionConfiguration:
             - ServerSideEncryptionByDefault:
@@ -575,87 +385,9 @@ resources:
           RestrictPublicBuckets: true
         VersioningConfiguration:
           Status: Enabled
-        LifecycleConfiguration:
-          Rules:
-            - Id: DeleteOldVersions
-              Status: Enabled
-              NoncurrentVersionExpiration:
-                NoncurrentDays: 90
         Tags:
           - Key: Environment
             Value: ${self:provider.stage}
-
-    # ============================================
-    # SECRETS MANAGER - Database Credentials
-    # ============================================
-    DatabaseSecret:
-      Type: AWS::SecretsManager::Secret
-      Properties:
-        Name: 1bt-db-credentials-${self:provider.stage}
-        Description: Database credentials for 1BT Resource Management
-        SecretString: !Sub |
-          {
-            "username": "${self:custom.environment.DATABASE_USER}",
-            "password": "${self:custom.environment.DATABASE_PASSWORD}",
-            "host": "${self:custom.environment.DATABASE_HOST}",
-            "port": "${self:custom.environment.DATABASE_PORT}",
-            "dbname": "${self:custom.environment.DATABASE_NAME}"
-          }
-        Tags:
-          - Key: Environment
-            Value: ${self:provider.stage}
-
-    # ============================================
-    # VPC SECURITY GROUP
-    # ============================================
-    LambdaSecurityGroup:
-      Type: AWS::EC2::SecurityGroup
-      Properties:
-        GroupDescription: Security group for Lambda functions
-        GroupName: 1bt-lambda-sg-${self:provider.stage}
-        VpcId: ${self:custom.environment.VPC_ID}
-        SecurityGroupEgress:
-          - IpProtocol: tcp
-            FromPort: 5432
-            ToPort: 5432
-            CidrIp: 0.0.0.0/0
-            Description: PostgreSQL access
-          - IpProtocol: tcp
-            FromPort: 443
-            ToPort: 443
-            CidrIp: 0.0.0.0/0
-            Description: HTTPS for AWS services
-          - IpProtocol: tcp
-            FromPort: 6379
-            ToPort: 6379
-            CidrIp: 0.0.0.0/0
-            Description: Redis access
-        Tags:
-          - Key: Name
-            Value: 1bt-lambda-sg-${self:provider.stage}
-          - Key: Environment
-            Value: ${self:provider.stage}
-
-    # ============================================
-    # CLOUDWATCH LOG GROUPS
-    # ============================================
-    ResourceHandlerLogGroup:
-      Type: AWS::Logs::LogGroup
-      Properties:
-        LogGroupName: /aws/lambda/1bt-resource-management-${self:provider.stage}-resourceHandler
-        RetentionInDays: ${self:custom.environment.LOG_RETENTION_DAYS}
-
-    ProjectHandlerLogGroup:
-      Type: AWS::Logs::LogGroup
-      Properties:
-        LogGroupName: /aws/lambda/1bt-resource-management-${self:provider.stage}-projectHandler
-        RetentionInDays: ${self:custom.environment.LOG_RETENTION_DAYS}
-
-    AuthHandlerLogGroup:
-      Type: AWS::Logs::LogGroup
-      Properties:
-        LogGroupName: /aws/lambda/1bt-resource-management-${self:provider.stage}-authHandler
-        RetentionInDays: ${self:custom.environment.LOG_RETENTION_DAYS}
 
   # ============================================
   # OUTPUTS
@@ -684,9 +416,3 @@ resources:
       Value: !Ref DocumentsBucket
       Export:
         Name: ${self:service}-${self:provider.stage}-DocumentsBucket
-
-    SecurityGroupId:
-      Description: Lambda Security Group ID
-      Value: !Ref LambdaSecurityGroup
-      Export:
-        Name: ${self:service}-${self:provider.stage}-SecurityGroupId
