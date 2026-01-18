@@ -1,6 +1,7 @@
 service: onebt-resource-management
 
 frameworkVersion: '3'
+useDotenv: true
 
 provider:
   name: aws

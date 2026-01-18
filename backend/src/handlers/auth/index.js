@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import {
     CognitoIdentityProviderClient,
     AdminInitiateAuthCommand,
@@ -13,8 +14,8 @@ import createError from 'http-errors';
 import { success as apiResponse } from '../../utils/response.js';
 
 const cognito = new CognitoIdentityProviderClient({ region: process.env.AWS_REGION });
-const USER_POOL_ID = process.env.COGNITO_USER_POOL_ID;
-const CLIENT_ID = process.env.COGNITO_CLIENT_ID;
+const USER_POOL_ID = process.env.COGNITO_USER_POOL_ID === '[object Object]' ? process.env.LOCAL_COGNITO_USER_POOL_ID : process.env.COGNITO_USER_POOL_ID;
+const CLIENT_ID = process.env.COGNITO_CLIENT_ID === '[object Object]' ? process.env.LOCAL_COGNITO_CLIENT_ID : process.env.COGNITO_CLIENT_ID;
 
 /**
  * Login Handler
