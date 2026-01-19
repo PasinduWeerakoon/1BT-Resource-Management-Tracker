@@ -41,47 +41,47 @@ backend/
 │   └── document-service/   # Documents (5 endpoints, Python)
 ├── database/               # Migrations & seeds
 ├── tests/                  # Unit & integration tests
-└── deploy.ps1              # Master deployment script
+└── deploy.sh               # Master deployment script
 ```
 
 ## Deployment
 
 ### Full Deployment (All Services)
 
-```powershell
+```bash
 # Deploy everything (infrastructure → shared layer → all services)
-.\deploy.ps1 -Stage dev -Action deploy
+./deploy.sh -s dev -a deploy
 
 # Check deployment status
-.\deploy.ps1 -Stage dev -Action status
+./deploy.sh -s dev -a status
 ```
 
 ### Deploy Specific Service
 
-```powershell
+```bash
 # Deploy only infrastructure
-.\deploy.ps1 -Stage dev -Action deploy -Service infrastructure
+./deploy.sh -s dev -a deploy -c infrastructure
 
 # Deploy only shared layer
-.\deploy.ps1 -Stage dev -Action deploy -Service shared
+./deploy.sh -s dev -a deploy -c shared
 
 # Deploy individual microservices
-.\deploy.ps1 -Stage dev -Action deploy -Service auth
-.\deploy.ps1 -Stage dev -Action deploy -Service resource
-.\deploy.ps1 -Stage dev -Action deploy -Service project
-.\deploy.ps1 -Stage dev -Action deploy -Service allocation
-.\deploy.ps1 -Stage dev -Action deploy -Service report
-.\deploy.ps1 -Stage dev -Action deploy -Service document
+./deploy.sh -s dev -a deploy -c auth
+./deploy.sh -s dev -a deploy -c resource
+./deploy.sh -s dev -a deploy -c project
+./deploy.sh -s dev -a deploy -c allocation
+./deploy.sh -s dev -a deploy -c report
+./deploy.sh -s dev -a deploy -c document
 ```
 
 ### Remove Deployment
 
-```powershell
+```bash
 # Remove everything (reverse order)
-.\deploy.ps1 -Stage dev -Action remove
+./deploy.sh -s dev -a remove
 
 # Remove specific service
-.\deploy.ps1 -Stage dev -Action remove -Service auth
+./deploy.sh -s dev -a remove -c auth
 ```
 
 ## Infrastructure Costs (Estimated Monthly)
