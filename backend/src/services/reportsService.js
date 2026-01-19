@@ -24,7 +24,7 @@ export const reportsService = {
       JOIN resources r ON a.resource_id = r.id
       JOIN clients c ON p.client_id = c.id
       LEFT JOIN designations d ON r.designation_id = d.id
-      WHERE a.deleted_at IS NULL
+      WHERE 1=1
     `;
 
     // Add filters dynamically
@@ -61,7 +61,6 @@ export const reportsService = {
         FROM allocations
         WHERE status = 'ACTIVE' 
         AND (end_date IS NULL OR end_date >= CURRENT_DATE)
-        AND deleted_at IS NULL
         GROUP BY resource_id
       )
       SELECT 
@@ -104,7 +103,7 @@ export const reportsService = {
         COALESCE(SUM(a.allocation_percentage), 0) as total_allocated_sum
       FROM resources r
       LEFT JOIN tracks t ON r.track_id = t.id
-      LEFT JOIN allocations a ON r.id = a.resource_id AND a.status = 'ACTIVE' AND a.deleted_at IS NULL
+      LEFT JOIN allocations a ON r.id = a.resource_id AND a.status = 'ACTIVE'
       LEFT JOIN projects p ON a.project_id = p.id
       WHERE r.status = 'ACTIVE' AND r.deleted_at IS NULL
       GROUP BY t.name

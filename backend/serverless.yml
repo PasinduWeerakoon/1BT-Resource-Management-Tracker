@@ -488,7 +488,6 @@ functions:
           method: get
           cors: true
       - http:
-      - http:
           path: /api/v1/reports/utilization
           method: get
           cors: true
@@ -497,7 +496,7 @@ functions:
   # DOCUMENT GENERATOR (Python)
   # ============================================
   docGenerator:
-    handler: backend/python/handlers/generate_report.handler
+    handler: python/handlers/generate_report.handler
     runtime: python3.9
     description: Generate Excel/PDF reports
     timeout: 30
