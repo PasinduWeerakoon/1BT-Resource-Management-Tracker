@@ -68,19 +68,9 @@ const getPool = async () => {
             connectionString: config.database.url,
             ssl: config.database.ssl
         };
-    } else if (config.database.user && config.database.password) {
-        // Use direct environment variable credentials (preferred for dev without NAT Gateway)
-        logger.info('Using direct database credentials from environment variables');
-        connectionConfig = {
-            host: config.database.host,
-            port: config.database.port,
-            database: config.database.name,
-            user: config.database.user,
-            password: config.database.password,
-            ssl: config.database.ssl,
-        };
     } else if (config.database.secretArn) {
-        // Fall back to Secrets Manager (requires NAT Gateway or VPC Endpoint)
+        // Use Secrets Manager credentials (secure - recommended for all environments)
+        // Requires VPC Endpoint for Secrets Manager when Lambda is in VPC
         const credentials = await getCredentialsFromSecretsManager();
         connectionConfig = {
             host: credentials.host,
@@ -90,8 +80,19 @@ const getPool = async () => {
             password: credentials.password,
             ssl: config.database.ssl,
         };
+    } else if (config.database.user && config.database.password) {
+        // Fallback to direct credentials (for local development only)
+        logger.warn('Using direct database credentials - not recommended for production');
+        connectionConfig = {
+            host: config.database.host,
+            port: config.database.port,
+            database: config.database.name,
+            user: config.database.user,
+            password: config.database.password,
+            ssl: config.database.ssl,
+        };
     } else {
-        throw new Error('No database credentials configured. Set DB_USER and DB_PASSWORD or DB_SECRET_ARN.');
+        throw new Error('No database credentials configured. Set DB_SECRET_ARN or DB_USER/DB_PASSWORD.');
     }
 
     pool = new Pool({
