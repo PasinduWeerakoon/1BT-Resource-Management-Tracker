@@ -93,9 +93,9 @@ const create = async (data, userId) => {
     const params = [
         data.project_name,
         data.client_id || null,
-        data.project_type || 'Internal',
+        data.project_type || 'INTERNAL',
         data.is_billable ?? true,
-        data.status || 'Active',
+        data.status || 'ACTIVE',
         data.start_date || null,
         data.end_date || null,
         data.description || null,

@@ -376,6 +376,43 @@ const MIGRATIONS = {
     ('Senior Software Engineer', 4, false, true),
     ('Technical Lead', 6, false, true)
     ON CONFLICT (name) DO NOTHING;
+  `,
+
+  '005_fix_enum_values': `
+    -- Migration: Fix enum values to use UPPER_SNAKE_CASE
+    -- This safely renames enum labels without dropping/recreating
+    
+    -- Fix user_role enum
+    ALTER TYPE user_role RENAME VALUE 'Super User' TO 'SUPER_USER';
+    ALTER TYPE user_role RENAME VALUE 'Admin' TO 'ADMIN';
+    ALTER TYPE user_role RENAME VALUE 'Lead' TO 'LEAD';
+    ALTER TYPE user_role RENAME VALUE 'User' TO 'USER';
+    
+    -- Fix resource_status enum
+    ALTER TYPE resource_status RENAME VALUE 'Active' TO 'ACTIVE';
+    ALTER TYPE resource_status RENAME VALUE 'Bench' TO 'BENCH';
+    ALTER TYPE resource_status RENAME VALUE 'Resigned' TO 'RESIGNED';
+    ALTER TYPE resource_status RENAME VALUE 'Terminated' TO 'TERMINATED';
+    
+    -- Fix project_status enum
+    ALTER TYPE project_status RENAME VALUE 'Active' TO 'ACTIVE';
+    ALTER TYPE project_status RENAME VALUE 'Completed' TO 'COMPLETED';
+    ALTER TYPE project_status RENAME VALUE 'On Hold' TO 'ON_HOLD';
+    ALTER TYPE project_status RENAME VALUE 'Cancelled' TO 'CANCELLED';
+    
+    -- Fix project_type enum
+    ALTER TYPE project_type RENAME VALUE 'Internal' TO 'INTERNAL';
+    ALTER TYPE project_type RENAME VALUE 'External' TO 'EXTERNAL';
+    
+    -- Fix allocation_status enum
+    ALTER TYPE allocation_status RENAME VALUE 'Active' TO 'ACTIVE';
+    ALTER TYPE allocation_status RENAME VALUE 'Completed' TO 'COMPLETED';
+    ALTER TYPE allocation_status RENAME VALUE 'Cancelled' TO 'CANCELLED';
+    
+    -- Fix user_status enum
+    ALTER TYPE user_status RENAME VALUE 'Active' TO 'ACTIVE';
+    ALTER TYPE user_status RENAME VALUE 'Inactive' TO 'INACTIVE';
+    ALTER TYPE user_status RENAME VALUE 'Locked' TO 'LOCKED';
   `
 };
 
@@ -423,7 +460,7 @@ export const handler = async (event) => {
 
     // Run pending migrations
     const results = [];
-    const migrationOrder = ['001_initial_schema', '002_clients_projects_allocations', '003_seed_defaults', '004_ensure_tables'];
+    const migrationOrder = ['001_initial_schema', '002_clients_projects_allocations', '003_seed_defaults', '004_ensure_tables', '005_fix_enum_values'];
 
     for (const migrationName of migrationOrder) {
       if (runMigrations.includes(migrationName)) {

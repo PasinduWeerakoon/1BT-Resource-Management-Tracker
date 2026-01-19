@@ -145,7 +145,7 @@ const create = async (data, userId) => {
     data.designation_id,
     data.track_id,
     data.join_date || new Date().toISOString().split('T')[0],
-    data.status || 'Active',
+    data.status || 'ACTIVE',
     data.is_intern || false,
     userId,
   ];

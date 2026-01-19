@@ -102,7 +102,7 @@ const create = async (data, userId) => {
         data.allocation_percentage,
         data.start_date,
         data.end_date || null,
-        data.status || 'Active',
+        data.status || 'ACTIVE',
         data.notes || null,
         userId,
     ];
@@ -207,7 +207,7 @@ const validateAllocation = async (resourceId, newPercentage, excludeAllocationId
         SELECT COALESCE(SUM(allocation_percentage), 0) as total
         FROM allocations
         WHERE resource_id = $1
-        AND status = 'Active'
+        AND status = 'ACTIVE'
         AND (end_date IS NULL OR end_date >= $2)
         AND start_date <= COALESCE($3, '9999-12-31')
     `;
@@ -260,8 +260,8 @@ const getResourceUtilization = async (resourceId) => {
         SELECT 
             r.id,
             r.name as resource_name,
-            COALESCE(SUM(CASE WHEN a.status = 'Active' AND (a.end_date IS NULL OR a.end_date >= CURRENT_DATE) THEN a.allocation_percentage ELSE 0 END), 0) as current_allocation,
-            100 - COALESCE(SUM(CASE WHEN a.status = 'Active' AND (a.end_date IS NULL OR a.end_date >= CURRENT_DATE) THEN a.allocation_percentage ELSE 0 END), 0) as available_capacity
+            COALESCE(SUM(CASE WHEN a.status = 'ACTIVE' AND (a.end_date IS NULL OR a.end_date >= CURRENT_DATE) THEN a.allocation_percentage ELSE 0 END), 0) as current_allocation,
+            100 - COALESCE(SUM(CASE WHEN a.status = 'ACTIVE' AND (a.end_date IS NULL OR a.end_date >= CURRENT_DATE) THEN a.allocation_percentage ELSE 0 END), 0) as available_capacity
         FROM resources r
         LEFT JOIN allocations a ON r.id = a.resource_id
         WHERE r.id = $1 AND r.deleted_at IS NULL
