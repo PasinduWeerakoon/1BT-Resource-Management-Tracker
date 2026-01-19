@@ -1,0 +1,125 @@
+service: onebt-report-service
+
+frameworkVersion: "3"
+
+provider:
+  name: aws
+  runtime: nodejs20.x
+  stage: ${opt:stage, 'dev'}
+  region: ${opt:region, 'ap-southeast-1'}
+  memorySize: 512 # Reports need more memory for data processing
+  timeout: 60 # Reports can take longer
+  tags:
+    Service: report
+    Project: 1BT-Resource-Management
+
+  # VPC Configuration - Required for RDS access
+  vpc:
+    securityGroupIds:
+      - !ImportValue onebt-${self:provider.stage}-LambdaSecurityGroupId
+    subnetIds: !Split
+      - ","
+      - !ImportValue onebt-${self:provider.stage}-PrivateSubnetIds
+
+  environment:
+    NODE_ENV: ${self:provider.stage}
+    DB_HOST: !ImportValue onebt-${self:provider.stage}-RdsEndpoint
+    DB_PORT: !ImportValue onebt-${self:provider.stage}-RdsPort
+    DB_NAME: !ImportValue onebt-${self:provider.stage}-DbName
+    DB_SECRET_ARN: !ImportValue onebt-${self:provider.stage}-RdsSecretArn
+
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - secretsmanager:GetSecretValue
+          Resource: !ImportValue onebt-${self:provider.stage}-RdsSecretArn
+
+  httpApi:
+    id: !ImportValue onebt-${self:provider.stage}-HttpApiId
+
+  layers:
+    - !ImportValue onebt-shared-layer-${self:provider.stage}-arn
+
+plugins:
+  - serverless-offline
+
+package:
+  individually: true
+  patterns:
+    - "!.git/**"
+    - "!.gitignore"
+    - "!*.md"
+    - "!tests/**"
+    - "src/**"
+
+custom:
+  authorizer:
+    type: jwt
+    id: !ImportValue onebt-${self:provider.stage}-CognitoAuthorizerId
+
+functions:
+  # ==================== REPORTS ====================
+  benchReport:
+    handler: src/handlers/reports.getBenchReport
+    description: Get bench resources report
+    events:
+      - httpApi:
+          path: /api/v1/reports/bench
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  accountManagerReport:
+    handler: src/handlers/reports.getAccountManagerReport
+    description: Get account manager report
+    events:
+      - httpApi:
+          path: /api/v1/reports/account-manager
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  employeeReport:
+    handler: src/handlers/reports.getEmployeeReport
+    description: Get employee allocation report
+    events:
+      - httpApi:
+          path: /api/v1/reports/employee
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  monthlyAllocationReport:
+    handler: src/handlers/reports.getMonthlyAllocationReport
+    description: Get monthly allocation report
+    events:
+      - httpApi:
+          path: /api/v1/reports/monthly-allocation
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  exceptionReport:
+    handler: src/handlers/reports.getExceptionReport
+    description: Get exception allocation report
+    events:
+      - httpApi:
+          path: /api/v1/reports/exception
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  nonBillingReport:
+    handler: src/handlers/reports.getNonBillingReport
+    description: Get non-billing resources report
+    events:
+      - httpApi:
+          path: /api/v1/reports/non-billing
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  preSaleReport:
+    handler: src/handlers/reports.getPreSaleReport
+    description: Get pre-sale activities report
+    events:
+      - httpApi:
+          path: /api/v1/reports/pre-sale
+          method: GET
+          authorizer: ${self:custom.authorizer}

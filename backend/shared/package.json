@@ -1,0 +1,24 @@
+{
+    "name": "onebt-shared",
+    "version": "1.0.0",
+    "description": "Shared libraries for 1BT Resource Management microservices",
+    "type": "module",
+    "scripts": {
+        "build:layer": "npm ci --omit=dev && mkdir -p layers/nodejs && cp -r node_modules layers/nodejs/",
+        "deploy:dev": "serverless deploy --stage dev",
+        "deploy:qa": "serverless deploy --stage qa",
+        "deploy:uat": "serverless deploy --stage uat",
+        "deploy:prod": "serverless deploy --stage prod"
+    },
+    "dependencies": {
+        "@aws-sdk/client-secrets-manager": "^3.971.0",
+        "@middy/core": "^7.0.2",
+        "@middy/http-cors": "^7.0.2",
+        "@middy/http-error-handler": "^7.0.2",
+        "@middy/http-json-body-parser": "^7.0.2",
+        "http-errors": "^2.0.1",
+        "joi": "^17.13.3",
+        "pg": "^8.11.3",
+        "pino": "^9.6.0"
+    }
+}

@@ -1,0 +1,72 @@
+service: onebt-migration-service
+
+frameworkVersion: "3"
+
+provider:
+  name: aws
+  runtime: nodejs20.x
+  stage: ${opt:stage, 'dev'}
+  region: ${opt:region, 'ap-southeast-1'}
+  memorySize: 512
+  timeout: 300 # 5 minutes for migrations
+  tags:
+    Service: migration
+    Project: 1BT-Resource-Management
+
+  # VPC Configuration - Required for RDS access
+  vpc:
+    securityGroupIds:
+      - !ImportValue onebt-${self:provider.stage}-LambdaSecurityGroupId
+    subnetIds: !Split
+      - ","
+      - !ImportValue onebt-${self:provider.stage}-PrivateSubnetIds
+
+  environment:
+    NODE_ENV: ${self:provider.stage}
+    DB_HOST: !ImportValue onebt-${self:provider.stage}-RdsEndpoint
+    DB_PORT: !ImportValue onebt-${self:provider.stage}-RdsPort
+    DB_NAME: !ImportValue onebt-${self:provider.stage}-DbName
+    DB_SECRET_ARN: !ImportValue onebt-${self:provider.stage}-RdsSecretArn
+
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - secretsmanager:GetSecretValue
+          Resource: !ImportValue onebt-${self:provider.stage}-RdsSecretArn
+
+  layers:
+    - !ImportValue onebt-shared-layer-${self:provider.stage}-arn
+
+plugins:
+  - serverless-offline
+
+package:
+  individually: true
+  patterns:
+    - "!.git/**"
+    - "!.gitignore"
+    - "!*.md"
+    - "!tests/**"
+    - "src/**"
+    - "migrations/**"
+
+functions:
+  # Run pending migrations
+  runMigrations:
+    handler: src/handlers/migrations.up
+    description: Run pending database migrations
+    events:
+      # Can be triggered manually via AWS Console or CLI
+      # aws lambda invoke --function-name onebt-migration-service-dev-runMigrations out.json
+
+  # Rollback last migration
+  rollbackMigration:
+    handler: src/handlers/migrations.down
+    description: Rollback the last migration
+
+  # Get migration status
+  getMigrationStatus:
+    handler: src/handlers/migrations.status
+    description: Get current migration status

@@ -1,0 +1,27 @@
+{
+    "name": "onebt-auth-service",
+    "version": "1.0.0",
+    "description": "Authentication microservice for 1BT Resource Management",
+    "type": "module",
+    "scripts": {
+        "deploy:dev": "serverless deploy --stage dev --verbose",
+        "deploy:qa": "serverless deploy --stage qa --verbose",
+        "deploy:uat": "serverless deploy --stage uat --verbose",
+        "deploy:prod": "serverless deploy --stage prod --verbose",
+        "remove:dev": "serverless remove --stage dev",
+        "remove:qa": "serverless remove --stage qa",
+        "remove:uat": "serverless remove --stage uat",
+        "remove:prod": "serverless remove --stage prod",
+        "logs:dev": "serverless logs -f authHandler --stage dev -t",
+        "local": "serverless offline start --stage dev",
+        "test": "jest"
+    },
+    "dependencies": {
+        "@aws-sdk/client-cognito-identity-provider": "^3.971.0",
+        "http-errors": "^2.0.1"
+    },
+    "devDependencies": {
+        "serverless": "^3.38.0",
+        "serverless-offline": "^13.3.0"
+    }
+}

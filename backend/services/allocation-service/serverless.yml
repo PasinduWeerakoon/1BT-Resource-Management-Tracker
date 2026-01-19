@@ -1,0 +1,125 @@
+service: onebt-allocation-service
+
+frameworkVersion: "3"
+
+provider:
+  name: aws
+  runtime: nodejs20.x
+  stage: ${opt:stage, 'dev'}
+  region: ${opt:region, 'ap-southeast-1'}
+  memorySize: 256
+  timeout: 30
+  tags:
+    Service: allocation
+    Project: 1BT-Resource-Management
+
+  # VPC Configuration - Required for RDS access
+  vpc:
+    securityGroupIds:
+      - !ImportValue onebt-${self:provider.stage}-LambdaSecurityGroupId
+    subnetIds: !Split
+      - ","
+      - !ImportValue onebt-${self:provider.stage}-PrivateSubnetIds
+
+  environment:
+    NODE_ENV: ${self:provider.stage}
+    DB_HOST: !ImportValue onebt-${self:provider.stage}-RdsEndpoint
+    DB_PORT: !ImportValue onebt-${self:provider.stage}-RdsPort
+    DB_NAME: !ImportValue onebt-${self:provider.stage}-DbName
+    DB_SECRET_ARN: !ImportValue onebt-${self:provider.stage}-RdsSecretArn
+
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - secretsmanager:GetSecretValue
+          Resource: !ImportValue onebt-${self:provider.stage}-RdsSecretArn
+
+  httpApi:
+    id: !ImportValue onebt-${self:provider.stage}-HttpApiId
+
+  layers:
+    - !ImportValue onebt-shared-layer-${self:provider.stage}-arn
+
+plugins:
+  - serverless-offline
+
+package:
+  individually: true
+  patterns:
+    - "!.git/**"
+    - "!.gitignore"
+    - "!*.md"
+    - "!tests/**"
+    - "src/**"
+
+custom:
+  authorizer:
+    type: jwt
+    id: !ImportValue onebt-${self:provider.stage}-CognitoAuthorizerId
+
+functions:
+  # ==================== ALLOCATIONS ====================
+  listAllocations:
+    handler: src/handlers/allocations.list
+    description: List all allocations with filters
+    events:
+      - httpApi:
+          path: /api/v1/allocations
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  getAllocation:
+    handler: src/handlers/allocations.getById
+    description: Get an allocation by ID
+    events:
+      - httpApi:
+          path: /api/v1/allocations/{id}
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  createAllocation:
+    handler: src/handlers/allocations.create
+    description: Create a new allocation
+    events:
+      - httpApi:
+          path: /api/v1/allocations
+          method: POST
+          authorizer: ${self:custom.authorizer}
+
+  updateAllocation:
+    handler: src/handlers/allocations.update
+    description: Update an existing allocation
+    events:
+      - httpApi:
+          path: /api/v1/allocations/{id}
+          method: PUT
+          authorizer: ${self:custom.authorizer}
+
+  deleteAllocation:
+    handler: src/handlers/allocations.remove
+    description: Remove an allocation
+    events:
+      - httpApi:
+          path: /api/v1/allocations/{id}
+          method: DELETE
+          authorizer: ${self:custom.authorizer}
+
+  getMonthlyAllocations:
+    handler: src/handlers/allocations.getMonthly
+    description: Get monthly allocation view
+    events:
+      - httpApi:
+          path: /api/v1/allocations/monthly
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  getAllocationHistory:
+    handler: src/handlers/allocations.getHistory
+    description: Get allocation history for a resource
+    events:
+      - httpApi:
+          path: /api/v1/allocations/history/{resourceId}
+          method: GET
+          authorizer: ${self:custom.authorizer}

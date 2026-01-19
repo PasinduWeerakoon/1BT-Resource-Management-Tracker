@@ -1,0 +1,156 @@
+service: onebt-document-service
+
+frameworkVersion: "3"
+
+provider:
+  name: aws
+  runtime: python3.11
+  stage: ${opt:stage, 'dev'}
+  region: ${opt:region, 'ap-southeast-1'}
+  memorySize: 512 # Document generation needs more memory
+  timeout: 60 # PDFs can take time to generate
+  tags:
+    Service: document
+    Project: 1BT-Resource-Management
+
+  # VPC Configuration - Required for RDS access
+  vpc:
+    securityGroupIds:
+      - !ImportValue onebt-${self:provider.stage}-LambdaSecurityGroupId
+    subnetIds: !Split
+      - ","
+      - !ImportValue onebt-${self:provider.stage}-PrivateSubnetIds
+
+  environment:
+    STAGE: ${self:provider.stage}
+    DB_HOST: !ImportValue onebt-${self:provider.stage}-RdsEndpoint
+    DB_PORT: !ImportValue onebt-${self:provider.stage}-RdsPort
+    DB_NAME: !ImportValue onebt-${self:provider.stage}-DbName
+    DB_SECRET_ARN: !ImportValue onebt-${self:provider.stage}-RdsSecretArn
+    S3_BUCKET: !Ref DocumentsBucket
+
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - secretsmanager:GetSecretValue
+          Resource: !ImportValue onebt-${self:provider.stage}-RdsSecretArn
+        - Effect: Allow
+          Action:
+            - s3:PutObject
+            - s3:GetObject
+            - s3:DeleteObject
+          Resource:
+            - !Sub arn:aws:s3:::${DocumentsBucket}/*
+
+  httpApi:
+    id: !ImportValue onebt-${self:provider.stage}-HttpApiId
+
+plugins:
+  - serverless-python-requirements
+  - serverless-offline
+
+custom:
+  pythonRequirements:
+    dockerizePip: false # Set to 'non-linux' if packages have native binaries
+    slim: true
+    strip: false
+    noDeploy:
+      - pytest
+      - boto3 # Already in Lambda runtime
+
+  authorizer:
+    type: jwt
+    id: !ImportValue onebt-${self:provider.stage}-CognitoAuthorizerId
+
+package:
+  individually: true
+  patterns:
+    - "!.git/**"
+    - "!.gitignore"
+    - "!*.md"
+    - "!tests/**"
+    - "!requirements-dev.txt"
+    - "src/**"
+
+functions:
+  # ==================== DOCUMENT GENERATION ====================
+  generatePdf:
+    handler: src/handlers/documents.generate_pdf
+    description: Generate PDF report
+    events:
+      - httpApi:
+          path: /api/v1/documents/pdf
+          method: POST
+          authorizer: ${self:custom.authorizer}
+
+  generateExcel:
+    handler: src/handlers/documents.generate_excel
+    description: Generate Excel report
+    events:
+      - httpApi:
+          path: /api/v1/documents/excel
+          method: POST
+          authorizer: ${self:custom.authorizer}
+
+  getDocument:
+    handler: src/handlers/documents.get_document
+    description: Get a generated document
+    events:
+      - httpApi:
+          path: /api/v1/documents/{id}
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  listDocuments:
+    handler: src/handlers/documents.list_documents
+    description: List generated documents
+    events:
+      - httpApi:
+          path: /api/v1/documents
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  deleteDocument:
+    handler: src/handlers/documents.delete_document
+    description: Delete a generated document
+    events:
+      - httpApi:
+          path: /api/v1/documents/{id}
+          method: DELETE
+          authorizer: ${self:custom.authorizer}
+
+resources:
+  Resources:
+    # S3 Bucket for generated documents
+    DocumentsBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: onebt-documents-${self:provider.stage}-${aws:accountId}
+        BucketEncryption:
+          ServerSideEncryptionConfiguration:
+            - ServerSideEncryptionByDefault:
+                SSEAlgorithm: AES256
+        PublicAccessBlockConfiguration:
+          BlockPublicAcls: true
+          BlockPublicPolicy: true
+          IgnorePublicAcls: true
+          RestrictPublicBuckets: true
+        LifecycleConfiguration:
+          Rules:
+            - Id: DeleteOldDocuments
+              Status: Enabled
+              ExpirationInDays: 30 # Auto-delete documents after 30 days
+        Tags:
+          - Key: Environment
+            Value: ${self:provider.stage}
+          - Key: Project
+            Value: 1BT-Resource-Management
+
+  Outputs:
+    DocumentsBucketName:
+      Description: Documents S3 bucket name
+      Value: !Ref DocumentsBucket
+      Export:
+        Name: onebt-${self:provider.stage}-DocumentsBucket

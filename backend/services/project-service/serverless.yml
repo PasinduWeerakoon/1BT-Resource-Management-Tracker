@@ -1,0 +1,171 @@
+service: onebt-project-service
+
+frameworkVersion: "3"
+
+provider:
+  name: aws
+  runtime: nodejs20.x
+  stage: ${opt:stage, 'dev'}
+  region: ${opt:region, 'ap-southeast-1'}
+  memorySize: 256
+  timeout: 30
+  tags:
+    Service: project
+    Project: 1BT-Resource-Management
+
+  # VPC Configuration - Required for RDS access
+  vpc:
+    securityGroupIds:
+      - !ImportValue onebt-${self:provider.stage}-LambdaSecurityGroupId
+    subnetIds: !Split
+      - ","
+      - !ImportValue onebt-${self:provider.stage}-PrivateSubnetIds
+
+  environment:
+    NODE_ENV: ${self:provider.stage}
+    DB_HOST: !ImportValue onebt-${self:provider.stage}-RdsEndpoint
+    DB_PORT: !ImportValue onebt-${self:provider.stage}-RdsPort
+    DB_NAME: !ImportValue onebt-${self:provider.stage}-DbName
+    DB_SECRET_ARN: !ImportValue onebt-${self:provider.stage}-RdsSecretArn
+
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - secretsmanager:GetSecretValue
+          Resource: !ImportValue onebt-${self:provider.stage}-RdsSecretArn
+
+  httpApi:
+    id: !ImportValue onebt-${self:provider.stage}-HttpApiId
+
+  layers:
+    - !ImportValue onebt-shared-layer-${self:provider.stage}-arn
+
+plugins:
+  - serverless-offline
+
+package:
+  individually: true
+  patterns:
+    - "!.git/**"
+    - "!.gitignore"
+    - "!*.md"
+    - "!tests/**"
+    - "src/**"
+
+custom:
+  authorizer:
+    type: jwt
+    id: !ImportValue onebt-${self:provider.stage}-CognitoAuthorizerId
+
+functions:
+  # ==================== CLIENTS ====================
+  listClients:
+    handler: src/handlers/clients.list
+    description: List all clients with pagination
+    events:
+      - httpApi:
+          path: /api/v1/clients
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  getClient:
+    handler: src/handlers/clients.getById
+    description: Get a client by ID
+    events:
+      - httpApi:
+          path: /api/v1/clients/{id}
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  createClient:
+    handler: src/handlers/clients.create
+    description: Create a new client
+    events:
+      - httpApi:
+          path: /api/v1/clients
+          method: POST
+          authorizer: ${self:custom.authorizer}
+
+  updateClient:
+    handler: src/handlers/clients.update
+    description: Update an existing client
+    events:
+      - httpApi:
+          path: /api/v1/clients/{id}
+          method: PUT
+          authorizer: ${self:custom.authorizer}
+
+  deleteClient:
+    handler: src/handlers/clients.remove
+    description: Soft delete a client
+    events:
+      - httpApi:
+          path: /api/v1/clients/{id}
+          method: DELETE
+          authorizer: ${self:custom.authorizer}
+
+  getClientProjects:
+    handler: src/handlers/clients.getProjects
+    description: Get all projects for a client
+    events:
+      - httpApi:
+          path: /api/v1/clients/{id}/projects
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  # ==================== PROJECTS ====================
+  listProjects:
+    handler: src/handlers/projects.list
+    description: List all projects with pagination and filters
+    events:
+      - httpApi:
+          path: /api/v1/projects
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  getProject:
+    handler: src/handlers/projects.getById
+    description: Get a project by ID
+    events:
+      - httpApi:
+          path: /api/v1/projects/{id}
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  createProject:
+    handler: src/handlers/projects.create
+    description: Create a new project
+    events:
+      - httpApi:
+          path: /api/v1/projects
+          method: POST
+          authorizer: ${self:custom.authorizer}
+
+  updateProject:
+    handler: src/handlers/projects.update
+    description: Update an existing project
+    events:
+      - httpApi:
+          path: /api/v1/projects/{id}
+          method: PUT
+          authorizer: ${self:custom.authorizer}
+
+  deleteProject:
+    handler: src/handlers/projects.remove
+    description: Soft delete a project
+    events:
+      - httpApi:
+          path: /api/v1/projects/{id}
+          method: DELETE
+          authorizer: ${self:custom.authorizer}
+
+  getProjectAllocations:
+    handler: src/handlers/projects.getAllocations
+    description: Get all allocations for a project
+    events:
+      - httpApi:
+          path: /api/v1/projects/{id}/allocations
+          method: GET
+          authorizer: ${self:custom.authorizer}

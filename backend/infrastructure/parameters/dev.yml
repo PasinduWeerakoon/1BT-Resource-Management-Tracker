@@ -1,0 +1,55 @@
+# ==============================================
+# DEV Environment Parameters
+# ==============================================
+# Cost Estimate: ~$12/month (RDS only, no NAT)
+# ==============================================
+
+# Network Configuration
+vpc:
+  cidr: "10.0.0.0/16"
+  publicSubnet1Cidr: "10.0.1.0/24"
+  publicSubnet2Cidr: "10.0.2.0/24"
+  privateSubnet1Cidr: "10.0.10.0/24"
+  privateSubnet2Cidr: "10.0.11.0/24"
+  databaseSubnet1Cidr: "10.0.20.0/24"
+  databaseSubnet2Cidr: "10.0.21.0/24"
+
+# NAT Gateway (disabled to save ~$32/month)
+natGateway:
+  enabled: false
+  multiAz: false
+
+# RDS Database Configuration
+database:
+  instanceClass: db.t3.micro # ~$12/month
+  allocatedStorage: 20 # GB
+  maxAllocatedStorage: 50 # GB (auto-scaling limit)
+  backupRetentionDays: 1
+  multiAz: false
+  deletionProtection: false
+  deletionPolicy: Delete # Delete for dev, Retain for prod
+  performanceInsights: false
+  monitoringInterval: 0 # 0 = disabled
+
+# Cognito Configuration
+cognito:
+  passwordMinLength: 12
+  passwordRequireUppercase: true
+  passwordRequireLowercase: true
+  passwordRequireNumbers: true
+  passwordRequireSymbols: true
+  tempPasswordValidityDays: 7
+  accessTokenValidityHours: 1
+  idTokenValidityHours: 1
+  refreshTokenValidityDays: 30
+
+# API Gateway Configuration
+apiGateway:
+  throttlingBurstLimit: 500
+  throttlingRateLimit: 250
+  corsMaxAge: 86400
+
+# Feature Flags
+features:
+  vpcEndpoints: true # Enable VPC endpoints for Secrets Manager access
+  autoShutdown: true # Enable auto-shutdown for dev resources

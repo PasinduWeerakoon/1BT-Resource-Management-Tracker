@@ -1,0 +1,137 @@
+service: onebt-auth-service
+
+frameworkVersion: "3"
+
+provider:
+  name: aws
+  runtime: nodejs20.x
+  stage: ${opt:stage, 'dev'}
+  region: ${opt:region, 'ap-southeast-1'}
+  memorySize: 256
+  timeout: 30
+  tags:
+    Service: auth
+    Project: 1BT-Resource-Management
+
+  environment:
+    NODE_ENV: ${self:provider.stage}
+    COGNITO_USER_POOL_ID: !ImportValue onebt-${self:provider.stage}-CognitoUserPoolId
+    COGNITO_CLIENT_ID: !ImportValue onebt-${self:provider.stage}-CognitoClientId
+
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - cognito-idp:AdminInitiateAuth
+            - cognito-idp:AdminCreateUser
+            - cognito-idp:AdminRespondToAuthChallenge
+            - cognito-idp:AdminGetUser
+            - cognito-idp:AdminAddUserToGroup
+            - cognito-idp:AdminSetUserPassword
+            - cognito-idp:GlobalSignOut
+            - cognito-idp:ForgotPassword
+            - cognito-idp:ConfirmForgotPassword
+          Resource: !ImportValue onebt-${self:provider.stage}-CognitoUserPoolArn
+
+  # NO VPC - Auth service uses Cognito only, no database access needed
+  # This gives faster cold starts
+
+  httpApi:
+    id: !ImportValue onebt-${self:provider.stage}-HttpApiId
+
+  layers:
+    - !ImportValue onebt-shared-layer-${self:provider.stage}-arn
+
+plugins:
+  - serverless-offline
+
+package:
+  individually: true
+  patterns:
+    - "!.git/**"
+    - "!.gitignore"
+    - "!*.md"
+    - "!tests/**"
+    - "src/**"
+
+functions:
+  # ============================================
+  # LOGIN - Public endpoint
+  # ============================================
+  login:
+    handler: src/handlers/auth.login
+    description: User login
+    events:
+      - httpApi:
+          path: /api/v1/auth/login
+          method: POST
+
+  # ============================================
+  # LOGOUT - Public endpoint
+  # ============================================
+  logout:
+    handler: src/handlers/auth.logout
+    description: User logout
+    events:
+      - httpApi:
+          path: /api/v1/auth/logout
+          method: POST
+
+  # ============================================
+  # REFRESH TOKEN - Public endpoint
+  # ============================================
+  refresh:
+    handler: src/handlers/auth.refresh
+    description: Refresh access token
+    events:
+      - httpApi:
+          path: /api/v1/auth/refresh
+          method: POST
+
+  # ============================================
+  # FORGOT PASSWORD - Public endpoint
+  # ============================================
+  forgotPassword:
+    handler: src/handlers/auth.forgotPassword
+    description: Initiate password reset
+    events:
+      - httpApi:
+          path: /api/v1/auth/forgot-password
+          method: POST
+
+  # ============================================
+  # RESET PASSWORD - Public endpoint
+  # ============================================
+  resetPassword:
+    handler: src/handlers/auth.resetPassword
+    description: Complete password reset
+    events:
+      - httpApi:
+          path: /api/v1/auth/reset-password
+          method: POST
+
+  # ============================================
+  # INVITE USER - Protected endpoint (Admin only)
+  # ============================================
+  inviteUser:
+    handler: src/handlers/auth.inviteUser
+    description: Invite new user (Admin only)
+    events:
+      - httpApi:
+          path: /api/v1/auth/invite
+          method: POST
+          authorizer:
+            type: jwt
+            id: !ImportValue onebt-${self:provider.stage}-CognitoAuthorizerId
+
+  # ============================================
+  # COMPLETE INVITE - Public endpoint
+  # ============================================
+  completeInvite:
+    handler: src/handlers/auth.completeInvite
+    description: Complete user invitation
+    events:
+      - httpApi:
+          path: /api/v1/auth/complete-invite
+          method: POST

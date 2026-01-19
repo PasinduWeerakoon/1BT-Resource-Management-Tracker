@@ -1,0 +1,471 @@
+/**
+ * Database Migration Handler
+ * Lambda functions for running database migrations securely
+ */
+
+import * as db from '/opt/nodejs/database/index.js';
+import logger from '/opt/nodejs/logger/index.js';
+import { success, error } from '/opt/nodejs/utils/response.js';
+
+// Migration definitions (inline to avoid file system complexity in Lambda)
+const migrations = [
+    {
+        id: '001_initial_schema',
+        name: 'Initial Schema - Extensions, Enums, Base Tables',
+        up: async (client) => {
+            // Extensions
+            await client.query('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"');
+            await client.query('CREATE EXTENSION IF NOT EXISTS "pgcrypto"');
+
+            // Create types if they don't exist
+            await client.query(`
+                DO $$ BEGIN
+                    CREATE TYPE user_role AS ENUM ('Super User', 'Admin', 'User');
+                EXCEPTION WHEN duplicate_object THEN NULL;
+                END $$;
+            `);
+            await client.query(`
+                DO $$ BEGIN
+                    CREATE TYPE user_status AS ENUM ('Active', 'Inactive', 'Suspended', 'Pending');
+                EXCEPTION WHEN duplicate_object THEN NULL;
+                END $$;
+            `);
+            await client.query(`
+                DO $$ BEGIN
+                    CREATE TYPE resource_status AS ENUM ('Active', 'Inactive', 'Serving Notice Period', 'On Leave');
+                EXCEPTION WHEN duplicate_object THEN NULL;
+                END $$;
+            `);
+            await client.query(`
+                DO $$ BEGIN
+                    CREATE TYPE project_status AS ENUM ('Active', 'Inactive', 'Completed', 'On Hold');
+                EXCEPTION WHEN duplicate_object THEN NULL;
+                END $$;
+            `);
+            await client.query(`
+                DO $$ BEGIN
+                    CREATE TYPE project_type AS ENUM ('Client', 'Bench', 'Training', 'POC', 'Presale', 'Research');
+                EXCEPTION WHEN duplicate_object THEN NULL;
+                END $$;
+            `);
+            await client.query(`
+                DO $$ BEGIN
+                    CREATE TYPE account_type AS ENUM ('Internal', 'External');
+                EXCEPTION WHEN duplicate_object THEN NULL;
+                END $$;
+            `);
+            await client.query(`
+                DO $$ BEGIN
+                    CREATE TYPE billing_status AS ENUM ('Billing', 'Non-Billing');
+                EXCEPTION WHEN duplicate_object THEN NULL;
+                END $$;
+            `);
+            await client.query(`
+                DO $$ BEGIN
+                    CREATE TYPE change_type AS ENUM ('CREATED', 'UPDATED', 'DELETED', 'RESTORED');
+                EXCEPTION WHEN duplicate_object THEN NULL;
+                END $$;
+            `);
+
+            // Updated_at trigger function
+            await client.query(`
+                CREATE OR REPLACE FUNCTION update_updated_at_column()
+                RETURNS TRIGGER AS $$
+                BEGIN
+                    NEW.updated_at = CURRENT_TIMESTAMP;
+                    RETURN NEW;
+                END;
+                $$ LANGUAGE plpgsql;
+            `);
+
+            // Tracks table
+            await client.query(`
+                CREATE TABLE IF NOT EXISTS tracks (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    name VARCHAR(50) NOT NULL UNIQUE,
+                    description TEXT,
+                    is_active BOOLEAN DEFAULT true,
+                    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                    created_by UUID
+                )
+            `);
+
+            // Designations table
+            await client.query(`
+                CREATE TABLE IF NOT EXISTS designations (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    name VARCHAR(50) NOT NULL UNIQUE,
+                    level INTEGER,
+                    is_intern_role BOOLEAN DEFAULT false,
+                    is_active BOOLEAN DEFAULT true,
+                    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                    created_by UUID
+                )
+            `);
+
+            // Resources table (employees)
+            await client.query(`
+                CREATE TABLE IF NOT EXISTS resources (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    employee_id VARCHAR(20) NOT NULL,
+                    employee_number VARCHAR(20) NOT NULL,
+                    name VARCHAR(100) NOT NULL,
+                    phone_number VARCHAR(100) NOT NULL,
+                    email VARCHAR(100),
+                    address VARCHAR(500),
+                    designation_id UUID NOT NULL REFERENCES designations(id),
+                    track_id UUID NOT NULL REFERENCES tracks(id),
+                    intern_classification VARCHAR(20),
+                    skills TEXT[] DEFAULT '{}',
+                    date_of_joining DATE,
+                    status resource_status NOT NULL DEFAULT 'Active',
+                    notice_period_end_date DATE,
+                    deleted_at TIMESTAMPTZ,
+                    version INTEGER NOT NULL DEFAULT 1,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    created_by UUID NOT NULL,
+                    updated_by UUID
+                )
+            `);
+
+            // Partial unique indexes for soft delete
+            await client.query(`
+                CREATE UNIQUE INDEX IF NOT EXISTS resources_employee_id_unique 
+                ON resources(employee_id) WHERE deleted_at IS NULL
+            `);
+            await client.query(`
+                CREATE UNIQUE INDEX IF NOT EXISTS resources_employee_number_unique 
+                ON resources(employee_number) WHERE deleted_at IS NULL
+            `);
+
+            // Users table
+            await client.query(`
+                CREATE TABLE IF NOT EXISTS users (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    cognito_user_id VARCHAR(100) NOT NULL UNIQUE,
+                    email VARCHAR(100) NOT NULL UNIQUE,
+                    name VARCHAR(100) NOT NULL,
+                    role user_role NOT NULL DEFAULT 'User',
+                    status user_status NOT NULL DEFAULT 'Active',
+                    resource_id UUID REFERENCES resources(id),
+                    last_login_at TIMESTAMPTZ,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            `);
+
+            // Resource change history
+            await client.query(`
+                CREATE TABLE IF NOT EXISTS resource_change_history (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    resource_id UUID NOT NULL,
+                    change_type change_type NOT NULL,
+                    changed_fields JSONB,
+                    old_values JSONB,
+                    new_values JSONB,
+                    changed_by UUID NOT NULL,
+                    changed_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    notes TEXT
+                )
+            `);
+
+            // Designation change history
+            await client.query(`
+                CREATE TABLE IF NOT EXISTS designation_change_history (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    resource_id UUID NOT NULL REFERENCES resources(id),
+                    old_designation_id UUID REFERENCES designations(id),
+                    new_designation_id UUID REFERENCES designations(id),
+                    effective_date DATE NOT NULL,
+                    changed_by UUID NOT NULL,
+                    changed_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    notes TEXT
+                )
+            `);
+
+            logger.info('Migration 001 completed: Initial schema created');
+        }
+    },
+    {
+        id: '002_clients_projects_allocations',
+        name: 'Clients, Projects, and Allocations Tables',
+        up: async (client) => {
+            // Clients table
+            await client.query(`
+                CREATE TABLE IF NOT EXISTS clients (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    name VARCHAR(100) NOT NULL UNIQUE,
+                    contact_person VARCHAR(100),
+                    contact_email VARCHAR(100),
+                    is_active BOOLEAN DEFAULT true,
+                    deleted_at TIMESTAMPTZ,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    created_by UUID,
+                    updated_by UUID
+                )
+            `);
+
+            // Projects table
+            await client.query(`
+                CREATE TABLE IF NOT EXISTS projects (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    name VARCHAR(100) NOT NULL,
+                    code VARCHAR(20) UNIQUE,
+                    client_id UUID REFERENCES clients(id),
+                    type project_type NOT NULL DEFAULT 'Client',
+                    status project_status NOT NULL DEFAULT 'Active',
+                    billing_status billing_status NOT NULL DEFAULT 'Billing',
+                    start_date DATE,
+                    end_date DATE,
+                    account_manager_id UUID REFERENCES resources(id),
+                    description TEXT,
+                    deleted_at TIMESTAMPTZ,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    created_by UUID,
+                    updated_by UUID
+                )
+            `);
+
+            // Allocations table
+            await client.query(`
+                CREATE TABLE IF NOT EXISTS allocations (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    resource_id UUID NOT NULL REFERENCES resources(id),
+                    project_id UUID NOT NULL REFERENCES projects(id),
+                    allocation_percentage DECIMAL(5,2) NOT NULL CHECK (allocation_percentage >= 0 AND allocation_percentage <= 100),
+                    billing_percentage DECIMAL(5,2) DEFAULT 100 CHECK (billing_percentage >= 0 AND billing_percentage <= 100),
+                    start_date DATE NOT NULL,
+                    end_date DATE,
+                    is_active BOOLEAN DEFAULT true,
+                    notes TEXT,
+                    deleted_at TIMESTAMPTZ,
+                    version INTEGER NOT NULL DEFAULT 1,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    created_by UUID NOT NULL,
+                    updated_by UUID,
+                    CONSTRAINT unique_active_allocation UNIQUE (resource_id, project_id, start_date)
+                )
+            `);
+
+            // Allocation change history
+            await client.query(`
+                CREATE TABLE IF NOT EXISTS allocation_change_history (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    allocation_id UUID NOT NULL,
+                    change_type change_type NOT NULL,
+                    changed_fields JSONB,
+                    old_values JSONB,
+                    new_values JSONB,
+                    changed_by UUID NOT NULL,
+                    changed_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    notes TEXT
+                )
+            `);
+
+            // Indexes
+            await client.query('CREATE INDEX IF NOT EXISTS idx_allocations_resource ON allocations(resource_id)');
+            await client.query('CREATE INDEX IF NOT EXISTS idx_allocations_project ON allocations(project_id)');
+            await client.query('CREATE INDEX IF NOT EXISTS idx_allocations_dates ON allocations(start_date, end_date)');
+            await client.query('CREATE INDEX IF NOT EXISTS idx_projects_client ON projects(client_id)');
+
+            logger.info('Migration 002 completed: Clients, projects, allocations tables created');
+        }
+    },
+    {
+        id: '003_seed_defaults',
+        name: 'Seed Default Data',
+        up: async (client) => {
+            // System user ID for automated operations
+            const systemUserId = '00000000-0000-0000-0000-000000000000';
+
+            // Default tracks
+            const tracks = [
+                { name: 'Engineering', description: 'Software Engineering track' },
+                { name: 'QA', description: 'Quality Assurance track' },
+                { name: 'DevOps', description: 'DevOps and Infrastructure track' },
+                { name: 'Design', description: 'UI/UX Design track' },
+                { name: 'Management', description: 'Project and Product Management' },
+                { name: 'Data', description: 'Data Science and Analytics track' },
+            ];
+
+            for (const track of tracks) {
+                await client.query(`
+                    INSERT INTO tracks (name, description, created_by)
+                    VALUES ($1, $2, $3)
+                    ON CONFLICT (name) DO NOTHING
+                `, [track.name, track.description, systemUserId]);
+            }
+
+            // Default designations
+            const designations = [
+                { name: 'Intern', level: 1, is_intern_role: true },
+                { name: 'Associate Software Engineer', level: 2, is_intern_role: false },
+                { name: 'Software Engineer', level: 3, is_intern_role: false },
+                { name: 'Senior Software Engineer', level: 4, is_intern_role: false },
+                { name: 'Tech Lead', level: 5, is_intern_role: false },
+                { name: 'Engineering Manager', level: 6, is_intern_role: false },
+                { name: 'Associate QA Engineer', level: 2, is_intern_role: false },
+                { name: 'QA Engineer', level: 3, is_intern_role: false },
+                { name: 'Senior QA Engineer', level: 4, is_intern_role: false },
+                { name: 'QA Lead', level: 5, is_intern_role: false },
+            ];
+
+            for (const designation of designations) {
+                await client.query(`
+                    INSERT INTO designations (name, level, is_intern_role, created_by)
+                    VALUES ($1, $2, $3, $4)
+                    ON CONFLICT (name) DO NOTHING
+                `, [designation.name, designation.level, designation.is_intern_role, systemUserId]);
+            }
+
+            // Default Bench project
+            await client.query(`
+                INSERT INTO projects (name, code, type, status, billing_status, description, created_by)
+                VALUES ('Bench', 'BENCH', 'Bench', 'Active', 'Non-Billing', 'Default bench project for unallocated resources', $1)
+                ON CONFLICT (code) DO NOTHING
+            `, [systemUserId]);
+
+            logger.info('Migration 003 completed: Default data seeded');
+        }
+    }
+];
+
+// Migration tracking table
+const ensureMigrationTable = async (client) => {
+    await client.query(`
+        CREATE TABLE IF NOT EXISTS schema_migrations (
+            id SERIAL PRIMARY KEY,
+            migration_id VARCHAR(100) NOT NULL UNIQUE,
+            name VARCHAR(255),
+            executed_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+    `);
+};
+
+const getExecutedMigrations = async (client) => {
+    const result = await client.query('SELECT migration_id FROM schema_migrations ORDER BY id');
+    return result.rows.map(row => row.migration_id);
+};
+
+const recordMigration = async (client, migrationId, name) => {
+    await client.query(
+        'INSERT INTO schema_migrations (migration_id, name) VALUES ($1, $2)',
+        [migrationId, name]
+    );
+};
+
+const removeMigrationRecord = async (client, migrationId) => {
+    await client.query('DELETE FROM schema_migrations WHERE migration_id = $1', [migrationId]);
+};
+
+/**
+ * Run pending migrations
+ */
+export const up = async (event) => {
+    const log = logger.child({ handler: 'migrations.up' });
+    log.info('Starting migration process');
+
+    try {
+        const client = await db.getClient();
+
+        try {
+            await client.query('BEGIN');
+
+            // Ensure migration tracking table exists
+            await ensureMigrationTable(client);
+
+            // Get already executed migrations
+            const executed = await getExecutedMigrations(client);
+            log.info('Already executed migrations', { count: executed.length, migrations: executed });
+
+            // Run pending migrations
+            const pending = migrations.filter(m => !executed.includes(m.id));
+            log.info('Pending migrations', { count: pending.length, migrations: pending.map(m => m.id) });
+
+            const results = [];
+            for (const migration of pending) {
+                log.info(`Running migration: ${migration.id} - ${migration.name}`);
+                await migration.up(client);
+                await recordMigration(client, migration.id, migration.name);
+                results.push({ id: migration.id, name: migration.name, status: 'success' });
+            }
+
+            await client.query('COMMIT');
+            log.info('All migrations completed successfully', { count: results.length });
+
+            return success({
+                message: `Successfully ran ${results.length} migration(s)`,
+                migrations: results,
+            });
+        } catch (err) {
+            await client.query('ROLLBACK');
+            throw err;
+        } finally {
+            client.release();
+        }
+    } catch (err) {
+        log.error('Migration failed', { error: err.message, stack: err.stack });
+        return error(err.message, 500, 'MIGRATION_ERROR');
+    }
+};
+
+/**
+ * Rollback last migration
+ */
+export const down = async (event) => {
+    const log = logger.child({ handler: 'migrations.down' });
+    log.info('Starting rollback process');
+
+    // Note: Rollback not implemented for safety
+    // To rollback, manually connect to the database and revert changes
+    return error(
+        'Rollback not implemented. Please manually revert changes via bastion host.',
+        501,
+        'NOT_IMPLEMENTED'
+    );
+};
+
+/**
+ * Get migration status
+ */
+export const status = async (event) => {
+    const log = logger.child({ handler: 'migrations.status' });
+
+    try {
+        const client = await db.getClient();
+
+        try {
+            // Ensure migration tracking table exists
+            await ensureMigrationTable(client);
+
+            const executed = await getExecutedMigrations(client);
+            const pending = migrations.filter(m => !executed.includes(m.id));
+
+            // Get detailed info
+            const result = await client.query(`
+                SELECT migration_id, name, executed_at 
+                FROM schema_migrations 
+                ORDER BY id
+            `);
+
+            return success({
+                totalMigrations: migrations.length,
+                executedCount: executed.length,
+                pendingCount: pending.length,
+                executed: result.rows,
+                pending: pending.map(m => ({ id: m.id, name: m.name })),
+            });
+        } finally {
+            client.release();
+        }
+    } catch (err) {
+        log.error('Failed to get migration status', { error: err.message });
+        return error(err.message, 500, 'STATUS_ERROR');
+    }
+};
