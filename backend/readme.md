@@ -6,7 +6,7 @@ AWS Serverless **Microservices** backend for the 1BT Resource Management System.
 
 - **Runtime**: Node.js 20.x (APIs), Python 3.11 (Document Generation)
 - **Framework**: Serverless Framework v3
-- **Database**: PostgreSQL 15.x (Amazon RDS)
+- **Database**: PostgreSQL 16 (Amazon RDS)
 - **Authentication**: AWS Cognito
 - **API Gateway**: AWS HTTP API v2
 
@@ -27,73 +27,83 @@ The backend follows a **microservices architecture** with 6 independent services
 
 ```
 backend/
+├── infrastructure/         # Single Serverless stack for all infra
+│   └── serverless.yml      # VPC, RDS, Cognito, API Gateway
+├── shared/                 # Shared Lambda Layer
+│   ├── serverless.yml
+│   └── layers/
 ├── services/               # Independent microservices
 │   ├── auth-service/       # Authentication (7 endpoints)
 │   ├── resource-service/   # Resources (15 endpoints)
 │   ├── project-service/    # Projects & Clients (12 endpoints)
 │   ├── allocation-service/ # Allocations (7 endpoints)
 │   ├── report-service/     # Reports (7 endpoints)
-│   └── document-service/   # Documents (5 endpoints)
-├── shared/                 # Shared code & Lambda Layer
-│   └── layers/common-layer/
-├── infrastructure/         # CloudFormation stacks
-│   ├── api-gateway-stack.yml
-│   ├── cognito-stack.yml
-│   ├── vpc-stack.yml
-│   └── rds-stack.yml
+│   └── document-service/   # Documents (5 endpoints, Python)
 ├── database/               # Migrations & seeds
 ├── tests/                  # Unit & integration tests
 └── deploy.ps1              # Master deployment script
 ```
 
-## Setup
-
-```bash
-# Install dependencies
-npm install
-
-# Run database migrations
-npm run migrate:up
-```
-
 ## Deployment
 
+### Full Deployment (All Services)
+
 ```powershell
-# Deploy everything (infrastructure + all services)
+# Deploy everything (infrastructure → shared layer → all services)
 .\deploy.ps1 -Stage dev -Action deploy
 
-# Deploy specific service
-npm run deploy:auth
-npm run deploy:resource
-npm run deploy:project
-npm run deploy:allocation
-npm run deploy:report
-npm run deploy:document
-
-# Remove all stacks
-.\deploy.ps1 -Stage dev -Action remove
+# Check deployment status
+.\deploy.ps1 -Stage dev -Action status
 ```
 
-## Environment Variables
+### Deploy Specific Service
 
-Copy `.env.example` to `.env` and configure:
+```powershell
+# Deploy only infrastructure
+.\deploy.ps1 -Stage dev -Action deploy -Service infrastructure
 
-| Variable       | Description                  |
-| -------------- | ---------------------------- |
-| `DATABASE_URL` | PostgreSQL connection string |
-| `DB_HOST`      | RDS endpoint                 |
-| `DB_NAME`      | Database name                |
-| `DB_USER`      | Database username            |
-| `DB_PASSWORD`  | Database password            |
+# Deploy only shared layer
+.\deploy.ps1 -Stage dev -Action deploy -Service shared
+
+# Deploy individual microservices
+.\deploy.ps1 -Stage dev -Action deploy -Service auth
+.\deploy.ps1 -Stage dev -Action deploy -Service resource
+.\deploy.ps1 -Stage dev -Action deploy -Service project
+.\deploy.ps1 -Stage dev -Action deploy -Service allocation
+.\deploy.ps1 -Stage dev -Action deploy -Service report
+.\deploy.ps1 -Stage dev -Action deploy -Service document
+```
+
+### Remove Deployment
+
+```powershell
+# Remove everything (reverse order)
+.\deploy.ps1 -Stage dev -Action remove
+
+# Remove specific service
+.\deploy.ps1 -Stage dev -Action remove -Service auth
+```
+
+## Infrastructure Costs (Estimated Monthly)
+
+| Environment | Cost  | Details                                     |
+| ----------- | ----- | ------------------------------------------- |
+| Dev         | ~$12  | RDS db.t3.micro, no NAT Gateway             |
+| QA          | ~$12  | RDS db.t3.micro, no NAT Gateway             |
+| UAT         | ~$56  | RDS db.t3.small + NAT Gateway               |
+| Prod        | ~$160 | RDS Multi-AZ + NAT Multi-AZ + VPC Endpoints |
+
+## Database Migrations
+
+```bash
+npm run migrate:up     # Run pending migrations
+npm run migrate:down   # Rollback last migration
+```
 
 ## Testing
 
 ```bash
-npm test              # Run all tests
-npm run test:unit     # Unit tests only
+npm test                  # Run all tests
+npm run test:unit         # Unit tests only
 npm run test:integration  # Integration tests
 ```
-
-## Documentation
-
-See [MICROSERVICES_ARCHITECTURE.md](./MICROSERVICES_ARCHITECTURE.md) for detailed architecture documentation.

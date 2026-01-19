@@ -5,40 +5,37 @@ frameworkVersion: "3"
 provider:
   name: aws
   runtime: python3.11
-  region: ${opt:region, 'ap-southeast-1'}
   stage: ${opt:stage, 'dev'}
-  memorySize: 512
-  timeout: 60 # Document generation can take time
+  region: ${opt:region, 'ap-southeast-1'}
+  memorySize: 512 # Document generation needs more memory
+  timeout: 60 # PDFs can take time to generate
+  tags:
+    Service: document
+    Project: 1BT-Resource-Management
 
   # VPC Configuration - Required for RDS access
   vpc:
     securityGroupIds:
-      - !ImportValue onebt-rm-${self:provider.stage}-LambdaSecurityGroupId
+      - !ImportValue onebt-${self:provider.stage}-LambdaSecurityGroupId
     subnetIds: !Split
       - ","
-      - !ImportValue onebt-rm-${self:provider.stage}-PrivateSubnetIds
+      - !ImportValue onebt-${self:provider.stage}-PrivateSubnetIds
 
   environment:
     STAGE: ${self:provider.stage}
-    LOG_LEVEL: ${self:custom.logLevel.${self:provider.stage}, 'INFO'}
-    # Database - from RDS stack
-    DB_HOST: !ImportValue onebt-rm-${self:provider.stage}-RDSEndpoint
-    DB_PORT: "5432"
-    DB_NAME: onebt_rm_${self:provider.stage}
-    DB_USER: ${ssm:/onebt-rm/${self:provider.stage}/db/username}
-    DB_PASSWORD: ${ssm:/onebt-rm/${self:provider.stage}/db/password}
-    # S3 bucket for document storage
-    DOCUMENTS_BUCKET: !Ref DocumentsBucket
+    DB_HOST: !ImportValue onebt-${self:provider.stage}-RdsEndpoint
+    DB_PORT: !ImportValue onebt-${self:provider.stage}-RdsPort
+    DB_NAME: !ImportValue onebt-${self:provider.stage}-DbName
+    DB_SECRET_ARN: !ImportValue onebt-${self:provider.stage}-RdsSecretArn
+    S3_BUCKET: !Ref DocumentsBucket
 
   iam:
     role:
       statements:
         - Effect: Allow
           Action:
-            - ssm:GetParameter
-            - ssm:GetParameters
-          Resource:
-            - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/onebt-rm/${self:provider.stage}/*
+            - secretsmanager:GetSecretValue
+          Resource: !ImportValue onebt-${self:provider.stage}-RdsSecretArn
         - Effect: Allow
           Action:
             - s3:PutObject
@@ -47,103 +44,94 @@ provider:
           Resource:
             - !Sub arn:aws:s3:::${DocumentsBucket}/*
 
-custom:
-  logLevel:
-    dev: DEBUG
-    qa: INFO
-    uat: INFO
-    prod: WARNING
-
-  pythonRequirements:
-    dockerizePip: non-linux
-    layer: true
-    slim: true
-    slimPatternsAppendDefaults: false
+  httpApi:
+    id: !ImportValue onebt-${self:provider.stage}-HttpApiId
 
 plugins:
   - serverless-python-requirements
+  - serverless-offline
+
+custom:
+  pythonRequirements:
+    dockerizePip: non-linux
+    slim: true
+    strip: false
+    noDeploy:
+      - pytest
+      - boto3 # Already in Lambda runtime
+
+  authorizer:
+    type: jwt
+    id: !ImportValue onebt-${self:provider.stage}-CognitoAuthorizerId
 
 package:
   individually: true
   patterns:
-    - "!**/*"
-    - "src/**"
-    - "!src/**/__pycache__/**"
-    - "!.pytest_cache/**"
+    - "!.git/**"
+    - "!.gitignore"
+    - "!*.md"
     - "!tests/**"
+    - "!requirements-dev.txt"
+    - "src/**"
 
 functions:
-  # ==================== EXCEL GENERATION ====================
-  generateExcelReport:
-    handler: src/handlers/excel_handler.generate_report
-    description: Generate Excel report from data
+  # ==================== DOCUMENT GENERATION ====================
+  generatePdf:
+    handler: src/handlers/documents.generate_pdf
+    description: Generate PDF report
     events:
       - httpApi:
-          path: /documents/excel/generate
+          path: /api/v1/documents/pdf
           method: POST
-          authorizer:
-            type: jwt
-            id: !ImportValue onebt-rm-${self:provider.stage}-CognitoAuthorizerId
-    layers:
-      - Ref: PythonRequirementsLambdaLayer
+          authorizer: ${self:custom.authorizer}
 
-  generateAllocationExcel:
-    handler: src/handlers/excel_handler.generate_allocation_report
-    description: Generate allocation report in Excel
+  generateExcel:
+    handler: src/handlers/documents.generate_excel
+    description: Generate Excel report
     events:
       - httpApi:
-          path: /documents/excel/allocations
+          path: /api/v1/documents/excel
           method: POST
-          authorizer:
-            type: jwt
-            id: !ImportValue onebt-rm-${self:provider.stage}-CognitoAuthorizerId
-    layers:
-      - Ref: PythonRequirementsLambdaLayer
+          authorizer: ${self:custom.authorizer}
 
-  generateBenchExcel:
-    handler: src/handlers/excel_handler.generate_bench_report
-    description: Generate bench report in Excel
+  getDocument:
+    handler: src/handlers/documents.get_document
+    description: Get a generated document
     events:
       - httpApi:
-          path: /documents/excel/bench
-          method: POST
-          authorizer:
-            type: jwt
-            id: !ImportValue onebt-rm-${self:provider.stage}-CognitoAuthorizerId
-    layers:
-      - Ref: PythonRequirementsLambdaLayer
+          path: /api/v1/documents/{id}
+          method: GET
+          authorizer: ${self:custom.authorizer}
 
-  # ==================== PDF GENERATION ====================
-  generatePdfReport:
-    handler: src/handlers/pdf_handler.generate_report
-    description: Generate PDF report from data
+  listDocuments:
+    handler: src/handlers/documents.list_documents
+    description: List generated documents
     events:
       - httpApi:
-          path: /documents/pdf/generate
-          method: POST
-          authorizer:
-            type: jwt
-            id: !ImportValue onebt-rm-${self:provider.stage}-CognitoAuthorizerId
-    layers:
-      - Ref: PythonRequirementsLambdaLayer
+          path: /api/v1/documents
+          method: GET
+          authorizer: ${self:custom.authorizer}
 
-  # ==================== SCHEDULED REPORTS ====================
-  scheduledWeeklyReport:
-    handler: src/handlers/scheduled_handler.weekly_report
-    description: Generate and email weekly reports
+  deleteDocument:
+    handler: src/handlers/documents.delete_document
+    description: Delete a generated document
     events:
-      - schedule:
-          rate: cron(0 8 ? * MON *) # Every Monday at 8 AM UTC
-          enabled: ${self:custom.enableScheduled.${self:provider.stage}, false}
-    layers:
-      - Ref: PythonRequirementsLambdaLayer
+      - httpApi:
+          path: /api/v1/documents/{id}
+          method: DELETE
+          authorizer: ${self:custom.authorizer}
 
 resources:
   Resources:
+    # S3 Bucket for generated documents
     DocumentsBucket:
       Type: AWS::S3::Bucket
       Properties:
-        BucketName: onebt-rm-${self:provider.stage}-documents-${aws:accountId}
+        BucketName: onebt-documents-${self:provider.stage}-${aws:accountId}
+        BucketEncryption:
+          ServerSideEncryptionConfiguration:
+            - ServerSideEncryptionByDefault:
+                SSEAlgorithm: AES256
         PublicAccessBlockConfiguration:
           BlockPublicAcls: true
           BlockPublicPolicy: true
@@ -151,27 +139,18 @@ resources:
           RestrictPublicBuckets: true
         LifecycleConfiguration:
           Rules:
-            - Id: DeleteTempFiles
-              Prefix: temp/
+            - Id: DeleteOldDocuments
               Status: Enabled
-              ExpirationInDays: 1
-            - Id: DeleteOldReports
-              Prefix: reports/
-              Status: Enabled
-              ExpirationInDays: 30
-        BucketEncryption:
-          ServerSideEncryptionConfiguration:
-            - ServerSideEncryptionByDefault:
-                SSEAlgorithm: AES256
+              ExpirationInDays: 30 # Auto-delete documents after 30 days
         Tags:
           - Key: Environment
             Value: ${self:provider.stage}
           - Key: Project
-            Value: onebt-rm
+            Value: 1BT-Resource-Management
 
   Outputs:
     DocumentsBucketName:
-      Description: Documents S3 Bucket Name
+      Description: Documents S3 bucket name
       Value: !Ref DocumentsBucket
       Export:
-        Name: onebt-rm-${self:provider.stage}-DocumentsBucket
+        Name: onebt-${self:provider.stage}-DocumentsBucket

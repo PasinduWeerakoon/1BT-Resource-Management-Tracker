@@ -4,7 +4,7 @@
 
 .DESCRIPTION
     Deploys all infrastructure and microservices in the correct order.
-    Supports incremental deployment and rollback capabilities.
+    Uses a single infrastructure stack for VPC, RDS, Cognito, and API Gateway.
 
 .PARAMETER Stage
     Deployment stage: dev, qa, uat, prod
@@ -14,11 +14,13 @@
 
 .PARAMETER Service
     Specific service to deploy (optional, deploys all if not specified)
+    Options: infrastructure, shared, auth, resource, project, allocation, report, document
 
 .EXAMPLE
     .\deploy.ps1 -Stage dev -Action deploy
-    .\deploy.ps1 -Stage dev -Action deploy -Service auth-service
+    .\deploy.ps1 -Stage dev -Action deploy -Service auth
     .\deploy.ps1 -Stage dev -Action remove
+    .\deploy.ps1 -Stage dev -Action status
 #>
 
 param(
@@ -31,6 +33,7 @@ param(
     [string]$Action = "deploy",
     
     [Parameter(Mandatory=$false)]
+    [ValidateSet("", "infrastructure", "shared", "auth", "resource", "project", "allocation", "report", "document")]
     [string]$Service = "",
     
     [Parameter(Mandatory=$false)]
@@ -41,90 +44,57 @@ $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 # Colors for output
-function Write-Success { param($msg) Write-Host "✅ $msg" -ForegroundColor Green }
-function Write-Info { param($msg) Write-Host "ℹ️  $msg" -ForegroundColor Cyan }
-function Write-Warn { param($msg) Write-Host "⚠️  $msg" -ForegroundColor Yellow }
-function Write-Err { param($msg) Write-Host "❌ $msg" -ForegroundColor Red }
+function Write-Success { param($msg) Write-Host "[OK] $msg" -ForegroundColor Green }
+function Write-Info { param($msg) Write-Host "[INFO] $msg" -ForegroundColor Cyan }
+function Write-Warn { param($msg) Write-Host "[WARN] $msg" -ForegroundColor Yellow }
+function Write-Err { param($msg) Write-Host "[ERROR] $msg" -ForegroundColor Red }
+function Write-Step { param($msg) Write-Host "`n=== $msg ===" -ForegroundColor Magenta }
 
-# Deployment order (dependencies first)
-$InfrastructureStacks = @(
-    @{ Name = "vpc-stack"; Path = "infrastructure/vpc-stack.yml"; Type = "cfn" },
-    @{ Name = "rds-stack"; Path = "infrastructure/rds-stack.yml"; Type = "cfn" },
-    @{ Name = "cognito-stack"; Path = "infrastructure/cognito-stack.yml"; Type = "cfn" },
-    @{ Name = "api-gateway-stack"; Path = "infrastructure/api-gateway-stack.yml"; Type = "cfn" }
-)
-
-$SharedLayer = @{
-    Name = "shared-layer"
-    Path = "shared"
-    Type = "serverless"
+# Service definitions
+$Services = [ordered]@{
+    "infrastructure" = @{ Path = "infrastructure"; Description = "VPC, RDS, Cognito, API Gateway" }
+    "shared"         = @{ Path = "shared"; Description = "Shared Lambda Layer" }
+    "auth"           = @{ Path = "services/auth-service"; Description = "Authentication Service" }
+    "resource"       = @{ Path = "services/resource-service"; Description = "Resource Management Service" }
+    "project"        = @{ Path = "services/project-service"; Description = "Project & Client Service" }
+    "allocation"     = @{ Path = "services/allocation-service"; Description = "Allocation Service" }
+    "report"         = @{ Path = "services/report-service"; Description = "Reporting Service" }
+    "document"       = @{ Path = "services/document-service"; Description = "Document Generation Service (Python)" }
 }
 
-$Microservices = @(
-    @{ Name = "auth-service"; Path = "services/auth-service"; Type = "serverless" },
-    @{ Name = "resource-service"; Path = "services/resource-service"; Type = "serverless" },
-    @{ Name = "project-service"; Path = "services/project-service"; Type = "serverless" },
-    @{ Name = "allocation-service"; Path = "services/allocation-service"; Type = "serverless" },
-    @{ Name = "report-service"; Path = "services/report-service"; Type = "serverless" },
-    @{ Name = "document-service"; Path = "services/document-service"; Type = "serverless" }
-)
-
-function Test-AwsCli {
+function Test-Prerequisites {
+    Write-Step "Checking Prerequisites"
+    
+    # Check AWS CLI
     try {
-        $null = aws --version 2>&1
-        return $true
+        $awsVersion = aws --version 2>&1
+        Write-Success "AWS CLI: $awsVersion"
     } catch {
-        return $false
+        Write-Err "AWS CLI not found. Please install it: https://aws.amazon.com/cli/"
+        exit 1
     }
-}
-
-function Test-Serverless {
+    
+    # Check Serverless Framework
     try {
-        $null = npx serverless --version 2>&1
-        return $true
+        $slsVersion = npx serverless --version 2>&1 | Select-Object -First 1
+        Write-Success "Serverless Framework: $slsVersion"
     } catch {
-        return $false
+        Write-Err "Serverless Framework not found. Run: npm install -g serverless"
+        exit 1
+    }
+    
+    # Check AWS credentials
+    try {
+        $identity = aws sts get-caller-identity --output json | ConvertFrom-Json
+        Write-Success "AWS Account: $($identity.Account)"
+        Write-Success "AWS User/Role: $($identity.Arn)"
+    } catch {
+        Write-Err "AWS credentials not configured. Run: aws configure"
+        exit 1
     }
 }
 
-function Deploy-CloudFormationStack {
-    param(
-        [string]$StackName,
-        [string]$TemplatePath,
-        [string]$Stage,
-        [string]$Region
-    )
-    
-    $fullStackName = "onebt-rm-$Stage-$StackName".Replace("-stack", "")
-    $fullTemplatePath = Join-Path $ScriptDir $TemplatePath
-    $parametersFile = Join-Path $ScriptDir "infrastructure/parameters/$Stage.yml"
-    
-    Write-Info "Deploying CloudFormation stack: $fullStackName"
-    
-    $cmd = "aws cloudformation deploy " +
-           "--template-file `"$fullTemplatePath`" " +
-           "--stack-name $fullStackName " +
-           "--parameter-overrides Environment=$Stage " +
-           "--capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM " +
-           "--region $Region " +
-           "--no-fail-on-empty-changeset"
-    
-    if (Test-Path $parametersFile) {
-        Write-Info "Using parameters from: $parametersFile"
-    }
-    
-    Invoke-Expression $cmd
-    
-    if ($LASTEXITCODE -eq 0) {
-        Write-Success "Stack $fullStackName deployed successfully"
-        return $true
-    } else {
-        Write-Err "Failed to deploy stack $fullStackName"
-        return $false
-    }
-}
-
-function Deploy-ServerlessService {
+function Deploy-Service {
     param(
         [string]$ServiceName,
         [string]$ServicePath,
@@ -134,58 +104,34 @@ function Deploy-ServerlessService {
     
     $fullPath = Join-Path $ScriptDir $ServicePath
     
-    Write-Info "Deploying Serverless service: $ServiceName"
+    if (-not (Test-Path $fullPath)) {
+        Write-Err "Service path not found: $fullPath"
+        return $false
+    }
+    
+    Write-Info "Deploying $ServiceName from $ServicePath..."
     
     Push-Location $fullPath
-    
     try {
-        # Install dependencies if needed
-        if (Test-Path "package.json") {
-            if (-not (Test-Path "node_modules")) {
-                Write-Info "Installing npm dependencies..."
-                npm install
-            }
-        }
+        $result = npx serverless deploy --stage $Stage --region $Region --verbose 2>&1
+        Write-Host $result
         
-        # Deploy
-        $cmd = "npx serverless deploy --stage $Stage --region $Region"
-        Invoke-Expression $cmd
-        
-        if ($LASTEXITCODE -eq 0) {
-            Write-Success "Service $ServiceName deployed successfully"
-            return $true
-        } else {
-            Write-Err "Failed to deploy service $ServiceName"
+        if ($LASTEXITCODE -ne 0) {
+            Write-Err "Deployment failed for $ServiceName"
             return $false
         }
-    } finally {
+        
+        Write-Success "$ServiceName deployed successfully"
+        return $true
+    }
+    finally {
         Pop-Location
     }
 }
 
-function Remove-CloudFormationStack {
+function Remove-Service {
     param(
-        [string]$StackName,
-        [string]$Stage,
-        [string]$Region
-    )
-    
-    $fullStackName = "onebt-rm-$Stage-$StackName".Replace("-stack", "")
-    
-    Write-Warn "Removing CloudFormation stack: $fullStackName"
-    
-    aws cloudformation delete-stack --stack-name $fullStackName --region $Region
-    
-    Write-Info "Waiting for stack deletion..."
-    aws cloudformation wait stack-delete-complete --stack-name $fullStackName --region $Region
-    
-    if ($LASTEXITCODE -eq 0) {
-        Write-Success "Stack $fullStackName removed"
-    }
-}
-
-function Remove-ServerlessService {
-    param(
+        [string]$ServiceName,
         [string]$ServicePath,
         [string]$Stage,
         [string]$Region
@@ -193,171 +139,162 @@ function Remove-ServerlessService {
     
     $fullPath = Join-Path $ScriptDir $ServicePath
     
-    Push-Location $fullPath
+    if (-not (Test-Path $fullPath)) {
+        Write-Warn "Service path not found: $fullPath (may already be removed)"
+        return $true
+    }
     
+    Write-Info "Removing $ServiceName..."
+    
+    Push-Location $fullPath
     try {
-        npx serverless remove --stage $Stage --region $Region
-    } finally {
+        $result = npx serverless remove --stage $Stage --region $Region 2>&1
+        Write-Host $result
+        
+        Write-Success "$ServiceName removed"
+        return $true
+    }
+    catch {
+        Write-Warn "Error removing $ServiceName (may not exist): $_"
+        return $true
+    }
+    finally {
         Pop-Location
     }
 }
 
-function Get-DeploymentStatus {
-    param([string]$Stage, [string]$Region)
+function Get-ServiceStatus {
+    param(
+        [string]$ServiceName,
+        [string]$ServicePath,
+        [string]$Stage,
+        [string]$Region
+    )
     
-    Write-Info "Checking deployment status for stage: $Stage"
-    Write-Host ""
+    $fullPath = Join-Path $ScriptDir $ServicePath
     
-    Write-Host "=== Infrastructure Stacks ===" -ForegroundColor Cyan
-    foreach ($stack in $InfrastructureStacks) {
-        $fullStackName = "onebt-rm-$Stage-$($stack.Name)".Replace("-stack", "")
-        $status = aws cloudformation describe-stacks --stack-name $fullStackName --region $Region 2>&1
-        
-        if ($LASTEXITCODE -eq 0) {
-            $statusObj = $status | ConvertFrom-Json
-            $stackStatus = $statusObj.Stacks[0].StackStatus
-            Write-Host "  $fullStackName : $stackStatus" -ForegroundColor Green
-        } else {
-            Write-Host "  $fullStackName : NOT DEPLOYED" -ForegroundColor Yellow
-        }
+    if (-not (Test-Path $fullPath)) {
+        Write-Warn "$ServiceName - Path not found"
+        return
     }
     
-    Write-Host ""
-    Write-Host "=== Microservices ===" -ForegroundColor Cyan
-    
-    # Check shared layer
-    Write-Host "  onebt-shared-layer : " -NoNewline
-    $layerCheck = aws lambda list-layer-versions --layer-name onebt-shared-layer --region $Region 2>&1
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host "DEPLOYED" -ForegroundColor Green
-    } else {
-        Write-Host "NOT DEPLOYED" -ForegroundColor Yellow
-    }
-    
-    foreach ($svc in $Microservices) {
-        $stackName = "onebt-$($svc.Name)-$Stage"
-        $status = aws cloudformation describe-stacks --stack-name $stackName --region $Region 2>&1
-        
-        Write-Host "  $stackName : " -NoNewline
+    Push-Location $fullPath
+    try {
+        $result = npx serverless info --stage $Stage --region $Region 2>&1
         if ($LASTEXITCODE -eq 0) {
-            Write-Host "DEPLOYED" -ForegroundColor Green
+            Write-Success "$ServiceName - Deployed"
+            Write-Host $result
         } else {
-            Write-Host "NOT DEPLOYED" -ForegroundColor Yellow
+            Write-Warn "$ServiceName - Not deployed"
         }
+    }
+    catch {
+        Write-Warn "$ServiceName - Not deployed or error getting status"
+    }
+    finally {
+        Pop-Location
     }
 }
 
 # Main execution
-Write-Host ""
-Write-Host "==========================================" -ForegroundColor Cyan
-Write-Host "  1BT Resource Management Deployment" -ForegroundColor Cyan
-Write-Host "==========================================" -ForegroundColor Cyan
-Write-Host "  Stage:  $Stage" -ForegroundColor White
-Write-Host "  Action: $Action" -ForegroundColor White
-Write-Host "  Region: $Region" -ForegroundColor White
+Write-Host "`n"
+Write-Host "========================================" -ForegroundColor Blue
+Write-Host "  1BT Resource Management Deployment" -ForegroundColor Blue
+Write-Host "========================================" -ForegroundColor Blue
+Write-Host "Stage:  $Stage" -ForegroundColor White
+Write-Host "Action: $Action" -ForegroundColor White
+Write-Host "Region: $Region" -ForegroundColor White
 if ($Service) {
-    Write-Host "  Service: $Service" -ForegroundColor White
+    Write-Host "Service: $Service" -ForegroundColor White
 }
-Write-Host "==========================================" -ForegroundColor Cyan
 Write-Host ""
 
-# Verify prerequisites
-if (-not (Test-AwsCli)) {
-    Write-Err "AWS CLI is not installed or not in PATH"
-    exit 1
+Test-Prerequisites
+
+# Determine which services to process
+if ($Service) {
+    $servicesToProcess = @{ $Service = $Services[$Service] }
+} else {
+    $servicesToProcess = $Services
 }
 
-if ($Action -eq "status") {
-    Get-DeploymentStatus -Stage $Stage -Region $Region
-    exit 0
-}
-
-if ($Action -eq "deploy") {
-    # Production confirmation
-    if ($Stage -eq "prod") {
-        Write-Warn "You are about to deploy to PRODUCTION!"
-        $confirm = Read-Host "Type 'yes' to confirm"
-        if ($confirm -ne "yes") {
-            Write-Info "Deployment cancelled"
-            exit 0
-        }
-    }
-    
-    $startTime = Get-Date
-    
-    if (-not $Service) {
-        # Full deployment
+# Execute action
+switch ($Action) {
+    "deploy" {
+        Write-Step "Starting Deployment"
         
-        # 1. Deploy infrastructure (if not exists)
-        Write-Host ""
-        Write-Host "=== Phase 1: Infrastructure ===" -ForegroundColor Magenta
-        foreach ($stack in $InfrastructureStacks) {
-            if (-not (Deploy-CloudFormationStack -StackName $stack.Name -TemplatePath $stack.Path -Stage $Stage -Region $Region)) {
-                Write-Err "Infrastructure deployment failed. Aborting."
-                exit 1
+        $failed = @()
+        foreach ($svc in $servicesToProcess.GetEnumerator()) {
+            Write-Step "Deploying: $($svc.Key) - $($svc.Value.Description)"
+            
+            $success = Deploy-Service -ServiceName $svc.Key -ServicePath $svc.Value.Path -Stage $Stage -Region $Region
+            
+            if (-not $success) {
+                $failed += $svc.Key
+                Write-Err "Deployment stopped due to failure in $($svc.Key)"
+                break
             }
         }
         
-        # 2. Deploy shared layer
-        Write-Host ""
-        Write-Host "=== Phase 2: Shared Layer ===" -ForegroundColor Magenta
-        if (-not (Deploy-ServerlessService -ServiceName $SharedLayer.Name -ServicePath $SharedLayer.Path -Stage $Stage -Region $Region)) {
-            Write-Err "Shared layer deployment failed. Aborting."
-            exit 1
-        }
-        
-        # 3. Deploy microservices
-        Write-Host ""
-        Write-Host "=== Phase 3: Microservices ===" -ForegroundColor Magenta
-        foreach ($svc in $Microservices) {
-            if (-not (Deploy-ServerlessService -ServiceName $svc.Name -ServicePath $svc.Path -Stage $Stage -Region $Region)) {
-                Write-Err "Service $($svc.Name) deployment failed. Continuing with next service."
+        Write-Host "`n"
+        if ($failed.Count -eq 0) {
+            Write-Success "All services deployed successfully!"
+            
+            # Get API endpoint
+            try {
+                $apiEndpoint = aws cloudformation describe-stacks `
+                    --stack-name onebt-infrastructure-$Stage `
+                    --query "Stacks[0].Outputs[?OutputKey=='HttpApiEndpoint'].OutputValue" `
+                    --output text `
+                    --region $Region 2>$null
+                
+                if ($apiEndpoint) {
+                    Write-Host "`nAPI Endpoint: $apiEndpoint" -ForegroundColor Green
+                }
+            } catch {
+                # Ignore errors getting endpoint
             }
-        }
-    } else {
-        # Single service deployment
-        $targetService = $Microservices | Where-Object { $_.Name -eq $Service }
-        if ($targetService) {
-            Deploy-ServerlessService -ServiceName $targetService.Name -ServicePath $targetService.Path -Stage $Stage -Region $Region
         } else {
-            Write-Err "Service '$Service' not found"
-            Write-Info "Available services: $($Microservices.Name -join ', ')"
+            Write-Err "Deployment failed. Failed services: $($failed -join ', ')"
             exit 1
         }
     }
     
-    $endTime = Get-Date
-    $duration = $endTime - $startTime
+    "remove" {
+        Write-Step "Starting Removal (Reverse Order)"
+        
+        if (-not $Service) {
+            Write-Warn "This will remove ALL services and infrastructure for stage: $Stage"
+            $confirm = Read-Host "Are you sure? (yes/no)"
+            if ($confirm -ne "yes") {
+                Write-Info "Removal cancelled"
+                exit 0
+            }
+        }
+        
+        # Remove in reverse order (services first, then infrastructure)
+        $reverseOrder = @($servicesToProcess.Keys)
+        [Array]::Reverse($reverseOrder)
+        
+        foreach ($svcName in $reverseOrder) {
+            $svc = $servicesToProcess[$svcName]
+            Write-Step "Removing: $svcName"
+            Remove-Service -ServiceName $svcName -ServicePath $svc.Path -Stage $Stage -Region $Region
+        }
+        
+        Write-Success "Removal complete!"
+    }
     
-    Write-Host ""
-    Write-Success "Deployment completed in $($duration.TotalMinutes.ToString('F1')) minutes"
+    "status" {
+        Write-Step "Checking Deployment Status"
+        
+        foreach ($svc in $servicesToProcess.GetEnumerator()) {
+            Get-ServiceStatus -ServiceName $svc.Key -ServicePath $svc.Value.Path -Stage $Stage -Region $Region
+            Write-Host ""
+        }
+    }
 }
 
-if ($Action -eq "remove") {
-    Write-Warn "This will remove all resources for stage: $Stage"
-    $confirm = Read-Host "Type 'yes' to confirm"
-    
-    if ($confirm -ne "yes") {
-        Write-Info "Removal cancelled"
-        exit 0
-    }
-    
-    # Remove in reverse order
-    Write-Host "=== Removing Microservices ===" -ForegroundColor Magenta
-    foreach ($svc in $Microservices) {
-        Remove-ServerlessService -ServicePath $svc.Path -Stage $Stage -Region $Region
-    }
-    
-    Write-Host "=== Removing Shared Layer ===" -ForegroundColor Magenta
-    Remove-ServerlessService -ServicePath $SharedLayer.Path -Stage $Stage -Region $Region
-    
-    Write-Host "=== Removing Infrastructure ===" -ForegroundColor Magenta
-    $reversedInfra = $InfrastructureStacks | ForEach-Object { $_ } | Sort-Object { [array]::IndexOf($InfrastructureStacks, $_) } -Descending
-    foreach ($stack in $reversedInfra) {
-        Remove-CloudFormationStack -StackName $stack.Name -Stage $Stage -Region $Region
-    }
-    
-    Write-Success "All resources removed for stage: $Stage"
-}
-
-Write-Host ""
+Write-Host "`n========================================" -ForegroundColor Blue
+Write-Host "  Deployment Complete" -ForegroundColor Blue
+Write-Host "========================================`n" -ForegroundColor Blue

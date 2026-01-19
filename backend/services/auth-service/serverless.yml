@@ -9,13 +9,14 @@ provider:
   region: ${opt:region, 'ap-southeast-1'}
   memorySize: 256
   timeout: 30
+  tags:
+    Service: auth
+    Project: 1BT-Resource-Management
 
   environment:
     NODE_ENV: ${self:provider.stage}
-    COGNITO_USER_POOL_ID:
-      Fn::ImportValue: onebt-rm-${self:provider.stage}-CognitoUserPoolId
-    COGNITO_CLIENT_ID:
-      Fn::ImportValue: onebt-rm-${self:provider.stage}-CognitoClientId
+    COGNITO_USER_POOL_ID: !ImportValue onebt-${self:provider.stage}-CognitoUserPoolId
+    COGNITO_CLIENT_ID: !ImportValue onebt-${self:provider.stage}-CognitoClientId
 
   iam:
     role:
@@ -27,21 +28,20 @@ provider:
             - cognito-idp:AdminRespondToAuthChallenge
             - cognito-idp:AdminGetUser
             - cognito-idp:AdminAddUserToGroup
+            - cognito-idp:AdminSetUserPassword
             - cognito-idp:GlobalSignOut
             - cognito-idp:ForgotPassword
             - cognito-idp:ConfirmForgotPassword
-          Resource:
-            Fn::ImportValue: onebt-rm-${self:provider.stage}-CognitoUserPoolArn
+          Resource: !ImportValue onebt-${self:provider.stage}-CognitoUserPoolArn
 
-  # NO VPC - Auth service doesn't need database access
-  # Uses Cognito only, faster cold starts
+  # NO VPC - Auth service uses Cognito only, no database access needed
+  # This gives faster cold starts
 
   httpApi:
-    id:
-      Fn::ImportValue: onebt-api-gateway-id-${self:provider.stage}
+    id: !ImportValue onebt-${self:provider.stage}-HttpApiId
 
 layers:
-  - Fn::ImportValue: onebt-shared-layer-${self:provider.stage}-arn
+  - !ImportValue onebt-shared-layer-${self:provider.stage}-arn
 
 plugins:
   - serverless-offline
@@ -53,6 +53,7 @@ package:
     - "!.gitignore"
     - "!*.md"
     - "!tests/**"
+    - "src/**"
 
 functions:
   # ============================================
@@ -122,8 +123,7 @@ functions:
           method: POST
           authorizer:
             type: jwt
-            id:
-              Fn::ImportValue: onebt-cognito-authorizer-id-${self:provider.stage}
+            id: !ImportValue onebt-${self:provider.stage}-CognitoAuthorizerId
 
   # ============================================
   # COMPLETE INVITE - Public endpoint

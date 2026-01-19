@@ -1,40 +1,54 @@
-# =====================================================
-# UAT Environment Configuration
-# =====================================================
+# ==============================================
+# UAT Environment Parameters
+# ==============================================
+# Cost Estimate: ~$56/month (RDS + NAT Gateway)
+# ==============================================
 
-# Environment
-NODE_ENV: uat
-LOG_LEVEL: info
+# Network Configuration
+vpc:
+  cidr: "10.2.0.0/16"
+  publicSubnet1Cidr: "10.2.1.0/24"
+  publicSubnet2Cidr: "10.2.2.0/24"
+  privateSubnet1Cidr: "10.2.10.0/24"
+  privateSubnet2Cidr: "10.2.11.0/24"
+  databaseSubnet1Cidr: "10.2.20.0/24"
+  databaseSubnet2Cidr: "10.2.21.0/24"
 
-# Database Configuration
-DATABASE_HOST: ${cf:1bt-rds-uat.RDSEndpoint}
-DATABASE_PORT: 5432
-DATABASE_NAME: resource_management_uat
-DATABASE_USER: dbadmin
-DATABASE_PASSWORD: ${ssm:/1bt/uat/db-password}
+# NAT Gateway (enabled for UAT)
+natGateway:
+  enabled: true # ~$32/month
+  multiAz: false # Single NAT to save cost
 
-# VPC Configuration
-VPC_ID: ${cf:1bt-vpc-uat.VPCId}
-SUBNET_IDS:
-  - ${cf:1bt-vpc-uat.PrivateSubnet1Id}
-  - ${cf:1bt-vpc-uat.PrivateSubnet2Id}
+# RDS Database Configuration
+database:
+  instanceClass: db.t3.small # ~$24/month
+  allocatedStorage: 30 # GB
+  maxAllocatedStorage: 100 # GB (auto-scaling limit)
+  backupRetentionDays: 7
+  multiAz: false
+  deletionProtection: true # Protect UAT data
+  performanceInsights: false
+  monitoringInterval: 0 # 0 = disabled
 
-# Security Group
-LAMBDA_SECURITY_GROUP: ${cf:1bt-vpc-uat.LambdaSecurityGroupId}
+# Cognito Configuration
+cognito:
+  passwordMinLength: 12
+  passwordRequireUppercase: true
+  passwordRequireLowercase: true
+  passwordRequireNumbers: true
+  passwordRequireSymbols: true
+  tempPasswordValidityDays: 7
+  accessTokenValidityHours: 1
+  idTokenValidityHours: 1
+  refreshTokenValidityDays: 30
 
-# Encryption Key
-ENCRYPTION_KEY: ${ssm:/1bt/uat/encryption-key}
+# API Gateway Configuration
+apiGateway:
+  throttlingBurstLimit: 1000
+  throttlingRateLimit: 500
+  corsMaxAge: 86400
 
-# RDS Scheduler (enabled for UAT)
-RDS_SCHEDULER_ENABLED: true
-RDS_INSTANCE_ID: ${cf:1bt-rds-uat.RDSInstanceId}
-
-# Log Retention (days)
-LOG_RETENTION_DAYS: 30
-
-# CORS Origins
-CORS_ORIGINS: 'https://uat.1bt-resource.com'
-
-# Rate Limiting
-RATE_LIMIT_MAX: 200
-RATE_LIMIT_WINDOW: 60
+# Feature Flags
+features:
+  vpcEndpoints: false # Disable VPC endpoints to save cost
+  autoShutdown: false # Keep UAT running for testing

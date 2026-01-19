@@ -1,0 +1,757 @@
+service: onebt-infrastructure
+
+frameworkVersion: "3"
+
+provider:
+  name: aws
+  region: ${opt:region, 'ap-southeast-1'}
+  stage: ${opt:stage, 'dev'}
+  stackName: onebt-infrastructure-${self:provider.stage}
+  tags:
+    Project: 1BT-Resource-Management
+    Environment: ${self:provider.stage}
+    ManagedBy: Serverless
+
+# No Lambda functions - this is infrastructure only
+# Use "resources" section for CloudFormation resources
+
+custom:
+  # Load environment-specific parameters from external files
+  params: ${file(./parameters/${self:provider.stage}.yml)}
+
+  # Shorthand references to loaded parameters
+  vpc: ${self:custom.params.vpc}
+  natGateway: ${self:custom.params.natGateway}
+  database: ${self:custom.params.database}
+  cognito: ${self:custom.params.cognito}
+  apiGateway: ${self:custom.params.apiGateway}
+  features: ${self:custom.params.features}
+
+resources:
+  Description: |
+    1BT Resource Management - Complete Infrastructure Stack
+    VPC, RDS, Cognito, API Gateway - All in One
+
+    MONTHLY COST ESTIMATES:
+    - Dev: ~$12 (RDS only, no NAT)
+    - QA: ~$12 (RDS only, no NAT)
+    - UAT: ~$56 (RDS + NAT)
+    - Prod: ~$160 (RDS Multi-AZ + NAT Multi-AZ + VPC Endpoints)
+
+  Conditions:
+    # NAT Gateway conditions
+    CreateNatGateway:
+      Fn::Equals:
+        - ${self:custom.natGateway.enabled}
+        - true
+
+    CreateMultiAzNat:
+      Fn::And:
+        - Condition: CreateNatGateway
+        - Fn::Equals:
+            - ${self:custom.natGateway.multiAz}
+            - true
+
+    # VPC Endpoints condition
+    CreateVpcEndpoints:
+      Fn::Equals:
+        - ${self:custom.features.vpcEndpoints}
+        - true
+
+    # Environment conditions
+    IsProd:
+      Fn::Equals:
+        - ${self:provider.stage}
+        - prod
+
+    IsDevOrQa:
+      Fn::Or:
+        - Fn::Equals:
+            - ${self:provider.stage}
+            - dev
+        - Fn::Equals:
+            - ${self:provider.stage}
+            - qa
+
+  Resources:
+    # ================================================================
+    # VPC & NETWORKING
+    # ================================================================
+
+    VPC:
+      Type: AWS::EC2::VPC
+      Properties:
+        CidrBlock: ${self:custom.vpc.cidr}
+        EnableDnsHostnames: true
+        EnableDnsSupport: true
+        InstanceTenancy: default
+        Tags:
+          - Key: Name
+            Value: onebt-vpc-${self:provider.stage}
+          - Key: Environment
+            Value: ${self:provider.stage}
+
+    InternetGateway:
+      Type: AWS::EC2::InternetGateway
+      Properties:
+        Tags:
+          - Key: Name
+            Value: onebt-igw-${self:provider.stage}
+
+    InternetGatewayAttachment:
+      Type: AWS::EC2::VPCGatewayAttachment
+      Properties:
+        VpcId: !Ref VPC
+        InternetGatewayId: !Ref InternetGateway
+
+    # ================================================================
+    # SUBNETS
+    # ================================================================
+
+    # Public Subnets (for NAT Gateway, Bastion if needed)
+    PublicSubnet1:
+      Type: AWS::EC2::Subnet
+      Properties:
+        VpcId: !Ref VPC
+        CidrBlock: ${self:custom.vpc.publicSubnet1Cidr}
+        AvailabilityZone: !Select [0, !GetAZs ""]
+        MapPublicIpOnLaunch: true
+        Tags:
+          - Key: Name
+            Value: onebt-public-1-${self:provider.stage}
+          - Key: Type
+            Value: Public
+
+    PublicSubnet2:
+      Type: AWS::EC2::Subnet
+      Properties:
+        VpcId: !Ref VPC
+        CidrBlock: ${self:custom.vpc.publicSubnet2Cidr}
+        AvailabilityZone: !Select [1, !GetAZs ""]
+        MapPublicIpOnLaunch: true
+        Tags:
+          - Key: Name
+            Value: onebt-public-2-${self:provider.stage}
+          - Key: Type
+            Value: Public
+
+    # Private Subnets (for Lambda functions)
+    PrivateSubnet1:
+      Type: AWS::EC2::Subnet
+      Properties:
+        VpcId: !Ref VPC
+        CidrBlock: ${self:custom.vpc.privateSubnet1Cidr}
+        AvailabilityZone: !Select [0, !GetAZs ""]
+        MapPublicIpOnLaunch: false
+        Tags:
+          - Key: Name
+            Value: onebt-private-1-${self:provider.stage}
+          - Key: Type
+            Value: Private
+
+    PrivateSubnet2:
+      Type: AWS::EC2::Subnet
+      Properties:
+        VpcId: !Ref VPC
+        CidrBlock: ${self:custom.vpc.privateSubnet2Cidr}
+        AvailabilityZone: !Select [1, !GetAZs ""]
+        MapPublicIpOnLaunch: false
+        Tags:
+          - Key: Name
+            Value: onebt-private-2-${self:provider.stage}
+          - Key: Type
+            Value: Private
+
+    # Database Subnets (isolated, for RDS)
+    DatabaseSubnet1:
+      Type: AWS::EC2::Subnet
+      Properties:
+        VpcId: !Ref VPC
+        CidrBlock: ${self:custom.vpc.databaseSubnet1Cidr}
+        AvailabilityZone: !Select [0, !GetAZs ""]
+        MapPublicIpOnLaunch: false
+        Tags:
+          - Key: Name
+            Value: onebt-db-1-${self:provider.stage}
+          - Key: Type
+            Value: Database
+
+    DatabaseSubnet2:
+      Type: AWS::EC2::Subnet
+      Properties:
+        VpcId: !Ref VPC
+        CidrBlock: ${self:custom.vpc.databaseSubnet2Cidr}
+        AvailabilityZone: !Select [1, !GetAZs ""]
+        MapPublicIpOnLaunch: false
+        Tags:
+          - Key: Name
+            Value: onebt-db-2-${self:provider.stage}
+          - Key: Type
+            Value: Database
+
+    # ================================================================
+    # NAT GATEWAY (Optional - costs ~$32/month each)
+    # ================================================================
+
+    NatGatewayEIP1:
+      Type: AWS::EC2::EIP
+      Condition: CreateNatGateway
+      DependsOn: InternetGatewayAttachment
+      Properties:
+        Domain: vpc
+        Tags:
+          - Key: Name
+            Value: onebt-nat-eip-1-${self:provider.stage}
+
+    NatGateway1:
+      Type: AWS::EC2::NatGateway
+      Condition: CreateNatGateway
+      Properties:
+        AllocationId: !GetAtt NatGatewayEIP1.AllocationId
+        SubnetId: !Ref PublicSubnet1
+        Tags:
+          - Key: Name
+            Value: onebt-nat-1-${self:provider.stage}
+
+    NatGatewayEIP2:
+      Type: AWS::EC2::EIP
+      Condition: CreateMultiAzNat
+      DependsOn: InternetGatewayAttachment
+      Properties:
+        Domain: vpc
+        Tags:
+          - Key: Name
+            Value: onebt-nat-eip-2-${self:provider.stage}
+
+    NatGateway2:
+      Type: AWS::EC2::NatGateway
+      Condition: CreateMultiAzNat
+      Properties:
+        AllocationId: !GetAtt NatGatewayEIP2.AllocationId
+        SubnetId: !Ref PublicSubnet2
+        Tags:
+          - Key: Name
+            Value: onebt-nat-2-${self:provider.stage}
+
+    # ================================================================
+    # ROUTE TABLES
+    # ================================================================
+
+    # Public Route Table
+    PublicRouteTable:
+      Type: AWS::EC2::RouteTable
+      Properties:
+        VpcId: !Ref VPC
+        Tags:
+          - Key: Name
+            Value: onebt-public-rt-${self:provider.stage}
+
+    PublicRoute:
+      Type: AWS::EC2::Route
+      DependsOn: InternetGatewayAttachment
+      Properties:
+        RouteTableId: !Ref PublicRouteTable
+        DestinationCidrBlock: "0.0.0.0/0"
+        GatewayId: !Ref InternetGateway
+
+    PublicSubnet1RouteAssoc:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+        SubnetId: !Ref PublicSubnet1
+        RouteTableId: !Ref PublicRouteTable
+
+    PublicSubnet2RouteAssoc:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+        SubnetId: !Ref PublicSubnet2
+        RouteTableId: !Ref PublicRouteTable
+
+    # Private Route Table 1
+    PrivateRouteTable1:
+      Type: AWS::EC2::RouteTable
+      Properties:
+        VpcId: !Ref VPC
+        Tags:
+          - Key: Name
+            Value: onebt-private-rt-1-${self:provider.stage}
+
+    PrivateRoute1:
+      Type: AWS::EC2::Route
+      Condition: CreateNatGateway
+      Properties:
+        RouteTableId: !Ref PrivateRouteTable1
+        DestinationCidrBlock: "0.0.0.0/0"
+        NatGatewayId: !Ref NatGateway1
+
+    PrivateSubnet1RouteAssoc:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+        SubnetId: !Ref PrivateSubnet1
+        RouteTableId: !Ref PrivateRouteTable1
+
+    # Private Route Table 2
+    PrivateRouteTable2:
+      Type: AWS::EC2::RouteTable
+      Properties:
+        VpcId: !Ref VPC
+        Tags:
+          - Key: Name
+            Value: onebt-private-rt-2-${self:provider.stage}
+
+    PrivateRoute2:
+      Type: AWS::EC2::Route
+      Condition: CreateNatGateway
+      Properties:
+        RouteTableId: !Ref PrivateRouteTable2
+        DestinationCidrBlock: "0.0.0.0/0"
+        NatGatewayId: !If [CreateMultiAzNat, !Ref NatGateway2, !Ref NatGateway1]
+
+    PrivateSubnet2RouteAssoc:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+        SubnetId: !Ref PrivateSubnet2
+        RouteTableId: !Ref PrivateRouteTable2
+
+    # Database Route Table (isolated - no internet)
+    DatabaseRouteTable:
+      Type: AWS::EC2::RouteTable
+      Properties:
+        VpcId: !Ref VPC
+        Tags:
+          - Key: Name
+            Value: onebt-db-rt-${self:provider.stage}
+
+    DatabaseSubnet1RouteAssoc:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+        SubnetId: !Ref DatabaseSubnet1
+        RouteTableId: !Ref DatabaseRouteTable
+
+    DatabaseSubnet2RouteAssoc:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+        SubnetId: !Ref DatabaseSubnet2
+        RouteTableId: !Ref DatabaseRouteTable
+
+    # ================================================================
+    # VPC ENDPOINTS (Cost-saving for AWS service access)
+    # ================================================================
+
+    # S3 Gateway Endpoint (FREE)
+    S3Endpoint:
+      Type: AWS::EC2::VPCEndpoint
+      Properties:
+        VpcId: !Ref VPC
+        ServiceName: !Sub com.amazonaws.${AWS::Region}.s3
+        VpcEndpointType: Gateway
+        RouteTableIds:
+          - !Ref PrivateRouteTable1
+          - !Ref PrivateRouteTable2
+
+    # DynamoDB Gateway Endpoint (FREE)
+    DynamoDBEndpoint:
+      Type: AWS::EC2::VPCEndpoint
+      Properties:
+        VpcId: !Ref VPC
+        ServiceName: !Sub com.amazonaws.${AWS::Region}.dynamodb
+        VpcEndpointType: Gateway
+        RouteTableIds:
+          - !Ref PrivateRouteTable1
+          - !Ref PrivateRouteTable2
+
+    # Secrets Manager Endpoint (~$7/month - enabled via features.vpcEndpoints)
+    VpcEndpointSecurityGroup:
+      Type: AWS::EC2::SecurityGroup
+      Condition: CreateVpcEndpoints
+      Properties:
+        GroupDescription: Security group for VPC Endpoints
+        GroupName: onebt-vpce-sg-${self:provider.stage}
+        VpcId: !Ref VPC
+        SecurityGroupIngress:
+          - IpProtocol: tcp
+            FromPort: 443
+            ToPort: 443
+            CidrIp: ${self:custom.vpc.cidr}
+            Description: HTTPS from VPC
+
+    SecretsManagerEndpoint:
+      Type: AWS::EC2::VPCEndpoint
+      Condition: CreateVpcEndpoints
+      Properties:
+        VpcId: !Ref VPC
+        ServiceName: !Sub com.amazonaws.${AWS::Region}.secretsmanager
+        VpcEndpointType: Interface
+        SubnetIds:
+          - !Ref PrivateSubnet1
+          - !Ref PrivateSubnet2
+        SecurityGroupIds:
+          - !Ref VpcEndpointSecurityGroup
+        PrivateDnsEnabled: true
+
+    # ================================================================
+    # SECURITY GROUPS
+    # ================================================================
+
+    # Lambda Security Group
+    LambdaSecurityGroup:
+      Type: AWS::EC2::SecurityGroup
+      Properties:
+        GroupDescription: Security group for Lambda functions
+        GroupName: onebt-lambda-sg-${self:provider.stage}
+        VpcId: !Ref VPC
+        SecurityGroupEgress:
+          - IpProtocol: tcp
+            FromPort: 443
+            ToPort: 443
+            CidrIp: 0.0.0.0/0
+            Description: HTTPS to AWS services
+        Tags:
+          - Key: Name
+            Value: onebt-lambda-sg-${self:provider.stage}
+
+    # RDS Security Group
+    RdsSecurityGroup:
+      Type: AWS::EC2::SecurityGroup
+      Properties:
+        GroupDescription: Security group for RDS PostgreSQL
+        GroupName: onebt-rds-sg-${self:provider.stage}
+        VpcId: !Ref VPC
+        SecurityGroupIngress:
+          - IpProtocol: tcp
+            FromPort: 5432
+            ToPort: 5432
+            SourceSecurityGroupId: !Ref LambdaSecurityGroup
+            Description: PostgreSQL from Lambda
+        Tags:
+          - Key: Name
+            Value: onebt-rds-sg-${self:provider.stage}
+
+    # Allow Lambda to access RDS
+    LambdaToRdsEgress:
+      Type: AWS::EC2::SecurityGroupEgress
+      Properties:
+        GroupId: !Ref LambdaSecurityGroup
+        IpProtocol: tcp
+        FromPort: 5432
+        ToPort: 5432
+        DestinationSecurityGroupId: !Ref RdsSecurityGroup
+        Description: PostgreSQL to RDS
+
+    # ================================================================
+    # RDS DATABASE
+    # ================================================================
+
+    RdsSubnetGroup:
+      Type: AWS::RDS::DBSubnetGroup
+      Properties:
+        DBSubnetGroupDescription: Subnet group for 1BT RDS - ${self:provider.stage}
+        DBSubnetGroupName: onebt-db-subnet-group-${self:provider.stage}
+        SubnetIds:
+          - !Ref DatabaseSubnet1
+          - !Ref DatabaseSubnet2
+        Tags:
+          - Key: Name
+            Value: onebt-db-subnet-group-${self:provider.stage}
+
+    RdsParameterGroup:
+      Type: AWS::RDS::DBParameterGroup
+      Properties:
+        Description: Parameter group for 1BT RDS - ${self:provider.stage}
+        Family: postgres16
+        Parameters:
+          log_statement: all
+          log_min_duration_statement: "1000"
+        Tags:
+          - Key: Name
+            Value: onebt-db-params-${self:provider.stage}
+
+    RdsInstance:
+      Type: AWS::RDS::DBInstance
+      DeletionPolicy: ${self:custom.database.deletionProtection, true, 'Retain', 'Delete'}
+      Properties:
+        DBInstanceIdentifier: onebt-db-${self:provider.stage}
+        DBInstanceClass: ${self:custom.database.instanceClass}
+        Engine: postgres
+        EngineVersion: "16"
+        MasterUsername: dbadmin
+        ManageMasterUserPassword: true # AWS manages password in Secrets Manager
+        DBName: resource_management_${self:provider.stage}
+        AllocatedStorage: ${self:custom.database.allocatedStorage}
+        MaxAllocatedStorage: ${self:custom.database.maxAllocatedStorage}
+        StorageType: gp3
+        StorageEncrypted: true
+        DBSubnetGroupName: !Ref RdsSubnetGroup
+        VPCSecurityGroups:
+          - !Ref RdsSecurityGroup
+        PubliclyAccessible: false
+        MultiAZ: ${self:custom.database.multiAz}
+        BackupRetentionPeriod: ${self:custom.database.backupRetentionDays}
+        PreferredBackupWindow: "03:00-04:00"
+        PreferredMaintenanceWindow: "sun:04:00-sun:05:00"
+        AutoMinorVersionUpgrade: true
+        DeletionProtection: ${self:custom.database.deletionProtection}
+        CopyTagsToSnapshot: true
+        DBParameterGroupName: !Ref RdsParameterGroup
+        Tags:
+          - Key: Name
+            Value: onebt-db-${self:provider.stage}
+          - Key: Environment
+            Value: ${self:provider.stage}
+          - Key: AutoShutdown
+            Value: ${self:custom.features.autoShutdown}
+
+    # ================================================================
+    # COGNITO USER POOL
+    # ================================================================
+
+    CognitoUserPool:
+      Type: AWS::Cognito::UserPool
+      Properties:
+        UserPoolName: onebt-users-${self:provider.stage}
+        AutoVerifiedAttributes:
+          - email
+        UsernameAttributes:
+          - email
+        UsernameConfiguration:
+          CaseSensitive: false
+        Policies:
+          PasswordPolicy:
+            MinimumLength: ${self:custom.cognito.passwordMinLength}
+            RequireUppercase: ${self:custom.cognito.passwordRequireUppercase}
+            RequireLowercase: ${self:custom.cognito.passwordRequireLowercase}
+            RequireNumbers: ${self:custom.cognito.passwordRequireNumbers}
+            RequireSymbols: ${self:custom.cognito.passwordRequireSymbols}
+            TemporaryPasswordValidityDays: ${self:custom.cognito.tempPasswordValidityDays}
+        AccountRecoverySetting:
+          RecoveryMechanisms:
+            - Name: verified_email
+              Priority: 1
+        Schema:
+          - Name: email
+            AttributeDataType: String
+            Mutable: true
+            Required: true
+          - Name: name
+            AttributeDataType: String
+            Mutable: true
+            Required: false
+        UserPoolTags:
+          Environment: ${self:provider.stage}
+          Project: 1BT-Resource-Management
+
+    CognitoUserPoolClient:
+      Type: AWS::Cognito::UserPoolClient
+      Properties:
+        ClientName: onebt-web-client-${self:provider.stage}
+        UserPoolId: !Ref CognitoUserPool
+        GenerateSecret: false
+        ExplicitAuthFlows:
+          - ALLOW_USER_PASSWORD_AUTH
+          - ALLOW_REFRESH_TOKEN_AUTH
+          - ALLOW_USER_SRP_AUTH
+          - ALLOW_ADMIN_USER_PASSWORD_AUTH
+        PreventUserExistenceErrors: ENABLED
+        AccessTokenValidity: ${self:custom.cognito.accessTokenValidityHours}
+        IdTokenValidity: ${self:custom.cognito.idTokenValidityHours}
+        RefreshTokenValidity: ${self:custom.cognito.refreshTokenValidityDays}
+        TokenValidityUnits:
+          AccessToken: hours
+          IdToken: hours
+          RefreshToken: days
+
+    # Cognito User Groups
+    SuperAdminGroup:
+      Type: AWS::Cognito::UserPoolGroup
+      Properties:
+        GroupName: SuperAdmin
+        UserPoolId: !Ref CognitoUserPool
+        Description: Super Administrators with full access
+
+    AdminGroup:
+      Type: AWS::Cognito::UserPoolGroup
+      Properties:
+        GroupName: Admin
+        UserPoolId: !Ref CognitoUserPool
+        Description: Administrators with configurable access
+
+    UserGroup:
+      Type: AWS::Cognito::UserPoolGroup
+      Properties:
+        GroupName: User
+        UserPoolId: !Ref CognitoUserPool
+        Description: Regular users with limited access
+
+    # ================================================================
+    # API GATEWAY (HTTP API v2)
+    # ================================================================
+
+    HttpApi:
+      Type: AWS::ApiGatewayV2::Api
+      Properties:
+        Name: onebt-api-${self:provider.stage}
+        ProtocolType: HTTP
+        Description: 1BT Resource Management API - ${self:provider.stage}
+        CorsConfiguration:
+          AllowOrigins:
+            - "*"
+          AllowMethods:
+            - GET
+            - POST
+            - PUT
+            - DELETE
+            - PATCH
+            - OPTIONS
+          AllowHeaders:
+            - Content-Type
+            - Authorization
+            - X-Amz-Date
+            - X-Api-Key
+            - X-Amz-Security-Token
+          ExposeHeaders:
+            - Content-Length
+            - Content-Type
+          MaxAge: ${self:custom.apiGateway.corsMaxAge}
+        Tags:
+          Environment: ${self:provider.stage}
+          Project: 1BT-Resource-Management
+
+    HttpApiStage:
+      Type: AWS::ApiGatewayV2::Stage
+      Properties:
+        ApiId: !Ref HttpApi
+        StageName: ${self:provider.stage}
+        AutoDeploy: true
+        Description: ${self:provider.stage} stage
+        DefaultRouteSettings:
+          ThrottlingBurstLimit: ${self:custom.apiGateway.throttlingBurstLimit}
+          ThrottlingRateLimit: ${self:custom.apiGateway.throttlingRateLimit}
+        Tags:
+          Environment: ${self:provider.stage}
+
+    CognitoAuthorizer:
+      Type: AWS::ApiGatewayV2::Authorizer
+      Properties:
+        ApiId: !Ref HttpApi
+        AuthorizerType: JWT
+        Name: onebt-cognito-auth-${self:provider.stage}
+        IdentitySource:
+          - "$request.header.Authorization"
+        JwtConfiguration:
+          Audience:
+            - !Ref CognitoUserPoolClient
+          Issuer: !Sub "https://cognito-idp.${AWS::Region}.amazonaws.com/${CognitoUserPool}"
+
+  # ================================================================
+  # OUTPUTS (Exported for microservices to import)
+  # ================================================================
+  Outputs:
+    # VPC Outputs
+    VpcId:
+      Description: VPC ID
+      Value: !Ref VPC
+      Export:
+        Name: onebt-${self:provider.stage}-VpcId
+
+    PrivateSubnet1Id:
+      Description: Private Subnet 1 ID
+      Value: !Ref PrivateSubnet1
+      Export:
+        Name: onebt-${self:provider.stage}-PrivateSubnet1Id
+
+    PrivateSubnet2Id:
+      Description: Private Subnet 2 ID
+      Value: !Ref PrivateSubnet2
+      Export:
+        Name: onebt-${self:provider.stage}-PrivateSubnet2Id
+
+    PrivateSubnetIds:
+      Description: Comma-separated private subnet IDs
+      Value: !Join [",", [!Ref PrivateSubnet1, !Ref PrivateSubnet2]]
+      Export:
+        Name: onebt-${self:provider.stage}-PrivateSubnetIds
+
+    LambdaSecurityGroupId:
+      Description: Lambda Security Group ID
+      Value: !Ref LambdaSecurityGroup
+      Export:
+        Name: onebt-${self:provider.stage}-LambdaSecurityGroupId
+
+    # RDS Outputs
+    RdsEndpoint:
+      Description: RDS Instance Endpoint
+      Value: !GetAtt RdsInstance.Endpoint.Address
+      Export:
+        Name: onebt-${self:provider.stage}-RdsEndpoint
+
+    RdsPort:
+      Description: RDS Instance Port
+      Value: !GetAtt RdsInstance.Endpoint.Port
+      Export:
+        Name: onebt-${self:provider.stage}-RdsPort
+
+    RdsSecretArn:
+      Description: RDS Master User Secret ARN (managed by AWS)
+      Value: !GetAtt RdsInstance.MasterUserSecret.SecretArn
+      Export:
+        Name: onebt-${self:provider.stage}-RdsSecretArn
+
+    DbName:
+      Description: Database Name
+      Value: resource_management_${self:provider.stage}
+      Export:
+        Name: onebt-${self:provider.stage}-DbName
+
+    # Cognito Outputs
+    CognitoUserPoolId:
+      Description: Cognito User Pool ID
+      Value: !Ref CognitoUserPool
+      Export:
+        Name: onebt-${self:provider.stage}-CognitoUserPoolId
+
+    CognitoUserPoolArn:
+      Description: Cognito User Pool ARN
+      Value: !GetAtt CognitoUserPool.Arn
+      Export:
+        Name: onebt-${self:provider.stage}-CognitoUserPoolArn
+
+    CognitoClientId:
+      Description: Cognito Client ID
+      Value: !Ref CognitoUserPoolClient
+      Export:
+        Name: onebt-${self:provider.stage}-CognitoClientId
+
+    CognitoIssuerUrl:
+      Description: Cognito Issuer URL for JWT validation
+      Value: !Sub "https://cognito-idp.${AWS::Region}.amazonaws.com/${CognitoUserPool}"
+      Export:
+        Name: onebt-${self:provider.stage}-CognitoIssuerUrl
+
+    # API Gateway Outputs
+    HttpApiId:
+      Description: HTTP API Gateway ID
+      Value: !Ref HttpApi
+      Export:
+        Name: onebt-${self:provider.stage}-HttpApiId
+
+    HttpApiEndpoint:
+      Description: HTTP API Gateway Endpoint
+      Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/${self:provider.stage}"
+      Export:
+        Name: onebt-${self:provider.stage}-HttpApiEndpoint
+
+    CognitoAuthorizerId:
+      Description: Cognito Authorizer ID
+      Value: !Ref CognitoAuthorizer
+      Export:
+        Name: onebt-${self:provider.stage}-CognitoAuthorizerId
+
+    # Cost Summary
+    MonthlyCostEstimate:
+      Description: Estimated monthly infrastructure cost
+      Value: !If
+        - IsProd
+        - "Prod: ~$160/month (RDS Multi-AZ + NAT Multi-AZ + VPC Endpoints)"
+        - !If
+          - IsDevOrQa
+          - "Dev/QA: ~$12/month (RDS only, no NAT)"
+          - "UAT: ~$56/month (RDS + NAT)"

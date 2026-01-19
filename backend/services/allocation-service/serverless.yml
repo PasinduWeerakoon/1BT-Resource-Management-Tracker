@@ -5,133 +5,121 @@ frameworkVersion: "3"
 provider:
   name: aws
   runtime: nodejs20.x
-  region: ${opt:region, 'ap-southeast-1'}
   stage: ${opt:stage, 'dev'}
+  region: ${opt:region, 'ap-southeast-1'}
   memorySize: 256
   timeout: 30
+  tags:
+    Service: allocation
+    Project: 1BT-Resource-Management
 
   # VPC Configuration - Required for RDS access
   vpc:
     securityGroupIds:
-      - !ImportValue onebt-rm-${self:provider.stage}-LambdaSecurityGroupId
+      - !ImportValue onebt-${self:provider.stage}-LambdaSecurityGroupId
     subnetIds: !Split
       - ","
-      - !ImportValue onebt-rm-${self:provider.stage}-PrivateSubnetIds
+      - !ImportValue onebt-${self:provider.stage}-PrivateSubnetIds
 
   environment:
-    STAGE: ${self:provider.stage}
-    LOG_LEVEL: ${self:custom.logLevel.${self:provider.stage}, 'info'}
-    # Database - from RDS stack
-    DB_HOST: !ImportValue onebt-rm-${self:provider.stage}-RDSEndpoint
-    DB_PORT: "5432"
-    DB_NAME: onebt_rm_${self:provider.stage}
-    DB_USER: ${ssm:/onebt-rm/${self:provider.stage}/db/username}
-    DB_PASSWORD: ${ssm:/onebt-rm/${self:provider.stage}/db/password}
+    NODE_ENV: ${self:provider.stage}
+    DB_HOST: !ImportValue onebt-${self:provider.stage}-RdsEndpoint
+    DB_PORT: !ImportValue onebt-${self:provider.stage}-RdsPort
+    DB_NAME: !ImportValue onebt-${self:provider.stage}-DbName
+    DB_SECRET_ARN: !ImportValue onebt-${self:provider.stage}-RdsSecretArn
 
   iam:
     role:
       statements:
         - Effect: Allow
           Action:
-            - ssm:GetParameter
-            - ssm:GetParameters
-          Resource:
-            - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/onebt-rm/${self:provider.stage}/*
+            - secretsmanager:GetSecretValue
+          Resource: !ImportValue onebt-${self:provider.stage}-RdsSecretArn
 
-custom:
-  logLevel:
-    dev: debug
-    qa: info
-    uat: info
-    prod: warn
-
-  sharedLayerVersion: ${env:SHARED_LAYER_VERSION, '1'}
+  httpApi:
+    id: !ImportValue onebt-${self:provider.stage}-HttpApiId
 
 layers:
-  - arn:aws:lambda:${self:provider.region}:${aws:accountId}:layer:onebt-shared-layer:${self:custom.sharedLayerVersion}
+  - !ImportValue onebt-shared-layer-${self:provider.stage}-arn
+
+plugins:
+  - serverless-offline
 
 package:
   individually: true
   patterns:
-    - "!**/*"
+    - "!.git/**"
+    - "!.gitignore"
+    - "!*.md"
+    - "!tests/**"
     - "src/**"
+
+custom:
+  authorizer:
+    type: jwt
+    id: !ImportValue onebt-${self:provider.stage}-CognitoAuthorizerId
 
 functions:
   # ==================== ALLOCATIONS ====================
   listAllocations:
     handler: src/handlers/allocations.list
-    description: List all allocations with pagination and filters
+    description: List all allocations with filters
     events:
       - httpApi:
-          path: /allocations
+          path: /api/v1/allocations
           method: GET
-          authorizer:
-            type: jwt
-            id: !ImportValue onebt-rm-${self:provider.stage}-CognitoAuthorizerId
+          authorizer: ${self:custom.authorizer}
 
   getAllocation:
     handler: src/handlers/allocations.getById
-    description: Get a single allocation by ID
+    description: Get an allocation by ID
     events:
       - httpApi:
-          path: /allocations/{id}
+          path: /api/v1/allocations/{id}
           method: GET
-          authorizer:
-            type: jwt
-            id: !ImportValue onebt-rm-${self:provider.stage}-CognitoAuthorizerId
+          authorizer: ${self:custom.authorizer}
 
   createAllocation:
     handler: src/handlers/allocations.create
     description: Create a new allocation
     events:
       - httpApi:
-          path: /allocations
+          path: /api/v1/allocations
           method: POST
-          authorizer:
-            type: jwt
-            id: !ImportValue onebt-rm-${self:provider.stage}-CognitoAuthorizerId
+          authorizer: ${self:custom.authorizer}
 
   updateAllocation:
     handler: src/handlers/allocations.update
     description: Update an existing allocation
     events:
       - httpApi:
-          path: /allocations/{id}
+          path: /api/v1/allocations/{id}
           method: PUT
-          authorizer:
-            type: jwt
-            id: !ImportValue onebt-rm-${self:provider.stage}-CognitoAuthorizerId
+          authorizer: ${self:custom.authorizer}
 
   deleteAllocation:
     handler: src/handlers/allocations.remove
-    description: Delete an allocation
+    description: Remove an allocation
     events:
       - httpApi:
-          path: /allocations/{id}
+          path: /api/v1/allocations/{id}
           method: DELETE
-          authorizer:
-            type: jwt
-            id: !ImportValue onebt-rm-${self:provider.stage}-CognitoAuthorizerId
+          authorizer: ${self:custom.authorizer}
 
-  getResourceUtilization:
-    handler: src/handlers/allocations.getResourceUtilization
-    description: Get utilization summary for a resource
+  getMonthlyAllocations:
+    handler: src/handlers/allocations.getMonthly
+    description: Get monthly allocation view
     events:
       - httpApi:
-          path: /resources/{id}/utilization
+          path: /api/v1/allocations/monthly
           method: GET
-          authorizer:
-            type: jwt
-            id: !ImportValue onebt-rm-${self:provider.stage}-CognitoAuthorizerId
+          authorizer: ${self:custom.authorizer}
 
-  # ==================== ALLOCATION HISTORY ====================
   getAllocationHistory:
     handler: src/handlers/allocations.getHistory
-    description: Get allocation history
+    description: Get allocation history for a resource
     events:
       - httpApi:
-          path: /allocations/{id}/history
+          path: /api/v1/allocations/history/{resourceId}
           method: GET
-          authorizer:
-            type: jwt
-            id: !ImportValue onebt-rm-${self:provider.stage}-CognitoAuthorizerId
+          authorizer: ${self:custom.authorizer}
