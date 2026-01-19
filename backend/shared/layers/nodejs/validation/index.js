@@ -13,11 +13,11 @@ import Joi from 'joi';
  * @throws {Error} If validation fails
  */
 export const validate = (data, schema) => {
-    const { error, value } = schema.validate(data, { 
+    const { error, value } = schema.validate(data, {
         abortEarly: false,
-        stripUnknown: true 
+        stripUnknown: true
     });
-    
+
     if (error) {
         const messages = error.details.map(d => d.message).join(', ');
         const validationError = new Error(messages);
@@ -25,7 +25,7 @@ export const validate = (data, schema) => {
         validationError.isValidationError = true;
         throw validationError;
     }
-    
+
     return value;
 };
 
@@ -49,7 +49,7 @@ export const resourceSchemas = {
         status: Joi.string().valid('active', 'inactive', 'on_leave').optional(),
         is_intern: Joi.boolean().optional(),
     }),
-    
+
     create: Joi.object({
         employee_id: Joi.string().max(50).required(),
         first_name: Joi.string().max(100).required(),
@@ -61,7 +61,7 @@ export const resourceSchemas = {
         is_intern: Joi.boolean().default(false),
         status: Joi.string().valid('active', 'inactive', 'on_leave').default('active'),
     }),
-    
+
     update: Joi.object({
         first_name: Joi.string().max(100).optional(),
         last_name: Joi.string().max(100).optional(),
@@ -80,13 +80,13 @@ export const designationSchemas = {
         ...paginationSchema,
         search: Joi.string().allow('').optional(),
     }),
-    
+
     create: Joi.object({
         name: Joi.string().max(100).required(),
         level: Joi.number().integer().min(1).max(20).required(),
         description: Joi.string().max(500).optional(),
     }),
-    
+
     update: Joi.object({
         name: Joi.string().max(100).optional(),
         level: Joi.number().integer().min(1).max(20).optional(),
@@ -100,13 +100,13 @@ export const trackSchemas = {
         ...paginationSchema,
         search: Joi.string().allow('').optional(),
     }),
-    
+
     create: Joi.object({
         name: Joi.string().max(100).required(),
         code: Joi.string().max(20).required(),
         description: Joi.string().max(500).optional(),
     }),
-    
+
     update: Joi.object({
         name: Joi.string().max(100).optional(),
         code: Joi.string().max(20).optional(),
@@ -121,7 +121,7 @@ export const clientSchemas = {
         search: Joi.string().allow('').optional(),
         status: Joi.string().valid('active', 'inactive').optional(),
     }),
-    
+
     create: Joi.object({
         name: Joi.string().max(200).required(),
         code: Joi.string().max(20).required(),
@@ -129,7 +129,7 @@ export const clientSchemas = {
         contact_phone: Joi.string().max(20).optional(),
         status: Joi.string().valid('active', 'inactive').default('active'),
     }),
-    
+
     update: Joi.object({
         name: Joi.string().max(200).optional(),
         code: Joi.string().max(20).optional(),
@@ -148,7 +148,7 @@ export const projectSchemas = {
         status: Joi.string().valid('active', 'completed', 'on_hold', 'cancelled').optional(),
         billing_type: Joi.string().valid('billable', 'non_billable', 'pre_sales', 'internal').optional(),
     }),
-    
+
     create: Joi.object({
         name: Joi.string().max(200).required(),
         code: Joi.string().max(20).required(),
@@ -160,7 +160,7 @@ export const projectSchemas = {
         account_manager_id: Joi.string().pattern(uuidPattern).optional(),
         description: Joi.string().max(1000).optional(),
     }),
-    
+
     update: Joi.object({
         name: Joi.string().max(200).optional(),
         code: Joi.string().max(20).optional(),
@@ -184,13 +184,13 @@ export const allocationSchemas = {
         end_date: Joi.date().iso().optional(),
         status: Joi.string().valid('active', 'completed', 'planned').optional(),
     }),
-    
+
     monthly: Joi.object({
         year: Joi.number().integer().min(2020).max(2100).required(),
         month: Joi.number().integer().min(1).max(12).required(),
         track_id: Joi.string().pattern(uuidPattern).optional(),
     }),
-    
+
     create: Joi.object({
         resource_id: Joi.string().pattern(uuidPattern).required(),
         project_id: Joi.string().pattern(uuidPattern).required(),
@@ -201,7 +201,7 @@ export const allocationSchemas = {
         status: Joi.string().valid('active', 'completed', 'planned').default('active'),
         notes: Joi.string().max(500).optional(),
     }),
-    
+
     update: Joi.object({
         allocation_percentage: Joi.number().min(0).max(100).optional(),
         start_date: Joi.date().iso().optional(),
@@ -219,14 +219,14 @@ export const userSchemas = {
         search: Joi.string().allow('').optional(),
         role: Joi.string().valid('SuperAdmin', 'Admin', 'Manager', 'User').optional(),
     }),
-    
+
     create: Joi.object({
         email: Joi.string().pattern(emailPattern).required(),
         name: Joi.string().max(200).required(),
         role: Joi.string().valid('SuperAdmin', 'Admin', 'Manager', 'User').required(),
         resource_id: Joi.string().pattern(uuidPattern).optional(),
     }),
-    
+
     update: Joi.object({
         name: Joi.string().max(200).optional(),
         role: Joi.string().valid('SuperAdmin', 'Admin', 'Manager', 'User').optional(),
