@@ -221,6 +221,9 @@ functions:
           path: /api/v1/projects
           method: post
           cors: true
+          authorizer:
+            type: COGNITO_USER_POOLS
+            authorizerId: !Ref ApiGatewayCognitoAuthorizer
       - http:
           path: /api/v1/projects/{id}
           method: get
@@ -229,9 +232,19 @@ functions:
           path: /api/v1/projects/{id}
           method: put
           cors: true
+          authorizer:
+            type: COGNITO_USER_POOLS
+            authorizerId: !Ref ApiGatewayCognitoAuthorizer
       - http:
           path: /api/v1/projects/{id}
           method: delete
+          cors: true
+          authorizer:
+            type: COGNITO_USER_POOLS
+            authorizerId: !Ref ApiGatewayCognitoAuthorizer
+      - http:
+          path: /api/v1/projects/{id}/allocations
+          method: get
           cors: true
 
   # ============================================
@@ -262,6 +275,9 @@ functions:
           path: /api/v1/clients
           method: post
           cors: true
+          authorizer:
+            type: COGNITO_USER_POOLS
+            authorizerId: !Ref ApiGatewayCognitoAuthorizer
       - http:
           path: /api/v1/clients/{id}
           method: get
@@ -270,9 +286,19 @@ functions:
           path: /api/v1/clients/{id}
           method: put
           cors: true
+          authorizer:
+            type: COGNITO_USER_POOLS
+            authorizerId: !Ref ApiGatewayCognitoAuthorizer
       - http:
           path: /api/v1/clients/{id}
           method: delete
+          cors: true
+          authorizer:
+            type: COGNITO_USER_POOLS
+            authorizerId: !Ref ApiGatewayCognitoAuthorizer
+      - http:
+          path: /api/v1/clients/{id}/projects
+          method: get
           cors: true
 
   # ============================================
