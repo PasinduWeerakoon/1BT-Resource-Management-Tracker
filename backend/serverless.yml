@@ -329,6 +329,9 @@ functions:
           path: /api/v1/allocations
           method: post
           cors: true
+          authorizer:
+            type: COGNITO_USER_POOLS
+            authorizerId: !Ref ApiGatewayCognitoAuthorizer
       - http:
           path: /api/v1/allocations/{id}
           method: get
@@ -337,10 +340,16 @@ functions:
           path: /api/v1/allocations/{id}
           method: put
           cors: true
+          authorizer:
+            type: COGNITO_USER_POOLS
+            authorizerId: !Ref ApiGatewayCognitoAuthorizer
       - http:
           path: /api/v1/allocations/{id}
           method: delete
           cors: true
+          authorizer:
+            type: COGNITO_USER_POOLS
+            authorizerId: !Ref ApiGatewayCognitoAuthorizer
 
   # ============================================
   # DESIGNATIONS Handler
