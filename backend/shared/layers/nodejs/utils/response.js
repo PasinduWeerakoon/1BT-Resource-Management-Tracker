@@ -103,3 +103,12 @@ const noContent = () => ({
 });
 
 export { success, error, errors, paginated, created, noContent, CORS_HEADERS };
+
+// Also export common error helpers directly for convenience
+export const notFound = errors.notFound;
+export const validationError = errors.validationError;
+export const conflict = errors.conflict;
+export const badRequest = errors.badRequest;
+export const unauthorized = errors.unauthorized;
+export const forbidden = errors.forbidden;
+export const internalError = errors.internalError;

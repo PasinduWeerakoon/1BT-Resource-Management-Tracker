@@ -1,6 +1,7 @@
 /**
  * Database Client
  * PostgreSQL connection pool - shared across microservices
+ * Supports AWS Secrets Manager for credential management
  */
 
 import pkg from 'pg';
@@ -9,39 +10,106 @@ import config from '../config/index.js';
 import logger from '../logger/index.js';
 
 let pool = null;
+let cachedCredentials = null;
+
+/**
+ * Fetch database credentials from AWS Secrets Manager
+ */
+const getCredentialsFromSecretsManager = async () => {
+    if (cachedCredentials) {
+        return cachedCredentials;
+    }
+
+    const secretArn = config.database.secretArn;
+    if (!secretArn) {
+        return null;
+    }
+
+    try {
+        // Dynamic import to avoid requiring AWS SDK when not needed
+        const { SecretsManagerClient, GetSecretValueCommand } = await import('@aws-sdk/client-secrets-manager');
+
+        const client = new SecretsManagerClient({ region: process.env.AWS_REGION || 'ap-southeast-1' });
+        const command = new GetSecretValueCommand({ SecretId: secretArn });
+        const response = await client.send(command);
+
+        const secret = JSON.parse(response.SecretString);
+        cachedCredentials = {
+            user: secret.username,
+            password: secret.password,
+            host: secret.host || config.database.host,
+            port: secret.port || config.database.port,
+            database: secret.dbname || config.database.name,
+        };
+
+        logger.info('Database credentials retrieved from Secrets Manager');
+        return cachedCredentials;
+    } catch (error) {
+        logger.error('Failed to retrieve credentials from Secrets Manager', {
+            error: error.message,
+            secretArn
+        });
+        throw error;
+    }
+};
 
 /**
  * Get or create database connection pool
  */
-const getPool = () => {
-    if (!pool) {
-        const connectionConfig = config.database.url
-            ? { connectionString: config.database.url, ssl: config.database.ssl }
-            : {
-                host: config.database.host,
-                port: config.database.port,
-                database: config.database.name,
-                user: config.database.user,
-                password: config.database.password,
-                ssl: config.database.ssl,
-            };
-
-        pool = new Pool({
-            ...connectionConfig,
-            min: config.database.poolMin,
-            max: config.database.poolMax,
-            idleTimeoutMillis: 30000,
-            connectionTimeoutMillis: 5000,
-        });
-
-        pool.on('error', (err) => {
-            logger.error('Unexpected database pool error', { error: err.message });
-        });
-
-        pool.on('connect', () => {
-            logger.debug('New database connection established');
-        });
+const getPool = async () => {
+    if (pool) {
+        return pool;
     }
+
+    let connectionConfig;
+
+    if (config.database.url) {
+        connectionConfig = {
+            connectionString: config.database.url,
+            ssl: config.database.ssl
+        };
+    } else if (config.database.user && config.database.password) {
+        // Use direct environment variable credentials (preferred for dev without NAT Gateway)
+        logger.info('Using direct database credentials from environment variables');
+        connectionConfig = {
+            host: config.database.host,
+            port: config.database.port,
+            database: config.database.name,
+            user: config.database.user,
+            password: config.database.password,
+            ssl: config.database.ssl,
+        };
+    } else if (config.database.secretArn) {
+        // Fall back to Secrets Manager (requires NAT Gateway or VPC Endpoint)
+        const credentials = await getCredentialsFromSecretsManager();
+        connectionConfig = {
+            host: credentials.host,
+            port: credentials.port,
+            database: credentials.database,
+            user: credentials.user,
+            password: credentials.password,
+            ssl: config.database.ssl,
+        };
+    } else {
+        throw new Error('No database credentials configured. Set DB_USER and DB_PASSWORD or DB_SECRET_ARN.');
+    }
+
+    pool = new Pool({
+        ...connectionConfig,
+        min: config.database.poolMin,
+        max: config.database.poolMax,
+        idleTimeoutMillis: 30000,
+        connectionTimeoutMillis: 10000,
+    });
+
+    pool.on('error', (err) => {
+        logger.error('Unexpected database pool error', { error: err.message });
+    });
+
+    pool.on('connect', () => {
+        logger.debug('New database connection established');
+    });
+
     return pool;
 };
 
@@ -51,7 +119,8 @@ const getPool = () => {
 const query = async (text, params = []) => {
     const start = Date.now();
     try {
-        const result = await getPool().query(text, params);
+        const p = await getPool();
+        const result = await p.query(text, params);
         const duration = Date.now() - start;
         logger.debug('Query executed', {
             query: text.substring(0, 100),
@@ -72,7 +141,8 @@ const query = async (text, params = []) => {
  * Get a client for transaction support
  */
 const getClient = async () => {
-    const client = await getPool().connect();
+    const p = await getPool();
+    const client = await p.connect();
     const originalQuery = client.query.bind(client);
     const originalRelease = client.release.bind(client);
 

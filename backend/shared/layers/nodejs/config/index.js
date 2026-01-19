@@ -11,15 +11,16 @@ const config = {
     // API
     apiVersion: process.env.API_VERSION || 'v1',
 
-    // Database
+    // Database - supports both DB_* and DATABASE_* prefixes
     database: {
-        host: process.env.DATABASE_HOST || 'localhost',
-        port: parseInt(process.env.DATABASE_PORT, 10) || 5432,
-        name: process.env.DATABASE_NAME || 'resource_management',
-        user: process.env.DATABASE_USER || 'admin',
-        password: process.env.DATABASE_PASSWORD || '',
+        host: process.env.DB_HOST || process.env.DATABASE_HOST || 'localhost',
+        port: parseInt(process.env.DB_PORT || process.env.DATABASE_PORT, 10) || 5432,
+        name: process.env.DB_NAME || process.env.DATABASE_NAME || 'resource_management',
+        user: process.env.DB_USER || process.env.DATABASE_USER || 'admin',
+        password: process.env.DB_PASSWORD || process.env.DATABASE_PASSWORD || '',
+        secretArn: process.env.DB_SECRET_ARN,
         url: process.env.DATABASE_URL,
-        ssl: process.env.DATABASE_HOST ? { rejectUnauthorized: false } : false,
+        ssl: (process.env.DB_HOST || process.env.DATABASE_HOST) ? { rejectUnauthorized: false } : false,
         poolMin: parseInt(process.env.DB_POOL_MIN, 10) || 2,
         poolMax: parseInt(process.env.DB_POOL_MAX, 10) || 10,
     },

@@ -11,6 +11,7 @@
         "deploy:prod": "serverless deploy --stage prod"
     },
     "dependencies": {
+        "@aws-sdk/client-secrets-manager": "^3.971.0",
         "@middy/core": "^7.0.2",
         "@middy/http-cors": "^7.0.2",
         "@middy/http-error-handler": "^7.0.2",
