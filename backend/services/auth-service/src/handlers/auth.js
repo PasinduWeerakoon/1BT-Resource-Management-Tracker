@@ -11,7 +11,8 @@ import {
     AdminRespondToAuthChallengeCommand,
     ForgotPasswordCommand,
     ConfirmForgotPasswordCommand,
-    AdminAddUserToGroupCommand
+    AdminAddUserToGroupCommand,
+    AdminGetUserCommand
 } from '@aws-sdk/client-cognito-identity-provider';
 import createError from 'http-errors';
 import { withMiddleware, success } from '/opt/nodejs/index.js';
@@ -227,6 +228,49 @@ const completeInviteHandler = async (event) => {
     }
 };
 
+/**
+ * Get Current User Handler
+ * Returns user profile information from JWT claims
+ */
+const getCurrentUserHandler = async (event) => {
+    // JWT claims are available from the authorizer
+    const claims = event.requestContext?.authorizer?.jwt?.claims || {};
+    const username = claims.sub || claims['cognito:username'];
+
+    if (!username) {
+        throw createError(401, 'Invalid token');
+    }
+
+    try {
+        // Get full user details from Cognito
+        const userResponse = await cognito.send(new AdminGetUserCommand({
+            UserPoolId: USER_POOL_ID,
+            Username: username
+        }));
+
+        // Parse user attributes into a clean object
+        const attributes = {};
+        userResponse.UserAttributes?.forEach(attr => {
+            attributes[attr.Name] = attr.Value;
+        });
+
+        return success({
+            id: username,
+            email: attributes.email || claims.email,
+            name: attributes.name || '',
+            emailVerified: attributes.email_verified === 'true',
+            groups: claims['cognito:groups'] || [],
+            createdAt: userResponse.UserCreateDate?.toISOString(),
+            lastModified: userResponse.UserLastModifiedDate?.toISOString(),
+            status: userResponse.UserStatus,
+            enabled: userResponse.Enabled
+        });
+    } catch (error) {
+        console.error('Get user error:', error);
+        throw createError(500, 'Failed to get user information');
+    }
+};
+
 // Export wrapped handlers
 export const login = withMiddleware(loginHandler, { requireAuth: false, serviceName: 'auth-service' });
 export const logout = withMiddleware(logoutHandler, { requireAuth: false, serviceName: 'auth-service' });
@@ -235,3 +279,4 @@ export const forgotPassword = withMiddleware(forgotPasswordHandler, { requireAut
 export const resetPassword = withMiddleware(resetPasswordHandler, { requireAuth: false, serviceName: 'auth-service' });
 export const inviteUser = withMiddleware(inviteUserHandler, { requireAuth: true, serviceName: 'auth-service' });
 export const completeInvite = withMiddleware(completeInviteHandler, { requireAuth: false, serviceName: 'auth-service' });
+export const getCurrentUser = withMiddleware(getCurrentUserHandler, { requireAuth: true, serviceName: 'auth-service', parseBody: false });

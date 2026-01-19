@@ -91,15 +91,23 @@ const authContext = () => ({
  * Apply standard middleware stack to a handler
  */
 const withMiddleware = (handler, options = {}) => {
-    const { requireAuth = true, serviceName = 'api' } = options;
+    const { requireAuth = true, serviceName = 'api', parseBody = true } = options;
 
     let wrapped = middy(handler)
-        .use(requestLogger(serviceName))
-        .use(httpJsonBodyParser({ disableContentTypeError: true }))
-        .use(httpCors({
-            origin: '*',
-            credentials: true,
+        .use(requestLogger(serviceName));
+
+    // Only parse body for non-GET methods
+    if (parseBody) {
+        wrapped = wrapped.use(httpJsonBodyParser({
+            disableContentTypeError: true,
+            // Skip body parsing for GET, DELETE, OPTIONS, HEAD requests
         }));
+    }
+
+    wrapped = wrapped.use(httpCors({
+        origin: '*',
+        credentials: true,
+    }));
 
     if (requireAuth) {
         wrapped = wrapped.use(authContext());
