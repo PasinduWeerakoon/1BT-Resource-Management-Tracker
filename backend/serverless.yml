@@ -79,9 +79,14 @@ custom:
   serverless-offline:
     httpPort: 3000
     lambdaPort: 3002
+  pythonRequirements:
+    dockerizePip: non-linux
+    pythonBin: python3 # OR python
 
 plugins:
   - serverless-offline
+  - serverless-dotenv-plugin
+  - serverless-python-requirements
 
 # Package configuration
 package:
@@ -475,15 +480,47 @@ functions:
       DATABASE_PASSWORD: ${ssm:/1bt/${self:provider.stage}/db-password}
     events:
       - http:
-          path: /api/v1/reports/dashboard
+          path: /api/v1/reports/allocations
           method: get
           cors: true
+      - http:
+          path: /api/v1/reports/bench
+          method: get
+          cors: true
+      - http:
       - http:
           path: /api/v1/reports/utilization
           method: get
           cors: true
+
+  # ============================================
+  # DOCUMENT GENERATOR (Python)
+  # ============================================
+  docGenerator:
+    handler: backend/python/handlers/generate_report.handler
+    runtime: python3.9
+    description: Generate Excel/PDF reports
+    timeout: 30
+    memorySize: 256
+    layers:
+      # Add layers if needed, or rely on python-requirements
+    vpc:
+      securityGroupIds:
+        - Fn::ImportValue: !Sub onebt-rm-${self:provider.stage}-LambdaSecurityGroupId
+      subnetIds:
+        - Fn::ImportValue: !Sub onebt-rm-${self:provider.stage}-PrivateSubnet1Id
+        - Fn::ImportValue: !Sub onebt-rm-${self:provider.stage}-PrivateSubnet2Id
+    environment:
+      DATABASE_HOST:
+        Fn::ImportValue: !Sub onebt-rm-${self:provider.stage}-RDSEndpoint
+      DATABASE_PORT: '5432'
+      DATABASE_NAME: resource_management_${self:provider.stage}
+      DATABASE_USER: dbadmin
+      DATABASE_PASSWORD: ${ssm:/1bt/${self:provider.stage}/db-password}
+      DOCUMENTS_BUCKET: !Ref DocumentsBucket
+    events:
       - http:
-          path: /api/v1/reports/billing
+          path: /api/v1/reports/download
           method: get
           cors: true
 

@@ -64,6 +64,7 @@
     "node-pg-migrate": "^8.0.4",
     "serverless": "^3.38.0",
     "serverless-dotenv-plugin": "^6.0.0",
-    "serverless-offline": "^13.3.0"
+    "serverless-offline": "^13.3.0",
+    "serverless-python-requirements": "^6.1.2"
   }
 }
