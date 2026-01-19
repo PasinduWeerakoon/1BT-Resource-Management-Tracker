@@ -1,0 +1,192 @@
+service: onebt-project-service
+
+frameworkVersion: "3"
+
+provider:
+  name: aws
+  runtime: nodejs20.x
+  region: ${opt:region, 'ap-southeast-1'}
+  stage: ${opt:stage, 'dev'}
+  memorySize: 256
+  timeout: 30
+
+  # VPC Configuration - Required for RDS access
+  vpc:
+    securityGroupIds:
+      - !ImportValue onebt-rm-${self:provider.stage}-LambdaSecurityGroupId
+    subnetIds: !Split
+      - ","
+      - !ImportValue onebt-rm-${self:provider.stage}-PrivateSubnetIds
+
+  environment:
+    STAGE: ${self:provider.stage}
+    LOG_LEVEL: ${self:custom.logLevel.${self:provider.stage}, 'info'}
+    # Database - from RDS stack
+    DB_HOST: !ImportValue onebt-rm-${self:provider.stage}-RDSEndpoint
+    DB_PORT: "5432"
+    DB_NAME: onebt_rm_${self:provider.stage}
+    DB_USER: ${ssm:/onebt-rm/${self:provider.stage}/db/username}
+    DB_PASSWORD: ${ssm:/onebt-rm/${self:provider.stage}/db/password}
+
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - ssm:GetParameter
+            - ssm:GetParameters
+          Resource:
+            - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/onebt-rm/${self:provider.stage}/*
+
+custom:
+  logLevel:
+    dev: debug
+    qa: info
+    uat: info
+    prod: warn
+
+  sharedLayerVersion: ${env:SHARED_LAYER_VERSION, '1'}
+
+layers:
+  - arn:aws:lambda:${self:provider.region}:${aws:accountId}:layer:onebt-shared-layer:${self:custom.sharedLayerVersion}
+
+package:
+  individually: true
+  patterns:
+    - "!**/*"
+    - "src/**"
+
+functions:
+  # ==================== PROJECTS ====================
+  listProjects:
+    handler: src/handlers/projects.list
+    description: List all projects with pagination and filters
+    events:
+      - httpApi:
+          path: /projects
+          method: GET
+          authorizer:
+            type: jwt
+            id: !ImportValue onebt-rm-${self:provider.stage}-CognitoAuthorizerId
+
+  getProject:
+    handler: src/handlers/projects.getById
+    description: Get a single project by ID
+    events:
+      - httpApi:
+          path: /projects/{id}
+          method: GET
+          authorizer:
+            type: jwt
+            id: !ImportValue onebt-rm-${self:provider.stage}-CognitoAuthorizerId
+
+  createProject:
+    handler: src/handlers/projects.create
+    description: Create a new project
+    events:
+      - httpApi:
+          path: /projects
+          method: POST
+          authorizer:
+            type: jwt
+            id: !ImportValue onebt-rm-${self:provider.stage}-CognitoAuthorizerId
+
+  updateProject:
+    handler: src/handlers/projects.update
+    description: Update an existing project
+    events:
+      - httpApi:
+          path: /projects/{id}
+          method: PUT
+          authorizer:
+            type: jwt
+            id: !ImportValue onebt-rm-${self:provider.stage}-CognitoAuthorizerId
+
+  deleteProject:
+    handler: src/handlers/projects.remove
+    description: Soft delete a project
+    events:
+      - httpApi:
+          path: /projects/{id}
+          method: DELETE
+          authorizer:
+            type: jwt
+            id: !ImportValue onebt-rm-${self:provider.stage}-CognitoAuthorizerId
+
+  getProjectAllocations:
+    handler: src/handlers/projects.getAllocations
+    description: Get allocations for a project
+    events:
+      - httpApi:
+          path: /projects/{id}/allocations
+          method: GET
+          authorizer:
+            type: jwt
+            id: !ImportValue onebt-rm-${self:provider.stage}-CognitoAuthorizerId
+
+  # ==================== CLIENTS ====================
+  listClients:
+    handler: src/handlers/clients.list
+    description: List all clients with pagination and filters
+    events:
+      - httpApi:
+          path: /clients
+          method: GET
+          authorizer:
+            type: jwt
+            id: !ImportValue onebt-rm-${self:provider.stage}-CognitoAuthorizerId
+
+  getClient:
+    handler: src/handlers/clients.getById
+    description: Get a single client by ID
+    events:
+      - httpApi:
+          path: /clients/{id}
+          method: GET
+          authorizer:
+            type: jwt
+            id: !ImportValue onebt-rm-${self:provider.stage}-CognitoAuthorizerId
+
+  createClient:
+    handler: src/handlers/clients.create
+    description: Create a new client
+    events:
+      - httpApi:
+          path: /clients
+          method: POST
+          authorizer:
+            type: jwt
+            id: !ImportValue onebt-rm-${self:provider.stage}-CognitoAuthorizerId
+
+  updateClient:
+    handler: src/handlers/clients.update
+    description: Update an existing client
+    events:
+      - httpApi:
+          path: /clients/{id}
+          method: PUT
+          authorizer:
+            type: jwt
+            id: !ImportValue onebt-rm-${self:provider.stage}-CognitoAuthorizerId
+
+  deleteClient:
+    handler: src/handlers/clients.remove
+    description: Soft delete a client
+    events:
+      - httpApi:
+          path: /clients/{id}
+          method: DELETE
+          authorizer:
+            type: jwt
+            id: !ImportValue onebt-rm-${self:provider.stage}-CognitoAuthorizerId
+
+  getClientProjects:
+    handler: src/handlers/clients.getProjects
+    description: Get all projects for a client
+    events:
+      - httpApi:
+          path: /clients/{id}/projects
+          method: GET
+          authorizer:
+            type: jwt
+            id: !ImportValue onebt-rm-${self:provider.stage}-CognitoAuthorizerId

@@ -1,0 +1,23 @@
+{
+    "name": "onebt-report-service",
+    "version": "1.0.0",
+    "description": "Reports microservice - handles dashboard and analytics reports",
+    "type": "module",
+    "scripts": {
+        "deploy": "serverless deploy",
+        "deploy:dev": "serverless deploy --stage dev",
+        "deploy:qa": "serverless deploy --stage qa",
+        "deploy:uat": "serverless deploy --stage uat",
+        "deploy:prod": "serverless deploy --stage prod",
+        "remove": "serverless remove",
+        "logs": "serverless logs -f",
+        "invoke": "serverless invoke -f"
+    },
+    "dependencies": {},
+    "devDependencies": {
+        "serverless": "^3.38.0"
+    },
+    "engines": {
+        "node": ">=20.0.0"
+    }
+}

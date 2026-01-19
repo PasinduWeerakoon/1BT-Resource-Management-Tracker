@@ -52,10 +52,10 @@ To access the private RDS database from your local machine (e.g., using pgAdmin,
 
     ```bash
     aws ssm start-session \
-        --target <BASTION_INSTANCE_ID> \
+        --target i-04f6374dc7c76d13d \
         --region ap-southeast-1 \
         --document-name AWS-StartPortForwardingSessionToRemoteHost \
-        --parameters '{"host":["<RDS_ENDPOINT>"],"portNumber":["5432"],"localPortNumber":["54320"]}'
+        --parameters '{"host":["onebt-db-dev.cpg2g0wb7axs.ap-southeast-1.rds.amazonaws.com"],"portNumber":["5432"],"localPortNumber":["54320"]}'
     ```
 
     *Replace `<BASTION_INSTANCE_ID>` and `<RDS_ENDPOINT>` with actual values.*
@@ -85,3 +85,10 @@ To access the private RDS database from your local machine (e.g., using pgAdmin,
     aws ec2 start-instances --instance-ids <BASTION_INSTANCE_ID> --region ap-southeast-1
     ```
 *   Wait 1-2 minutes for it to come online.
+
+
+Bastion Instance ID: i-04f6374dc7c76d13d
+RDS Endpoint: onebt-db-dev.cpg2g0wb7axs.ap-southeast-1.rds.amazonaws.com
+DB Password: U2qSm0YId9BZXWRP6EnJ
+
+aws ssm start-session --target i-04f6374dc7c76d13d --region ap-southeast-1 --document-name AWS-StartPortForwardingSessionToRemoteHost --parameters "{\"host\":[\"onebt-db-dev.cpg2g0wb7axs.ap-southeast-1.rds.amazonaws.com\"],\"portNumber\":[\"5432\"],\"localPortNumber\":[\"54320\"]}"

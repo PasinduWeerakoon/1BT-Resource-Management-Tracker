@@ -1,0 +1,137 @@
+service: onebt-allocation-service
+
+frameworkVersion: "3"
+
+provider:
+  name: aws
+  runtime: nodejs20.x
+  region: ${opt:region, 'ap-southeast-1'}
+  stage: ${opt:stage, 'dev'}
+  memorySize: 256
+  timeout: 30
+
+  # VPC Configuration - Required for RDS access
+  vpc:
+    securityGroupIds:
+      - !ImportValue onebt-rm-${self:provider.stage}-LambdaSecurityGroupId
+    subnetIds: !Split
+      - ","
+      - !ImportValue onebt-rm-${self:provider.stage}-PrivateSubnetIds
+
+  environment:
+    STAGE: ${self:provider.stage}
+    LOG_LEVEL: ${self:custom.logLevel.${self:provider.stage}, 'info'}
+    # Database - from RDS stack
+    DB_HOST: !ImportValue onebt-rm-${self:provider.stage}-RDSEndpoint
+    DB_PORT: "5432"
+    DB_NAME: onebt_rm_${self:provider.stage}
+    DB_USER: ${ssm:/onebt-rm/${self:provider.stage}/db/username}
+    DB_PASSWORD: ${ssm:/onebt-rm/${self:provider.stage}/db/password}
+
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - ssm:GetParameter
+            - ssm:GetParameters
+          Resource:
+            - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/onebt-rm/${self:provider.stage}/*
+
+custom:
+  logLevel:
+    dev: debug
+    qa: info
+    uat: info
+    prod: warn
+
+  sharedLayerVersion: ${env:SHARED_LAYER_VERSION, '1'}
+
+layers:
+  - arn:aws:lambda:${self:provider.region}:${aws:accountId}:layer:onebt-shared-layer:${self:custom.sharedLayerVersion}
+
+package:
+  individually: true
+  patterns:
+    - "!**/*"
+    - "src/**"
+
+functions:
+  # ==================== ALLOCATIONS ====================
+  listAllocations:
+    handler: src/handlers/allocations.list
+    description: List all allocations with pagination and filters
+    events:
+      - httpApi:
+          path: /allocations
+          method: GET
+          authorizer:
+            type: jwt
+            id: !ImportValue onebt-rm-${self:provider.stage}-CognitoAuthorizerId
+
+  getAllocation:
+    handler: src/handlers/allocations.getById
+    description: Get a single allocation by ID
+    events:
+      - httpApi:
+          path: /allocations/{id}
+          method: GET
+          authorizer:
+            type: jwt
+            id: !ImportValue onebt-rm-${self:provider.stage}-CognitoAuthorizerId
+
+  createAllocation:
+    handler: src/handlers/allocations.create
+    description: Create a new allocation
+    events:
+      - httpApi:
+          path: /allocations
+          method: POST
+          authorizer:
+            type: jwt
+            id: !ImportValue onebt-rm-${self:provider.stage}-CognitoAuthorizerId
+
+  updateAllocation:
+    handler: src/handlers/allocations.update
+    description: Update an existing allocation
+    events:
+      - httpApi:
+          path: /allocations/{id}
+          method: PUT
+          authorizer:
+            type: jwt
+            id: !ImportValue onebt-rm-${self:provider.stage}-CognitoAuthorizerId
+
+  deleteAllocation:
+    handler: src/handlers/allocations.remove
+    description: Delete an allocation
+    events:
+      - httpApi:
+          path: /allocations/{id}
+          method: DELETE
+          authorizer:
+            type: jwt
+            id: !ImportValue onebt-rm-${self:provider.stage}-CognitoAuthorizerId
+
+  getResourceUtilization:
+    handler: src/handlers/allocations.getResourceUtilization
+    description: Get utilization summary for a resource
+    events:
+      - httpApi:
+          path: /resources/{id}/utilization
+          method: GET
+          authorizer:
+            type: jwt
+            id: !ImportValue onebt-rm-${self:provider.stage}-CognitoAuthorizerId
+
+  # ==================== ALLOCATION HISTORY ====================
+  getAllocationHistory:
+    handler: src/handlers/allocations.getHistory
+    description: Get allocation history
+    events:
+      - httpApi:
+          path: /allocations/{id}/history
+          method: GET
+          authorizer:
+            type: jwt
+            id: !ImportValue onebt-rm-${self:provider.stage}-CognitoAuthorizerId

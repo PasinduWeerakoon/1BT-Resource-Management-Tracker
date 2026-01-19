@@ -1,0 +1,177 @@
+service: onebt-document-service
+
+frameworkVersion: "3"
+
+provider:
+  name: aws
+  runtime: python3.11
+  region: ${opt:region, 'ap-southeast-1'}
+  stage: ${opt:stage, 'dev'}
+  memorySize: 512
+  timeout: 60 # Document generation can take time
+
+  # VPC Configuration - Required for RDS access
+  vpc:
+    securityGroupIds:
+      - !ImportValue onebt-rm-${self:provider.stage}-LambdaSecurityGroupId
+    subnetIds: !Split
+      - ","
+      - !ImportValue onebt-rm-${self:provider.stage}-PrivateSubnetIds
+
+  environment:
+    STAGE: ${self:provider.stage}
+    LOG_LEVEL: ${self:custom.logLevel.${self:provider.stage}, 'INFO'}
+    # Database - from RDS stack
+    DB_HOST: !ImportValue onebt-rm-${self:provider.stage}-RDSEndpoint
+    DB_PORT: "5432"
+    DB_NAME: onebt_rm_${self:provider.stage}
+    DB_USER: ${ssm:/onebt-rm/${self:provider.stage}/db/username}
+    DB_PASSWORD: ${ssm:/onebt-rm/${self:provider.stage}/db/password}
+    # S3 bucket for document storage
+    DOCUMENTS_BUCKET: !Ref DocumentsBucket
+
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - ssm:GetParameter
+            - ssm:GetParameters
+          Resource:
+            - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/onebt-rm/${self:provider.stage}/*
+        - Effect: Allow
+          Action:
+            - s3:PutObject
+            - s3:GetObject
+            - s3:DeleteObject
+          Resource:
+            - !Sub arn:aws:s3:::${DocumentsBucket}/*
+
+custom:
+  logLevel:
+    dev: DEBUG
+    qa: INFO
+    uat: INFO
+    prod: WARNING
+
+  pythonRequirements:
+    dockerizePip: non-linux
+    layer: true
+    slim: true
+    slimPatternsAppendDefaults: false
+
+plugins:
+  - serverless-python-requirements
+
+package:
+  individually: true
+  patterns:
+    - "!**/*"
+    - "src/**"
+    - "!src/**/__pycache__/**"
+    - "!.pytest_cache/**"
+    - "!tests/**"
+
+functions:
+  # ==================== EXCEL GENERATION ====================
+  generateExcelReport:
+    handler: src/handlers/excel_handler.generate_report
+    description: Generate Excel report from data
+    events:
+      - httpApi:
+          path: /documents/excel/generate
+          method: POST
+          authorizer:
+            type: jwt
+            id: !ImportValue onebt-rm-${self:provider.stage}-CognitoAuthorizerId
+    layers:
+      - Ref: PythonRequirementsLambdaLayer
+
+  generateAllocationExcel:
+    handler: src/handlers/excel_handler.generate_allocation_report
+    description: Generate allocation report in Excel
+    events:
+      - httpApi:
+          path: /documents/excel/allocations
+          method: POST
+          authorizer:
+            type: jwt
+            id: !ImportValue onebt-rm-${self:provider.stage}-CognitoAuthorizerId
+    layers:
+      - Ref: PythonRequirementsLambdaLayer
+
+  generateBenchExcel:
+    handler: src/handlers/excel_handler.generate_bench_report
+    description: Generate bench report in Excel
+    events:
+      - httpApi:
+          path: /documents/excel/bench
+          method: POST
+          authorizer:
+            type: jwt
+            id: !ImportValue onebt-rm-${self:provider.stage}-CognitoAuthorizerId
+    layers:
+      - Ref: PythonRequirementsLambdaLayer
+
+  # ==================== PDF GENERATION ====================
+  generatePdfReport:
+    handler: src/handlers/pdf_handler.generate_report
+    description: Generate PDF report from data
+    events:
+      - httpApi:
+          path: /documents/pdf/generate
+          method: POST
+          authorizer:
+            type: jwt
+            id: !ImportValue onebt-rm-${self:provider.stage}-CognitoAuthorizerId
+    layers:
+      - Ref: PythonRequirementsLambdaLayer
+
+  # ==================== SCHEDULED REPORTS ====================
+  scheduledWeeklyReport:
+    handler: src/handlers/scheduled_handler.weekly_report
+    description: Generate and email weekly reports
+    events:
+      - schedule:
+          rate: cron(0 8 ? * MON *) # Every Monday at 8 AM UTC
+          enabled: ${self:custom.enableScheduled.${self:provider.stage}, false}
+    layers:
+      - Ref: PythonRequirementsLambdaLayer
+
+resources:
+  Resources:
+    DocumentsBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: onebt-rm-${self:provider.stage}-documents-${aws:accountId}
+        PublicAccessBlockConfiguration:
+          BlockPublicAcls: true
+          BlockPublicPolicy: true
+          IgnorePublicAcls: true
+          RestrictPublicBuckets: true
+        LifecycleConfiguration:
+          Rules:
+            - Id: DeleteTempFiles
+              Prefix: temp/
+              Status: Enabled
+              ExpirationInDays: 1
+            - Id: DeleteOldReports
+              Prefix: reports/
+              Status: Enabled
+              ExpirationInDays: 30
+        BucketEncryption:
+          ServerSideEncryptionConfiguration:
+            - ServerSideEncryptionByDefault:
+                SSEAlgorithm: AES256
+        Tags:
+          - Key: Environment
+            Value: ${self:provider.stage}
+          - Key: Project
+            Value: onebt-rm
+
+  Outputs:
+    DocumentsBucketName:
+      Description: Documents S3 Bucket Name
+      Value: !Ref DocumentsBucket
+      Export:
+        Name: onebt-rm-${self:provider.stage}-DocumentsBucket

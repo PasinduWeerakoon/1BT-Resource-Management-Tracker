@@ -1,0 +1,228 @@
+service: onebt-resource-service
+
+frameworkVersion: "3"
+
+provider:
+  name: aws
+  runtime: nodejs20.x
+  region: ${opt:region, 'ap-southeast-1'}
+  stage: ${opt:stage, 'dev'}
+  memorySize: 256
+  timeout: 30
+
+  # VPC Configuration - Required for RDS access
+  vpc:
+    securityGroupIds:
+      - !ImportValue onebt-rm-${self:provider.stage}-LambdaSecurityGroupId
+    subnetIds: !Split
+      - ","
+      - !ImportValue onebt-rm-${self:provider.stage}-PrivateSubnetIds
+
+  environment:
+    STAGE: ${self:provider.stage}
+    LOG_LEVEL: ${self:custom.logLevel.${self:provider.stage}, 'info'}
+    # Database - from RDS stack
+    DB_HOST: !ImportValue onebt-rm-${self:provider.stage}-RDSEndpoint
+    DB_PORT: "5432"
+    DB_NAME: onebt_rm_${self:provider.stage}
+    DB_USER: ${ssm:/onebt-rm/${self:provider.stage}/db/username}
+    DB_PASSWORD: ${ssm:/onebt-rm/${self:provider.stage}/db/password}
+
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - ssm:GetParameter
+            - ssm:GetParameters
+          Resource:
+            - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/onebt-rm/${self:provider.stage}/*
+
+custom:
+  logLevel:
+    dev: debug
+    qa: info
+    uat: info
+    prod: warn
+
+  # API Gateway reference
+  apiGatewayId: !ImportValue onebt-rm-${self:provider.stage}-ApiGatewayId
+  apiGatewayRootResourceId: !ImportValue onebt-rm-${self:provider.stage}-ApiGatewayRootResourceId
+
+layers:
+  - arn:aws:lambda:${self:provider.region}:${aws:accountId}:layer:onebt-shared-layer:${self:custom.sharedLayerVersion, '1'}
+
+package:
+  individually: true
+  patterns:
+    - "!**/*"
+    - "src/**"
+
+functions:
+  # ==================== RESOURCES ====================
+  listResources:
+    handler: src/handlers/resources.list
+    description: List all resources with pagination and filters
+    events:
+      - httpApi:
+          path: /resources
+          method: GET
+          authorizer:
+            type: jwt
+            id: !ImportValue onebt-rm-${self:provider.stage}-CognitoAuthorizerId
+
+  getResource:
+    handler: src/handlers/resources.getById
+    description: Get a single resource by ID
+    events:
+      - httpApi:
+          path: /resources/{id}
+          method: GET
+          authorizer:
+            type: jwt
+            id: !ImportValue onebt-rm-${self:provider.stage}-CognitoAuthorizerId
+
+  createResource:
+    handler: src/handlers/resources.create
+    description: Create a new resource
+    events:
+      - httpApi:
+          path: /resources
+          method: POST
+          authorizer:
+            type: jwt
+            id: !ImportValue onebt-rm-${self:provider.stage}-CognitoAuthorizerId
+
+  updateResource:
+    handler: src/handlers/resources.update
+    description: Update an existing resource
+    events:
+      - httpApi:
+          path: /resources/{id}
+          method: PUT
+          authorizer:
+            type: jwt
+            id: !ImportValue onebt-rm-${self:provider.stage}-CognitoAuthorizerId
+
+  deleteResource:
+    handler: src/handlers/resources.remove
+    description: Soft delete a resource
+    events:
+      - httpApi:
+          path: /resources/{id}
+          method: DELETE
+          authorizer:
+            type: jwt
+            id: !ImportValue onebt-rm-${self:provider.stage}-CognitoAuthorizerId
+
+  getResourceAllocations:
+    handler: src/handlers/resources.getAllocations
+    description: Get allocations for a resource
+    events:
+      - httpApi:
+          path: /resources/{id}/allocations
+          method: GET
+          authorizer:
+            type: jwt
+            id: !ImportValue onebt-rm-${self:provider.stage}-CognitoAuthorizerId
+
+  getDesignationHistory:
+    handler: src/handlers/resources.getDesignationHistory
+    description: Get designation history for a resource
+    events:
+      - httpApi:
+          path: /resources/{id}/designation-history
+          method: GET
+          authorizer:
+            type: jwt
+            id: !ImportValue onebt-rm-${self:provider.stage}-CognitoAuthorizerId
+
+  # ==================== DESIGNATIONS ====================
+  listDesignations:
+    handler: src/handlers/designations.list
+    description: List all designations
+    events:
+      - httpApi:
+          path: /designations
+          method: GET
+          authorizer:
+            type: jwt
+            id: !ImportValue onebt-rm-${self:provider.stage}-CognitoAuthorizerId
+
+  getDesignation:
+    handler: src/handlers/designations.getById
+    description: Get a designation by ID
+    events:
+      - httpApi:
+          path: /designations/{id}
+          method: GET
+          authorizer:
+            type: jwt
+            id: !ImportValue onebt-rm-${self:provider.stage}-CognitoAuthorizerId
+
+  createDesignation:
+    handler: src/handlers/designations.create
+    description: Create a new designation
+    events:
+      - httpApi:
+          path: /designations
+          method: POST
+          authorizer:
+            type: jwt
+            id: !ImportValue onebt-rm-${self:provider.stage}-CognitoAuthorizerId
+
+  updateDesignation:
+    handler: src/handlers/designations.update
+    description: Update an existing designation
+    events:
+      - httpApi:
+          path: /designations/{id}
+          method: PUT
+          authorizer:
+            type: jwt
+            id: !ImportValue onebt-rm-${self:provider.stage}-CognitoAuthorizerId
+
+  # ==================== TRACKS ====================
+  listTracks:
+    handler: src/handlers/tracks.list
+    description: List all tracks
+    events:
+      - httpApi:
+          path: /tracks
+          method: GET
+          authorizer:
+            type: jwt
+            id: !ImportValue onebt-rm-${self:provider.stage}-CognitoAuthorizerId
+
+  getTrack:
+    handler: src/handlers/tracks.getById
+    description: Get a track by ID
+    events:
+      - httpApi:
+          path: /tracks/{id}
+          method: GET
+          authorizer:
+            type: jwt
+            id: !ImportValue onebt-rm-${self:provider.stage}-CognitoAuthorizerId
+
+  createTrack:
+    handler: src/handlers/tracks.create
+    description: Create a new track
+    events:
+      - httpApi:
+          path: /tracks
+          method: POST
+          authorizer:
+            type: jwt
+            id: !ImportValue onebt-rm-${self:provider.stage}-CognitoAuthorizerId
+
+  updateTrack:
+    handler: src/handlers/tracks.update
+    description: Update an existing track
+    events:
+      - httpApi:
+          path: /tracks/{id}
+          method: PUT
+          authorizer:
+            type: jwt
+            id: !ImportValue onebt-rm-${self:provider.stage}-CognitoAuthorizerId

@@ -1,0 +1,26 @@
+service: onebt-shared
+
+frameworkVersion: "3"
+
+provider:
+  name: aws
+  runtime: nodejs20.x
+  stage: ${opt:stage, 'dev'}
+  region: ${opt:region, 'ap-southeast-1'}
+
+layers:
+  sharedLibs:
+    path: layers
+    name: onebt-shared-libs-${self:provider.stage}
+    description: Shared libraries (database, logger, middleware, utils)
+    compatibleRuntimes:
+      - nodejs20.x
+    retain: false
+
+resources:
+  Outputs:
+    SharedLibsLayerArn:
+      Description: Shared libraries Lambda Layer ARN
+      Value: !Ref SharedLibsLambdaLayer
+      Export:
+        Name: onebt-shared-layer-${self:provider.stage}-arn
