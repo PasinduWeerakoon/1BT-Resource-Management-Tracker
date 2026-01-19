@@ -12,15 +12,19 @@ import { validate, allocationSchemas } from '/opt/nodejs/validation/index.js';
  * Validate total allocation doesn't exceed 100%
  */
 const validateAllocation = async (resourceId, newPercentage, excludeAllocationId, startDate, endDate) => {
+    // Convert dates to ISO strings for proper PostgreSQL comparison
+    const startDateStr = startDate instanceof Date ? startDate.toISOString().split('T')[0] : startDate;
+    const endDateStr = endDate instanceof Date ? endDate.toISOString().split('T')[0] : endDate;
+
     let query = `
         SELECT COALESCE(SUM(allocation_percentage), 0) as total
         FROM allocations
         WHERE resource_id = $1
-        AND status = 'ACTIVE'
-        AND (end_date IS NULL OR end_date >= $2)
-        AND start_date <= COALESCE($3, '9999-12-31')
+        AND is_active = true
+        AND (end_date IS NULL OR end_date >= $2::date)
+        AND start_date <= COALESCE($3::date, '9999-12-31'::date)
     `;
-    const params = [resourceId, startDate, endDate];
+    const params = [resourceId, startDateStr, endDateStr];
 
     if (excludeAllocationId) {
         query += ` AND id != $4`;
@@ -48,22 +52,17 @@ const validateAllocation = async (resourceId, newPercentage, excludeAllocationId
  */
 const logAllocationHistory = async (allocation, changeType, userId) => {
     const query = `
-        INSERT INTO allocation_history (
-            allocation_id, resource_id, project_id, allocation_percentage,
-            start_date, end_date, status, changed_by, change_type
+        INSERT INTO allocation_change_history (
+            allocation_id, change_type, changed_by, changed_fields, new_values
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        VALUES ($1, $2, $3, $4, $5)
     `;
     await db.query(query, [
         allocation.id,
-        allocation.resource_id,
-        allocation.project_id,
-        allocation.allocation_percentage,
-        allocation.start_date,
-        allocation.end_date,
-        allocation.status,
-        userId,
-        changeType
+        changeType,
+        userId || '00000000-0000-0000-0000-000000000000',
+        JSON.stringify(['allocation_percentage', 'start_date', 'end_date']),
+        JSON.stringify(allocation)
     ]);
 };
 
@@ -213,16 +212,26 @@ export const create = async (event) => {
                 resource_id, project_id, allocation_percentage, start_date, end_date,
                 is_active, notes, created_by
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            VALUES ($1, $2, $3, $4::date, $5::date, $6, $7, $8)
             RETURNING *
         `;
+
+        // Convert dates to ISO strings
+        const startDateStr = validated.start_date instanceof Date
+            ? validated.start_date.toISOString().split('T')[0]
+            : validated.start_date;
+        const endDateStr = validated.end_date
+            ? (validated.end_date instanceof Date
+                ? validated.end_date.toISOString().split('T')[0]
+                : validated.end_date)
+            : null;
 
         const params = [
             validated.resource_id,
             validated.project_id,
             validated.allocation_percentage,
-            validated.start_date,
-            validated.end_date || null,
+            startDateStr,
+            endDateStr,
             true, // is_active
             validated.notes || null,
             userId || '00000000-0000-0000-0000-000000000000'
@@ -232,7 +241,7 @@ export const create = async (event) => {
         const allocation = result.rows[0];
 
         // Log to history
-        await logAllocationHistory(allocation, 'CREATE', userId);
+        await logAllocationHistory(allocation, 'CREATED', userId);
 
         log.info('Allocation created', { id: allocation.id });
 
@@ -328,7 +337,7 @@ export const update = async (event) => {
         const allocation = result.rows[0];
 
         // Log to history
-        await logAllocationHistory(allocation, 'UPDATE', userId);
+        await logAllocationHistory(allocation, 'UPDATED', userId);
 
         log.info('Allocation updated', { id });
 
@@ -369,7 +378,7 @@ export const remove = async (event) => {
         }
 
         // Log to history
-        await logAllocationHistory(existingResult.rows[0], 'DELETE', userId);
+        await logAllocationHistory(existingResult.rows[0], 'DELETED', userId);
 
         log.info('Allocation deleted', { id });
 
@@ -411,7 +420,7 @@ export const getResourceUtilization = async (event) => {
             FROM allocations a
             LEFT JOIN projects p ON a.project_id = p.id
             WHERE a.resource_id = $1
-            AND a.status = 'ACTIVE'
+            AND a.is_active = true
             AND (a.end_date IS NULL OR a.end_date >= CURRENT_DATE)
             AND a.start_date <= CURRENT_DATE
         `;

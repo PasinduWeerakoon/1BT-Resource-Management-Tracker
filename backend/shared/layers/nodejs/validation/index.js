@@ -127,56 +127,60 @@ export const clientSchemas = {
     list: Joi.object({
         ...paginationSchema,
         search: Joi.string().allow('').optional(),
-        status: Joi.string().valid('active', 'inactive').optional(),
+        is_active: Joi.string().valid('true', 'false').optional(),
     }),
 
     create: Joi.object({
-        name: Joi.string().max(200).required(),
-        code: Joi.string().max(20).required(),
+        client_name: Joi.string().max(100).required(),
+        contact_person: Joi.string().max(100).optional(),
         contact_email: Joi.string().pattern(emailPattern).optional(),
-        contact_phone: Joi.string().max(20).optional(),
-        status: Joi.string().valid('active', 'inactive').default('active'),
+        contact_phone: Joi.string().max(50).optional(),
+        address: Joi.string().max(500).optional(),
+        is_active: Joi.boolean().default(true),
     }),
 
     update: Joi.object({
-        name: Joi.string().max(200).optional(),
-        code: Joi.string().max(20).optional(),
+        client_name: Joi.string().max(100).optional(),
+        contact_person: Joi.string().max(100).optional(),
         contact_email: Joi.string().pattern(emailPattern).optional(),
-        contact_phone: Joi.string().max(20).optional(),
-        status: Joi.string().valid('active', 'inactive').optional(),
+        contact_phone: Joi.string().max(50).optional(),
+        address: Joi.string().max(500).optional(),
+        is_active: Joi.boolean().optional(),
     }),
 };
 
-// Project Schemas
+// Project Schemas - matches handler and DB (project_name, project_type, is_billable)
 export const projectSchemas = {
     list: Joi.object({
         ...paginationSchema,
         search: Joi.string().allow('').optional(),
         client_id: Joi.string().pattern(uuidPattern).optional(),
-        status: Joi.string().valid('active', 'completed', 'on_hold', 'cancelled').optional(),
-        billing_type: Joi.string().valid('billable', 'non_billable', 'pre_sales', 'internal').optional(),
+        status: Joi.string().valid('Active', 'Completed', 'On Hold', 'Cancelled', 'ACTIVE', 'COMPLETED', 'ON_HOLD', 'CANCELLED').optional(),
+        project_type: Joi.string().valid('Client', 'Internal', 'Pre-Sales', 'Bench').optional(),
     }),
 
     create: Joi.object({
-        name: Joi.string().max(200).required(),
-        code: Joi.string().max(20).required(),
-        client_id: Joi.string().pattern(uuidPattern).required(),
-        start_date: Joi.date().iso().required(),
+        project_name: Joi.string().max(200).required(),
+        project_code: Joi.string().max(50).optional(),
+        project_type: Joi.string().valid('Client', 'Internal', 'Pre-Sales', 'Bench').default('Internal'),
+        client_id: Joi.string().pattern(uuidPattern).optional(),
+        start_date: Joi.date().iso().optional(),
         end_date: Joi.date().iso().optional(),
-        status: Joi.string().valid('active', 'completed', 'on_hold', 'cancelled').default('active'),
-        billing_type: Joi.string().valid('billable', 'non_billable', 'pre_sales', 'internal').required(),
+        status: Joi.string().valid('Active', 'Completed', 'On Hold', 'Cancelled', 'ACTIVE').default('Active'),
+        is_billable: Joi.boolean().default(true),
         account_manager_id: Joi.string().pattern(uuidPattern).optional(),
         description: Joi.string().max(1000).optional(),
     }),
 
     update: Joi.object({
-        name: Joi.string().max(200).optional(),
-        code: Joi.string().max(20).optional(),
+        project_name: Joi.string().max(200).optional(),
+        project_code: Joi.string().max(50).optional(),
+        project_type: Joi.string().valid('Client', 'Internal', 'Pre-Sales', 'Bench').optional(),
         client_id: Joi.string().pattern(uuidPattern).optional(),
         start_date: Joi.date().iso().optional(),
         end_date: Joi.date().iso().optional(),
-        status: Joi.string().valid('active', 'completed', 'on_hold', 'cancelled').optional(),
-        billing_type: Joi.string().valid('billable', 'non_billable', 'pre_sales', 'internal').optional(),
+        status: Joi.string().valid('Active', 'Completed', 'On Hold', 'Cancelled', 'ACTIVE').optional(),
+        is_billable: Joi.boolean().optional(),
         account_manager_id: Joi.string().pattern(uuidPattern).optional(),
         description: Joi.string().max(1000).optional(),
     }),
