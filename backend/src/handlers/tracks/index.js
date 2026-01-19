@@ -8,8 +8,24 @@ import { trackSchemas, validate, uuid } from '../../lib/validation/index.js';
 import { success, created, noContent, errors } from '../../utils/response.js';
 
 const listTracks = async () => {
-    const tracks = await trackService.list();
-    return success(tracks);
+    console.log('=== listTracks START ===');
+    console.log('DATABASE_HOST:', process.env.DATABASE_HOST);
+    console.log('DATABASE_NAME:', process.env.DATABASE_NAME);
+    console.log('DATABASE_USER:', process.env.DATABASE_USER);
+    console.log('DATABASE_PORT:', process.env.DATABASE_PORT);
+    console.log('DATABASE_PASSWORD exists:', !!process.env.DATABASE_PASSWORD);
+
+    try {
+        console.log('Calling trackService.list()...');
+        const tracks = await trackService.list();
+        console.log('trackService.list() SUCCESS, count:', tracks?.length);
+        return success(tracks);
+    } catch (err) {
+        console.error('trackService.list() ERROR:', err.message);
+        console.error('Error stack:', err.stack);
+        console.error('Error code:', err.code);
+        throw err;
+    }
 };
 
 const getTrack = async (event) => {

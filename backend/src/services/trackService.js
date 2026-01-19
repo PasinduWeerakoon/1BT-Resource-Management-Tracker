@@ -6,9 +6,19 @@
 import * as db from '../lib/database/index.js';
 
 const list = async () => {
-    const query = 'SELECT * FROM tracks ORDER BY name ASC';
-    const result = await db.query(query);
-    return result.rows;
+    console.log('[trackService.list] Starting query...');
+    try {
+        const query = 'SELECT * FROM tracks ORDER BY name ASC';
+        console.log('[trackService.list] Executing query:', query);
+        const result = await db.query(query);
+        console.log('[trackService.list] Query succeeded, rows:', result.rows?.length);
+        return result.rows;
+    } catch (err) {
+        console.error('[trackService.list] Query FAILED:', err.message);
+        console.error('[trackService.list] Error code:', err.code);
+        console.error('[trackService.list] Error detail:', err.detail);
+        throw err;
+    }
 };
 
 const getById = async (id) => {

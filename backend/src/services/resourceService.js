@@ -1,6 +1,7 @@
 /**
  * Resource Service
  * Business logic for Resource (Employee) management
+ * Aligned with migration handler schema
  */
 
 import * as db from '../lib/database/index.js';
@@ -17,7 +18,7 @@ const list = async ({ page = 1, limit = 20, search, track_id, designation_id, st
   let whereClause = 'WHERE r.deleted_at IS NULL';
 
   if (search) {
-    whereClause += ` AND (r.name ILIKE $${paramIndex} OR r.employee_id ILIKE $${paramIndex} OR r.employee_number ILIKE $${paramIndex})`;
+    whereClause += ` AND (r.name ILIKE $${paramIndex} OR r.email ILIKE $${paramIndex})`;
     params.push(`%${search}%`);
     paramIndex++;
   }
@@ -41,7 +42,7 @@ const list = async ({ page = 1, limit = 20, search, track_id, designation_id, st
   }
 
   if (is_intern !== undefined) {
-    whereClause += ` AND d.is_intern_role = $${paramIndex}`;
+    whereClause += ` AND r.is_intern = $${paramIndex}`;
     params.push(is_intern);
     paramIndex++;
   }
@@ -58,20 +59,18 @@ const list = async ({ page = 1, limit = 20, search, track_id, designation_id, st
   const dataQuery = `
     SELECT 
       r.id,
-      r.employee_id,
-      r.employee_number,
       r.name,
       r.email,
+      r.mobile,
+      r.nic,
       r.designation_id,
       d.name as designation_name,
       d.is_intern_role,
       r.track_id,
       t.name as track_name,
-      r.intern_classification,
-      r.skills,
-      r.date_of_joining,
+      r.join_date,
       r.status,
-      r.notice_period_end_date,
+      r.is_intern,
       r.version,
       r.created_at,
       r.updated_at
@@ -124,38 +123,30 @@ const getById = async (id) => {
 const create = async (data, userId) => {
   const query = `
     INSERT INTO resources (
-      employee_id,
-      employee_number,
       name,
-      phone_number,
       email,
-      address,
+      mobile,
+      nic,
       designation_id,
       track_id,
-      intern_classification,
-      skills,
-      date_of_joining,
+      join_date,
       status,
-      notice_period_end_date,
+      is_intern,
       created_by
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
     RETURNING *
   `;
 
   const params = [
-    data.employee_id,
-    data.employee_number,
     data.name,
-    data.phone_number,
-    data.email || null,
-    data.address || null,
+    data.email,
+    data.mobile || null,
+    data.nic || null,
     data.designation_id,
     data.track_id,
-    data.intern_classification || null,
-    data.skills || [],
-    data.date_of_joining || null,
+    data.join_date || new Date().toISOString().split('T')[0],
     data.status || 'Active',
-    data.notice_period_end_date || null,
+    data.is_intern || false,
     userId,
   ];
 
@@ -178,15 +169,14 @@ const update = async (id, data, userId) => {
 
   const fieldMappings = {
     name: 'name',
-    phone_number: 'phone_number',
     email: 'email',
-    address: 'address',
+    mobile: 'mobile',
+    nic: 'nic',
     designation_id: 'designation_id',
     track_id: 'track_id',
-    intern_classification: 'intern_classification',
-    skills: 'skills',
+    join_date: 'join_date',
     status: 'status',
-    notice_period_end_date: 'notice_period_end_date',
+    is_intern: 'is_intern',
   };
 
   for (const [key, column] of Object.entries(fieldMappings)) {
@@ -258,12 +248,10 @@ const getAllocations = async (resourceId) => {
     SELECT 
       a.*,
       p.project_name,
-      p.project_code,
-      p.project_type,
-      p.account_type
+      p.project_type
     FROM allocations a
     LEFT JOIN projects p ON a.project_id = p.id
-    WHERE a.resource_id = $1 AND a.deleted_at IS NULL
+    WHERE a.resource_id = $1
     ORDER BY a.start_date DESC
   `;
 
@@ -278,17 +266,11 @@ const getDesignationHistory = async (resourceId) => {
   const query = `
     SELECT 
       dh.*,
-      pd.name as previous_designation_name,
-      nd.name as new_designation_name,
-      pt.name as previous_track_name,
-      nt.name as new_track_name
+      d.name as designation_name
     FROM designation_history dh
-    LEFT JOIN designations pd ON dh.previous_designation_id = pd.id
-    LEFT JOIN designations nd ON dh.new_designation_id = nd.id
-    LEFT JOIN tracks pt ON dh.previous_track_id = pt.id
-    LEFT JOIN tracks nt ON dh.new_track_id = nt.id
+    LEFT JOIN designations d ON dh.designation_id = d.id
     WHERE dh.resource_id = $1
-    ORDER BY dh.effective_from DESC
+    ORDER BY dh.effective_date DESC
   `;
 
   const result = await db.query(query, [resourceId]);

@@ -19,7 +19,7 @@ const config = {
     user: process.env.DATABASE_USER || 'admin',
     password: process.env.DATABASE_PASSWORD || '',
     url: process.env.DATABASE_URL,
-    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+    ssl: process.env.DATABASE_HOST ? { rejectUnauthorized: false } : false,
     poolMin: parseInt(process.env.DB_POOL_MIN, 10) || 2,
     poolMax: parseInt(process.env.DB_POOL_MAX, 10) || 10,
   },

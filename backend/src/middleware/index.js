@@ -69,7 +69,7 @@ const withMiddleware = (handler, options = {}) => {
 
     let wrapped = middy(handler)
         .use(requestLogger())
-        .use(httpJsonBodyParser())
+        .use(httpJsonBodyParser({ disableContentTypeError: true }))
         .use(httpCors({
             origin: '*',
             credentials: true,

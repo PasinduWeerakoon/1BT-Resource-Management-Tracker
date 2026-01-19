@@ -15,39 +15,31 @@ const pagination = {
 };
 
 /**
- * Resource (Employee) Schemas
+ * Resource (Employee) Schemas - Aligned with DB
  */
 const resourceSchemas = {
     create: Joi.object({
-        employee_id: Joi.string().min(3).max(20).required(),
-        employee_number: Joi.string().min(3).max(20).required(),
         name: Joi.string().min(2).max(100).required(),
-        phone_number: phone.required(),
-        email: email,
-        address: Joi.string().max(500),
+        email: Joi.string().email().max(100).required(),
+        mobile: Joi.string().max(20),
+        nic: Joi.string().max(20),
         designation_id: uuid.required(),
         track_id: uuid.required(),
-        intern_classification: Joi.string().valid('Tech', 'Non-Tech').allow(null),
-        skills: Joi.array().items(Joi.string().max(50)),
-        date_of_joining: Joi.date().iso(),
-        status: Joi.string().valid('Active', 'Inactive', 'Serving Notice Period', 'On Leave'),
-        notice_period_end_date: Joi.date().iso().when('status', {
-            is: 'Serving Notice Period',
-            then: Joi.required(),
-        }),
+        join_date: Joi.date().iso(),
+        status: Joi.string().valid('Active', 'Bench', 'Resigned', 'Terminated'),
+        is_intern: Joi.boolean().default(false),
     }),
 
     update: Joi.object({
         name: Joi.string().min(2).max(100),
-        phone_number: phone,
-        email: email,
-        address: Joi.string().max(500),
+        email: Joi.string().email().max(100),
+        mobile: Joi.string().max(20),
+        nic: Joi.string().max(20),
         designation_id: uuid,
         track_id: uuid,
-        intern_classification: Joi.string().valid('Tech', 'Non-Tech').allow(null),
-        skills: Joi.array().items(Joi.string().max(50)),
-        status: Joi.string().valid('Active', 'Inactive', 'Serving Notice Period', 'On Leave'),
-        notice_period_end_date: Joi.date().iso(),
+        join_date: Joi.date().iso(),
+        status: Joi.string().valid('Active', 'Bench', 'Resigned', 'Terminated'),
+        is_intern: Joi.boolean(),
         version: Joi.number().integer().required(), // For optimistic locking
     }),
 
@@ -56,7 +48,7 @@ const resourceSchemas = {
         search: Joi.string().max(100),
         track_id: uuid,
         designation_id: uuid,
-        status: Joi.string().valid('Active', 'Inactive', 'Serving Notice Period', 'On Leave'),
+        status: Joi.string().valid('Active', 'Bench', 'Resigned', 'Terminated'),
         is_intern: Joi.boolean(),
     }),
 };

@@ -15,6 +15,14 @@ let pool = null;
  */
 const getPool = () => {
     if (!pool) {
+        console.log('[DB] Creating new pool...');
+        console.log('[DB] config.database.url:', config.database.url);
+        console.log('[DB] config.database.host:', config.database.host);
+        console.log('[DB] config.database.port:', config.database.port);
+        console.log('[DB] config.database.name:', config.database.name);
+        console.log('[DB] config.database.user:', config.database.user);
+        console.log('[DB] config.database.password exists:', !!config.database.password);
+
         const connectionConfig = config.database.url
             ? { connectionString: config.database.url, ssl: config.database.ssl }
             : {
@@ -26,6 +34,8 @@ const getPool = () => {
                 ssl: config.database.ssl,
             };
 
+        console.log('[DB] Final connectionConfig host:', connectionConfig.host);
+
         pool = new Pool({
             ...connectionConfig,
             min: config.database.poolMin,
@@ -35,10 +45,12 @@ const getPool = () => {
         });
 
         pool.on('error', (err) => {
+            console.error('[DB] Pool error:', err.message);
             logger.error('Unexpected database pool error', { error: err.message });
         });
 
         pool.on('connect', () => {
+            console.log('[DB] New connection established');
             logger.debug('New database connection established');
         });
     }

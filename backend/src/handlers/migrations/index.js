@@ -318,6 +318,64 @@ const MIGRATIONS = {
     INSERT INTO users (username, email, password_hash, role, status, must_change_password) VALUES
     ('superadmin', 'admin@1bt.com', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/X4YjKmKCDLNIKQoiG', 'Super User', 'Active', true)
     ON CONFLICT (email) DO NOTHING;
+  `,
+
+  '004_ensure_tables': `
+    -- Ensure tracks table exists (force re-run)
+    CREATE TABLE IF NOT EXISTS tracks (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      name VARCHAR(50) NOT NULL,
+      description VARCHAR(255),
+      is_active BOOLEAN DEFAULT true,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    DO $$ BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'tracks_name_key'
+      ) THEN
+        ALTER TABLE tracks ADD CONSTRAINT tracks_name_key UNIQUE (name);
+      END IF;
+    END $$;
+
+    -- Ensure designations table exists
+    CREATE TABLE IF NOT EXISTS designations (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      name VARCHAR(100) NOT NULL,
+      level INTEGER NOT NULL CHECK (level >= 1 AND level <= 10),
+      is_intern_role BOOLEAN DEFAULT false,
+      is_active BOOLEAN DEFAULT true,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    DO $$ BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'designations_name_key'
+      ) THEN
+        ALTER TABLE designations ADD CONSTRAINT designations_name_key UNIQUE (name);
+      END IF;
+    END $$;
+
+    -- Seed Tracks if empty
+    INSERT INTO tracks (name, description, is_active) VALUES
+    ('FS', 'Full Stack Development', true),
+    ('.Net', '.NET Development', true),
+    ('DS', 'Data Science', true),
+    ('UI/UX', 'UI/UX Design', true),
+    ('QA', 'Quality Assurance', true),
+    ('PM/BA', 'Project Management / Business Analysis', true)
+    ON CONFLICT (name) DO NOTHING;
+
+    -- Seed Designations if empty
+    INSERT INTO designations (name, level, is_intern_role, is_active) VALUES
+    ('Intern - SE', 1, true, true),
+    ('Associate Software Engineer', 2, false, true),
+    ('Software Engineer', 3, false, true),
+    ('Senior Software Engineer', 4, false, true),
+    ('Technical Lead', 6, false, true)
+    ON CONFLICT (name) DO NOTHING;
   `
 };
 
@@ -365,7 +423,7 @@ export const handler = async (event) => {
 
     // Run pending migrations
     const results = [];
-    const migrationOrder = ['001_initial_schema', '002_clients_projects_allocations', '003_seed_defaults'];
+    const migrationOrder = ['001_initial_schema', '002_clients_projects_allocations', '003_seed_defaults', '004_ensure_tables'];
 
     for (const migrationName of migrationOrder) {
       if (runMigrations.includes(migrationName)) {
