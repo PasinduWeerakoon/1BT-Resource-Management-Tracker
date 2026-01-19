@@ -53,7 +53,7 @@ plugins:
 
 custom:
   pythonRequirements:
-    dockerizePip: non-linux
+    dockerizePip: false # Set to 'non-linux' if packages have native binaries
     slim: true
     strip: false
     noDeploy:

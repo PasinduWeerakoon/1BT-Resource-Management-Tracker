@@ -27,6 +27,7 @@ database:
   backupRetentionDays: 3
   multiAz: false
   deletionProtection: false
+  deletionPolicy: Delete # Delete for QA
   performanceInsights: false
   monitoringInterval: 0 # 0 = disabled
 

@@ -467,7 +467,7 @@ resources:
 
     RdsInstance:
       Type: AWS::RDS::DBInstance
-      DeletionPolicy: ${self:custom.database.deletionProtection, true, 'Retain', 'Delete'}
+      DeletionPolicy: ${self:custom.database.deletionPolicy}
       Properties:
         DBInstanceIdentifier: onebt-db-${self:provider.stage}
         DBInstanceClass: ${self:custom.database.instanceClass}

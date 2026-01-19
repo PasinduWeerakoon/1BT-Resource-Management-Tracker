@@ -27,6 +27,7 @@ database:
   backupRetentionDays: 30
   multiAz: true # High availability
   deletionProtection: true # CRITICAL: Protect production data
+  deletionPolicy: Retain # CRITICAL: Never delete prod database
   performanceInsights: true # Enable for monitoring
   monitoringInterval: 60 # Enhanced monitoring every 60 seconds
 

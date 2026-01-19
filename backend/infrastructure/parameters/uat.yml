@@ -27,6 +27,7 @@ database:
   backupRetentionDays: 7
   multiAz: false
   deletionProtection: true # Protect UAT data
+  deletionPolicy: Retain # Retain for UAT
   performanceInsights: false
   monitoringInterval: 0 # 0 = disabled
 
