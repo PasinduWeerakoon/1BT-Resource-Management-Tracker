@@ -50,7 +50,7 @@ export const getDashboard = async (event) => {
                     COUNT(*) as total_allocations,
                     AVG(allocation_percentage) as avg_allocation
                 FROM allocations
-                WHERE status = 'ACTIVE'
+                WHERE is_active = true
                 AND (end_date IS NULL OR end_date >= CURRENT_DATE)
             `),
 
@@ -59,13 +59,13 @@ export const getDashboard = async (event) => {
                 WITH resource_allocations AS (
                     SELECT resource_id, SUM(allocation_percentage) as total
                     FROM allocations
-                    WHERE status = 'ACTIVE' AND (end_date IS NULL OR end_date >= CURRENT_DATE)
+                    WHERE is_active = true AND (end_date IS NULL OR end_date >= CURRENT_DATE)
                     GROUP BY resource_id
                 )
                 SELECT COUNT(*) as count
                 FROM resources r
                 LEFT JOIN resource_allocations ra ON r.id = ra.resource_id
-                WHERE r.status = 'ACTIVE' AND r.deleted_at IS NULL
+                WHERE r.status = 'Active' AND r.deleted_at IS NULL
                 AND (ra.total IS NULL OR ra.total < 100)
             `)
         ]);
@@ -198,7 +198,7 @@ export const getBenchReport = async (event) => {
                     resource_id,
                     SUM(allocation_percentage) as total_allocation
                 FROM allocations
-                WHERE status = 'ACTIVE' 
+                WHERE is_active = true 
                 AND (end_date IS NULL OR end_date >= CURRENT_DATE)
                 GROUP BY resource_id
             )
@@ -210,17 +210,19 @@ export const getBenchReport = async (event) => {
                 t.name as track,
                 COALESCE(ra.total_allocation, 0) as current_allocation,
                 (100 - COALESCE(ra.total_allocation, 0)) as available_capacity,
-                r.join_date,
-                r.is_intern,
-                EXTRACT(DAY FROM (CURRENT_DATE - r.join_date)) as days_in_company
+                r.date_of_joining,
+                r.intern_classification,
+                CASE WHEN r.date_of_joining IS NOT NULL 
+                     THEN (CURRENT_DATE - r.date_of_joining::DATE)
+                     ELSE NULL END as days_in_company
             FROM resources r
             LEFT JOIN resource_allocations ra ON r.id = ra.resource_id
             LEFT JOIN designations d ON r.designation_id = d.id
             LEFT JOIN tracks t ON r.track_id = t.id
-            WHERE r.status = 'ACTIVE'
+            WHERE r.status = 'Active'
             AND (ra.total_allocation IS NULL OR ra.total_allocation < 100)
             AND r.deleted_at IS NULL
-            ORDER BY available_capacity DESC, r.join_date DESC
+            ORDER BY available_capacity DESC, r.date_of_joining DESC
         `;
 
         const result = await db.query(query);
@@ -267,10 +269,10 @@ export const getUtilizationReport = async (event) => {
             FROM resources r
             LEFT JOIN tracks t ON r.track_id = t.id
             LEFT JOIN allocations a ON r.id = a.resource_id 
-                AND a.status = 'ACTIVE' 
+                AND a.is_active = true 
                 AND (a.end_date IS NULL OR a.end_date >= CURRENT_DATE)
             LEFT JOIN projects p ON a.project_id = p.id
-            WHERE r.status = 'ACTIVE' AND r.deleted_at IS NULL
+            WHERE r.status = 'Active' AND r.deleted_at IS NULL
             GROUP BY t.name
             ORDER BY t.name
         `;
@@ -333,23 +335,25 @@ export const getInternReport = async (event) => {
                 r.email,
                 d.name as designation,
                 t.name as track,
-                r.join_date,
-                EXTRACT(MONTH FROM AGE(CURRENT_DATE, r.join_date)) as months_in_company,
+                r.date_of_joining,
+                CASE WHEN r.date_of_joining IS NOT NULL 
+                     THEN EXTRACT(MONTH FROM AGE(CURRENT_DATE, r.date_of_joining::DATE)) 
+                     ELSE NULL END as months_in_company,
                 COALESCE(
                     (SELECT SUM(allocation_percentage) 
                      FROM allocations 
                      WHERE resource_id = r.id 
-                     AND status = 'ACTIVE' 
+                     AND is_active = true 
                      AND (end_date IS NULL OR end_date >= CURRENT_DATE)),
                     0
                 ) as current_allocation
             FROM resources r
             LEFT JOIN designations d ON r.designation_id = d.id
             LEFT JOIN tracks t ON r.track_id = t.id
-            WHERE r.is_intern = true
-            AND r.status = 'ACTIVE'
+            WHERE r.intern_classification IS NOT NULL
+            AND r.status = 'Active'
             AND r.deleted_at IS NULL
-            ORDER BY r.join_date DESC
+            ORDER BY r.date_of_joining DESC
         `;
 
         const result = await db.query(query);
@@ -377,16 +381,16 @@ export const getAccountManagerReport = async (event) => {
 
         const query = `
             SELECT 
-                p.account_manager,
+                p.account_manager_id,
                 COUNT(DISTINCT p.id) as project_count,
                 COUNT(DISTINCT a.resource_id) as resource_count,
-                SUM(CASE WHEN p.status = 'ACTIVE' THEN 1 ELSE 0 END) as active_projects,
+                SUM(CASE WHEN p.status = 'Active' THEN 1 ELSE 0 END) as active_projects,
                 SUM(CASE WHEN p.is_billable = true THEN 1 ELSE 0 END) as billable_projects
             FROM projects p
-            LEFT JOIN allocations a ON p.id = a.project_id AND a.status = 'ACTIVE'
+            LEFT JOIN allocations a ON p.id = a.project_id AND a.is_active = true
             WHERE p.deleted_at IS NULL
-            AND p.account_manager IS NOT NULL
-            GROUP BY p.account_manager
+            AND p.account_manager_id IS NOT NULL
+            GROUP BY p.account_manager_id
             ORDER BY project_count DESC
         `;
 

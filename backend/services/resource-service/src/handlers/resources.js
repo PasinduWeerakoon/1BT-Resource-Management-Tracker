@@ -21,7 +21,7 @@ export const list = async (event) => {
 
         // Validate query parameters
         const validated = validate(queryParams, resourceSchemas.list);
-        const { page, limit, search, track_id, designation_id, status, is_intern } = validated;
+        const { page, limit, search, track_id, designation_id, status, intern_classification } = validated;
         const offset = (page - 1) * limit;
 
         log.info('Listing resources', { page, limit, filters: { search, track_id, status } });
@@ -32,7 +32,7 @@ export const list = async (event) => {
         let paramIndex = 1;
 
         if (search) {
-            whereClause += ` AND (r.name ILIKE $${paramIndex} OR r.email ILIKE $${paramIndex})`;
+            whereClause += ` AND (r.name ILIKE $${paramIndex} OR r.email ILIKE $${paramIndex} OR r.employee_id ILIKE $${paramIndex})`;
             params.push(`%${search}%`);
             paramIndex++;
         }
@@ -55,9 +55,9 @@ export const list = async (event) => {
             paramIndex++;
         }
 
-        if (is_intern !== undefined) {
-            whereClause += ` AND r.is_intern = $${paramIndex}`;
-            params.push(is_intern);
+        if (intern_classification) {
+            whereClause += ` AND r.intern_classification = $${paramIndex}`;
+            params.push(intern_classification);
             paramIndex++;
         }
 
@@ -155,36 +155,71 @@ export const create = async (event) => {
         const body = JSON.parse(event.body || '{}');
         const validated = validate(body, resourceSchemas.create);
 
-        log.info('Creating resource', { email: validated.email });
+        log.info('Creating resource', { email: validated.email, employee_id: validated.employee_id });
 
-        // Check for duplicate email
-        const existingCheck = await db.query(
-            'SELECT id FROM resources WHERE email = $1 AND deleted_at IS NULL',
-            [validated.email]
+        // Check for duplicate employee_id
+        const existingEmployeeId = await db.query(
+            'SELECT id FROM resources WHERE employee_id = $1 AND deleted_at IS NULL',
+            [validated.employee_id]
         );
 
-        if (existingCheck.rows.length > 0) {
-            return conflict('A resource with this email already exists');
+        if (existingEmployeeId.rows.length > 0) {
+            return conflict('A resource with this employee_id already exists');
+        }
+
+        // Check for duplicate employee_number
+        const existingEmployeeNumber = await db.query(
+            'SELECT id FROM resources WHERE employee_number = $1 AND deleted_at IS NULL',
+            [validated.employee_number]
+        );
+
+        if (existingEmployeeNumber.rows.length > 0) {
+            return conflict('A resource with this employee_number already exists');
+        }
+
+        // Get user info from auth context for created_by
+        // JWT claims from Cognito authorizer
+        const cognitoSub = event.requestContext?.authorizer?.jwt?.claims?.sub
+            || event.requestContext?.authorizer?.claims?.sub;
+        // For user ID, we need to look up the user by cognito_user_id or use a default UUID
+        let userId = null;
+        if (cognitoSub) {
+            const userResult = await db.query(
+                'SELECT id FROM users WHERE cognito_user_id = $1',
+                [cognitoSub]
+            );
+            if (userResult.rows.length > 0) {
+                userId = userResult.rows[0].id;
+            }
+        }
+        // Use a system UUID if no user found (00000000-0000-0000-0000-000000000000)
+        if (!userId) {
+            userId = '00000000-0000-0000-0000-000000000000';
         }
 
         const query = `
             INSERT INTO resources (
-                name, email, mobile, nic, designation_id, track_id,
-                join_date, status, is_intern
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                employee_id, employee_number, name, phone_number, email, address,
+                designation_id, track_id, intern_classification, skills,
+                date_of_joining, status, created_by
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
             RETURNING *
         `;
 
         const params = [
+            validated.employee_id,
+            validated.employee_number,
             validated.name,
-            validated.email,
-            validated.mobile || null,
-            validated.nic || null,
+            validated.phone_number,
+            validated.email || null,
+            validated.address || null,
             validated.designation_id,
             validated.track_id,
-            validated.join_date || new Date().toISOString().split('T')[0],
-            validated.status || 'ACTIVE',
-            validated.is_intern || false
+            validated.intern_classification || null,
+            validated.skills || [],
+            validated.date_of_joining || null,
+            validated.status || 'Active',
+            userId
         ];
 
         const result = await db.query(query, params);
@@ -227,8 +262,8 @@ export const update = async (event) => {
             return notFound('Resource not found');
         }
 
-        // Optimistic locking check
-        if (existing.rows[0].version !== validated.version) {
+        // Optimistic locking check (only if version is provided)
+        if (validated.version !== undefined && existing.rows[0].version !== validated.version) {
             return conflict('Resource has been modified by another user. Please refresh and try again.');
         }
 
@@ -237,6 +272,9 @@ export const update = async (event) => {
         const updates = [];
         const params = [id];
         let paramIndex = 2;
+
+        // Get user info for updated_by
+        const userId = event.requestContext?.authorizer?.claims?.sub || 'system';
 
         for (const [key, value] of Object.entries(updateData)) {
             if (value !== undefined) {
@@ -250,9 +288,11 @@ export const update = async (event) => {
             return success(existing.rows[0]);
         }
 
-        // Increment version
+        // Increment version and set updated_by
         updates.push(`version = version + 1`);
         updates.push(`updated_at = CURRENT_TIMESTAMP`);
+        updates.push(`updated_by = $${paramIndex}`);
+        params.push(userId);
 
         const query = `
             UPDATE resources 

@@ -75,10 +75,10 @@ export const list = async (event) => {
 
     try {
         const queryParams = event.queryStringParameters || {};
-        const { page = 1, limit = 20, resource_id, project_id, status } = queryParams;
+        const { page = 1, limit = 20, resource_id, project_id, is_active } = queryParams;
         const offset = (parseInt(page) - 1) * parseInt(limit);
 
-        log.info('Listing allocations', { page, limit, filters: { resource_id, project_id, status } });
+        log.info('Listing allocations', { page, limit, filters: { resource_id, project_id, is_active } });
 
         // Build dynamic query
         let whereClause = 'WHERE 1=1';
@@ -97,9 +97,9 @@ export const list = async (event) => {
             paramIndex++;
         }
 
-        if (status) {
-            whereClause += ` AND a.status = $${paramIndex}`;
-            params.push(status);
+        if (is_active !== undefined) {
+            whereClause += ` AND a.is_active = $${paramIndex}`;
+            params.push(is_active === 'true' || is_active === true);
             paramIndex++;
         }
 
@@ -211,7 +211,7 @@ export const create = async (event) => {
         const query = `
             INSERT INTO allocations (
                 resource_id, project_id, allocation_percentage, start_date, end_date,
-                status, notes, created_by
+                is_active, notes, created_by
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             RETURNING *
@@ -223,9 +223,9 @@ export const create = async (event) => {
             validated.allocation_percentage,
             validated.start_date,
             validated.end_date || null,
-            validated.status || 'ACTIVE',
+            true, // is_active
             validated.notes || null,
-            userId
+            userId || '00000000-0000-0000-0000-000000000000'
         ];
 
         const result = await db.query(query, params);

@@ -294,6 +294,7 @@ const migrations = [
                 { name: 'Data', description: 'Data Science and Analytics track' },
             ];
 
+
             for (const track of tracks) {
                 await client.query(`
                     INSERT INTO tracks (name, description, created_by)
@@ -332,6 +333,107 @@ const migrations = [
             `, [systemUserId]);
 
             logger.info('Migration 003 completed: Default data seeded');
+        }
+    },
+    {
+        id: '004_fix_schema_columns',
+        name: 'Fix schema column names to match handlers',
+        up: async (client) => {
+            // Rename clients.name to clients.client_name to match handler expectations
+            await client.query(`
+                DO $$ BEGIN
+                    ALTER TABLE clients RENAME COLUMN name TO client_name;
+                EXCEPTION WHEN undefined_column THEN
+                    NULL; -- Column doesn't exist or already renamed
+                END $$;
+            `);
+
+            // Add missing columns to clients table
+            await client.query(`
+                DO $$ BEGIN
+                    ALTER TABLE clients ADD COLUMN contact_phone VARCHAR(50);
+                EXCEPTION WHEN duplicate_column THEN NULL;
+                END $$;
+            `);
+            await client.query(`
+                DO $$ BEGIN
+                    ALTER TABLE clients ADD COLUMN address TEXT;
+                EXCEPTION WHEN duplicate_column THEN NULL;
+                END $$;
+            `);
+
+            // Add updated_at trigger to clients
+            await client.query(`
+                DROP TRIGGER IF EXISTS update_clients_updated_at ON clients;
+                CREATE TRIGGER update_clients_updated_at
+                    BEFORE UPDATE ON clients
+                    FOR EACH ROW
+                    EXECUTE FUNCTION update_updated_at_column();
+            `);
+
+            // Add updated_at trigger to projects
+            await client.query(`
+                DROP TRIGGER IF EXISTS update_projects_updated_at ON projects;
+                CREATE TRIGGER update_projects_updated_at
+                    BEFORE UPDATE ON projects
+                    FOR EACH ROW
+                    EXECUTE FUNCTION update_updated_at_column();
+            `);
+
+            // Add updated_at trigger to allocations
+            await client.query(`
+                DROP TRIGGER IF EXISTS update_allocations_updated_at ON allocations;
+                CREATE TRIGGER update_allocations_updated_at
+                    BEFORE UPDATE ON allocations
+                    FOR EACH ROW
+                    EXECUTE FUNCTION update_updated_at_column();
+            `);
+
+            logger.info('Migration 004 completed: Schema columns fixed');
+        }
+    },
+    {
+        id: '005_fix_projects_schema',
+        name: 'Fix projects table schema to match handlers',
+        up: async (client) => {
+            // Rename projects.name to projects.project_name
+            await client.query(`
+                DO $$ BEGIN
+                    ALTER TABLE projects RENAME COLUMN name TO project_name;
+                EXCEPTION WHEN undefined_column THEN NULL;
+                END $$;
+            `);
+
+            // Rename projects.type to projects.project_type
+            await client.query(`
+                DO $$ BEGIN
+                    ALTER TABLE projects RENAME COLUMN type TO project_type;
+                EXCEPTION WHEN undefined_column THEN NULL;
+                END $$;
+            `);
+
+            // Rename projects.code to projects.project_code
+            await client.query(`
+                DO $$ BEGIN
+                    ALTER TABLE projects RENAME COLUMN code TO project_code;
+                EXCEPTION WHEN undefined_column THEN NULL;
+                END $$;
+            `);
+
+            // Add is_billable column (derived from billing_status)
+            await client.query(`
+                DO $$ BEGIN
+                    ALTER TABLE projects ADD COLUMN is_billable BOOLEAN DEFAULT true;
+                EXCEPTION WHEN duplicate_column THEN NULL;
+                END $$;
+            `);
+
+            // Update is_billable based on billing_status
+            await client.query(`
+                UPDATE projects SET is_billable = (billing_status = 'Billing');
+            `);
+
+            logger.info('Migration 005 completed: Projects schema fixed');
         }
     }
 ];
