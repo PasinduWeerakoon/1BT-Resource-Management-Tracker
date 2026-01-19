@@ -44,11 +44,40 @@ const requestLogger = () => ({
 
 /**
  * Extract user info from authorization context
+ * Handles both custom Lambda authorizer and Cognito JWT authorizer
  */
 const authContext = () => ({
     before: async (request) => {
-        const { authorizer } = request.event.requestContext || {};
-        if (authorizer) {
+        const requestContext = request.event.requestContext || {};
+        const authorizer = requestContext.authorizer || {};
+
+        // JWT Authorizer (HTTP API with Cognito)
+        if (authorizer.jwt?.claims) {
+            const claims = authorizer.jwt.claims;
+            request.event.user = {
+                id: claims.sub,
+                email: claims.email,
+                username: claims['cognito:username'] || claims.email,
+                role: claims['custom:role'] || 'User',
+                groups: claims['cognito:groups'] || [],
+            };
+            return;
+        }
+
+        // Cognito Authorizer (REST API)
+        if (authorizer.claims) {
+            request.event.user = {
+                id: authorizer.claims.sub,
+                email: authorizer.claims.email,
+                username: authorizer.claims['cognito:username'] || authorizer.claims.email,
+                role: authorizer.claims['custom:role'] || 'User',
+                groups: authorizer.claims['cognito:groups'] || [],
+            };
+            return;
+        }
+
+        // Custom Lambda Authorizer
+        if (authorizer.userId) {
             request.event.user = {
                 id: authorizer.userId,
                 username: authorizer.username,
