@@ -1,5 +1,5 @@
 pandas
 openpyxl
 reportlab
-psycopg2-binary
+aws-psycopg2
 boto3
