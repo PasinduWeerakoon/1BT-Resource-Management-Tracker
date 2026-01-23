@@ -101,6 +101,7 @@ module.exports = {
       '@languages': path.resolve(__dirname, 'src/languages'),
       '@styles': path.resolve(__dirname, 'src/styles'),
       '@hooks': path.resolve(__dirname, 'src/hooks'),
+      '@api': path.resolve(__dirname, 'src/api'),
     },
     fallback: {
       "crypto": false,

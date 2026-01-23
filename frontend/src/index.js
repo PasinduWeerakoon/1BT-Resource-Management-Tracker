@@ -2,7 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { Provider } from 'react-redux';
 import { BrowserRouter } from 'react-router-dom';
-import { ConfigProvider, theme } from 'antd';
+import { ConfigProvider, App as AntApp, theme } from 'antd';
 import App from './App';
 import { store } from './redux/store';
 import '@utils/chartConfig'; // Register Chart.js components
@@ -50,7 +50,9 @@ root.render(
     <Provider store={store}>
       <BrowserRouter>
         <ConfigProvider theme={antdTheme}>
-          <App />
+          <AntApp>
+            <App />
+          </AntApp>
         </ConfigProvider>
       </BrowserRouter>
     </Provider>

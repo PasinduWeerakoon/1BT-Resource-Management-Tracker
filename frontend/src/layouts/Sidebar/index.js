@@ -1,9 +1,9 @@
 import React from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Layout, Menu, Dropdown, Avatar, Button, Tooltip } from 'antd';
+import { Layout, Menu, Dropdown, Avatar, Button, Tooltip, App } from 'antd';
 import { LogoutOutlined, SettingOutlined, MenuFoldOutlined, MenuUnfoldOutlined, TeamOutlined, UserOutlined } from '@ant-design/icons';
-import { logout } from '@redux/slices/authSlice';
+import { logoutUser } from '@redux/slices/authSlice';
 import { toggleSidebar } from '@redux/slices/layoutSlice';
 import { getMenuItems } from '@navigation/menuItems';
 import '@styles/layouts/Sidebar.scss';
@@ -16,6 +16,7 @@ const Sidebar = () => {
   const location = useLocation();
   const { sidebarCollapsed, isMobile } = useSelector((state) => state.layout);
   const { user, role } = useSelector((state) => state.auth);
+  const { message } = App.useApp();
 
   const menuItems = getMenuItems(role);
 
@@ -30,9 +31,17 @@ const Sidebar = () => {
     dispatch(toggleSidebar());
   };
 
-  const handleLogout = () => {
-    dispatch(logout());
-    navigate('/login');
+  const handleLogout = async () => {
+    try {
+      // Call logout API and clear state
+      await dispatch(logoutUser()).unwrap();
+      message.success('Logged out successfully');
+      navigate('/login', { replace: true });
+    } catch (error) {
+      // Even if API call fails, we still logout locally
+      message.warning('Logged out locally');
+      navigate('/login', { replace: true });
+    }
   };
 
   // Get user initials for avatar

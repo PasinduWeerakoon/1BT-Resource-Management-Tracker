@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
-import { Form, Input, Button, Card, message, Typography } from 'antd';
-import { UserOutlined, LockOutlined } from '@ant-design/icons';
+import { Form, Input, Button, Card, Typography, App } from 'antd';
+import { MailOutlined, LockOutlined } from '@ant-design/icons';
 import { setCredentials, initializeAuth } from '@redux/slices/authSlice';
-import { authenticateUser } from '@utils/auth.utils';
+import { authService } from '@api';
+import { storeAuth } from '@utils/auth.utils';
+import { getUserFromToken } from '@utils/jwt.utils';
 import '@styles/pages/Auth/Login.scss';
 
 const { Title, Text } = Typography;
@@ -14,6 +16,7 @@ const Login = () => {
   const navigate = useNavigate();
   const { isAuthenticated } = useSelector((state) => state.auth);
   const [loading, setLoading] = useState(false);
+  const { message } = App.useApp();
 
   useEffect(() => {
     dispatch(initializeAuth());
@@ -21,24 +24,113 @@ const Login = () => {
 
   useEffect(() => {
     if (isAuthenticated) {
-      navigate('/dashboard');
+      // Navigate to dashboard when authenticated (handles page refresh scenarios)
+      navigate('/dashboard', { replace: true });
     }
   }, [isAuthenticated, navigate]);
 
   const onFinish = async (values) => {
     setLoading(true);
     try {
-      const result = authenticateUser(values.username, values.password);
+      // Call login API
+      const response = await authService.login(values.email, values.password);
       
-      if (result.success) {
-        dispatch(setCredentials(result));
-        message.success('Login successful!');
-        navigate('/dashboard');
+      // Handle different response structures:
+      // 1. { success: true, data: { accessToken, refreshToken, idToken, expiresIn } }
+      // 2. { accessToken, refreshToken, idToken, expiresIn } (direct token data)
+      
+      console.log('Login response:', response);
+      
+      let tokenData = null;
+      
+      // Check if response is directly the token data object (most common case)
+      if (response && typeof response === 'object' && response.accessToken && response.refreshToken && response.idToken) {
+        tokenData = response;
+      }
+      // Check if response has success flag and data field
+      else if (response && response.success === true && response.data) {
+        tokenData = response.data;
+      }
+      // Check if response.data contains tokens directly
+      else if (response && response.data && typeof response.data === 'object' && response.data.accessToken) {
+        tokenData = response.data;
+      }
+      
+      // Extract tokens
+      if (tokenData) {
+        const { accessToken, refreshToken, idToken } = tokenData;
+        
+        // Validate that we have the required tokens
+        if (accessToken && refreshToken && idToken) {
+          // Decode user info from ID token
+          const userInfo = getUserFromToken(idToken) || {
+            email: values.email,
+          };
+
+          // Store tokens (without expiresIn)
+          storeAuth({
+            accessToken,
+            refreshToken,
+            idToken,
+            user: userInfo,
+            role: userInfo.role || 'USER',
+          });
+
+          // Dispatch to Redux - this will update isAuthenticated to true
+          dispatch(setCredentials({
+            accessToken,
+            refreshToken,
+            idToken,
+            user: userInfo,
+            role: userInfo.role || 'USER',
+          }));
+
+          message.success('Login successful!');
+          
+          // Navigate to dashboard - use replace to prevent going back to login
+          navigate('/dashboard', { replace: true });
+        } else {
+          console.error('Missing tokens in response:', tokenData);
+          message.error('Invalid response format from server');
+        }
       } else {
-        message.error(result.message || 'Invalid credentials');
+        // Response indicates failure or unexpected structure
+        console.error('Login failed - unexpected response structure:', response);
+        message.error(response?.message || 'Invalid credentials');
       }
     } catch (error) {
-      message.error('Login failed. Please try again.');
+      // Error is already handled by the API interceptor
+      console.error('Login error:', error);
+      
+      // Check if error response contains tokens (unexpected success in catch)
+      if (error && error.accessToken && error.refreshToken && error.idToken) {
+        // This shouldn't happen, but handle it just in case
+        const { accessToken, refreshToken, idToken } = error;
+        const userInfo = getUserFromToken(idToken) || {
+          email: values.email,
+        };
+
+        storeAuth({
+          accessToken,
+          refreshToken,
+          idToken,
+          user: userInfo,
+          role: userInfo.role || 'USER',
+        });
+
+        dispatch(setCredentials({
+          accessToken,
+          refreshToken,
+          idToken,
+          user: userInfo,
+          role: userInfo.role || 'USER',
+        }));
+
+        message.success('Login successful!');
+        navigate('/dashboard', { replace: true });
+      } else {
+        message.error(error.message || 'Login failed. Please try again.');
+      }
     } finally {
       setLoading(false);
     }
@@ -58,12 +150,16 @@ const Login = () => {
           size="large"
         >
           <Form.Item
-            name="username"
-            rules={[{ required: true, message: 'Please input your username!' }]}
+            name="email"
+            rules={[
+              { required: true, message: 'Please input your email!' },
+              { type: 'email', message: 'Please enter a valid email!' }
+            ]}
           >
             <Input
-              prefix={<UserOutlined />}
-              placeholder="Username"
+              prefix={<MailOutlined />}
+              placeholder="Email"
+              type="email"
             />
           </Form.Item>
 
@@ -84,12 +180,7 @@ const Login = () => {
           </Form.Item>
         </Form>
         <div className="login-info">
-          <Text type="secondary" className="info-title">Sample Credentials:</Text>
-          <div className="credentials">
-            <Text code>superadmin / superadmin123</Text>
-            <Text code>admin / admin123</Text>
-            <Text code>user / user123</Text>
-          </div>
+          <Text type="secondary" className="info-title">Enter your email and password to sign in</Text>
         </div>
       </Card>
     </div>

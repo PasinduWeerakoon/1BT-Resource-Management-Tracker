@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
-import { Card, Button, Form, Input, Tabs, Space, Tooltip, Select } from 'antd';
+import React, { useState, useEffect } from 'react';
+import { Card, Button, Form, Input, Tabs, Space, Tooltip, Select, Switch, message, Modal } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import CustomModal from '@components/Modal';
 import CustomTable from '@components/Table';
+import { tracksService, designationsService } from '@api';
 import '@styles/pages/Configurations.scss';
 
 const { Option } = Select;
@@ -20,23 +21,13 @@ const Configurations = () => {
   const [selectedItem, setSelectedItem] = useState(null);
   const [activeTab, setActiveTab] = useState('designations');
 
-  // Mock data - will be replaced with API calls
-  const [designations, setDesignations] = useState([
-    { key: '1', name: 'SE', description: 'Software Engineer', tier: 'Tier 01' },
-    { key: '2', name: 'SSE', description: 'Senior Software Engineer', tier: 'Tier 02' },
-    { key: '3', name: 'ATL', description: 'Associate Tech Lead', tier: 'Tier 02' },
-    { key: '4', name: 'STL', description: 'Senior Tech Lead', tier: 'Tier 03' },
-    { key: '5', name: 'QAE', description: 'Quality Assurance Engineer', tier: 'Tier 01' },
-  ]);
+  const [designations, setDesignations] = useState([]);
+  const [loadingDesignations, setLoadingDesignations] = useState(false);
+  const [designationLoading, setDesignationLoading] = useState(false);
 
-  const [tracks, setTracks] = useState([
-    { key: '1', name: 'FS', description: 'Full Stack' },
-    { key: '2', name: '.Net', description: '.Net Development' },
-    { key: '3', name: 'DS', description: 'Data Science' },
-    { key: '4', name: 'UI/UX', description: 'UI/UX Design' },
-    { key: '5', name: 'QA', description: 'Quality Assurance' },
-    { key: '6', name: 'PM/BA', description: 'Project Management / Business Analysis' },
-  ]);
+  const [tracks, setTracks] = useState([]);
+  const [loadingTracks, setLoadingTracks] = useState(false);
+  const [trackLoading, setTrackLoading] = useState(false);
 
   const [projectTypes, setProjectTypes] = useState([
     { key: '1', name: 'Client', description: 'Client Project' },
@@ -57,35 +48,142 @@ const Configurations = () => {
   const handleEditDesignation = (record) => {
     setIsEditMode(true);
     setSelectedItem(record);
-    designationForm.setFieldsValue(record);
+    designationForm.setFieldsValue({
+      name: record.name,
+      tier: record.tier || (record.level ? `Tier ${String(record.level).padStart(2, '0')}` : 'Tier 01'),
+      is_active: record.is_active !== undefined ? record.is_active : true,
+    });
     setIsDesignationModalVisible(true);
   };
 
+  // Fetch designations from API
+  const fetchDesignations = async () => {
+    try {
+      setLoadingDesignations(true);
+      const response = await designationsService.getAll();
+      
+      // Handle response structure after interceptor transformation
+      let designationsData = [];
+      
+      if (response) {
+        // Check if response has data array directly (after interceptor transformation)
+        if (Array.isArray(response.data)) {
+          designationsData = response.data;
+        }
+        // Check if response has nested data structure
+        else if (response.data && response.data.data && Array.isArray(response.data.data)) {
+          designationsData = response.data.data;
+        }
+        // Check if response is the data object directly
+        else if (response.data && Array.isArray(response.data)) {
+          designationsData = response.data;
+        }
+        // Fallback: response is an array
+        else if (Array.isArray(response)) {
+          designationsData = response;
+        }
+      }
+
+      // Transform designations data to match table format
+      // Map level (1-4) to tier display (Tier 01-04)
+      const transformedDesignations = designationsData.map((designation) => ({
+        key: designation.id,
+        id: designation.id,
+        name: designation.name,
+        level: designation.level,
+        tier: designation.level ? `Tier ${String(designation.level).padStart(2, '0')}` : null,
+        is_active: designation.is_active !== undefined ? designation.is_active : true,
+      }));
+
+      setDesignations(transformedDesignations);
+    } catch (error) {
+      console.error('Failed to fetch designations:', error);
+      message.error('Failed to load designations');
+    } finally {
+      setLoadingDesignations(false);
+    }
+  };
+
+  // Fetch designations on component mount and when designations tab is active
+  useEffect(() => {
+    if (activeTab === 'designations') {
+      fetchDesignations();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
+
   const handleDeleteDesignation = (record) => {
-    // TODO: Add confirmation dialog
-    setDesignations(designations.filter(item => item.key !== record.key));
+    Modal.confirm({
+      title: 'Delete Designation',
+      content: `Are you sure you want to delete "${record.name}"? This action cannot be undone.`,
+      okText: 'Delete',
+      okType: 'danger',
+      cancelText: 'Cancel',
+      onOk: async () => {
+        try {
+          // Note: API doesn't have DELETE endpoint, so we'll deactivate instead
+          await designationsService.update(record.id, {
+            name: record.name,
+            level: record.level,
+            is_active: false,
+          });
+          
+          message.success('Designation deactivated successfully');
+          fetchDesignations();
+        } catch (error) {
+          console.error('Failed to delete designation:', error);
+          message.error(error?.message || 'Failed to delete designation');
+        }
+      },
+    });
   };
 
   const handleDesignationSubmit = async () => {
     try {
+      setDesignationLoading(true);
       const values = await designationForm.validateFields();
+      
+      // Convert tier string (Tier 01) to level number (1)
+      const level = values.tier ? parseInt(values.tier.replace('Tier ', '')) : 1;
+      
+      // Prepare API payload
+      const designationPayload = {
+        name: values.name,
+        level: level,
+        is_active: values.is_active !== undefined ? values.is_active : true,
+      };
+
       if (isEditMode) {
-        setDesignations(designations.map(item =>
-          item.key === selectedItem.key ? { ...values, key: item.key } : item
-        ));
+        // Update designation
+        const response = await designationsService.update(selectedItem.id, designationPayload);
+        
+        if (response && (response.success !== false || response.data)) {
+          message.success('Designation updated successfully');
+          await fetchDesignations();
+        } else {
+          message.error(response?.message || 'Failed to update designation');
+        }
       } else {
-        const newDesignation = {
-          ...values,
-          key: String(designations.length + 1),
-        };
-        setDesignations([...designations, newDesignation]);
+        // Create designation
+        const response = await designationsService.create(designationPayload);
+        
+        if (response && (response.success !== false || response.data)) {
+          message.success('Designation created successfully');
+          await fetchDesignations();
+        } else {
+          message.error(response?.message || 'Failed to create designation');
+        }
       }
+
       setIsDesignationModalVisible(false);
       designationForm.resetFields();
       setSelectedItem(null);
       setIsEditMode(false);
     } catch (error) {
-      console.error('Validation failed:', error);
+      console.error('Designation submit error:', error);
+      message.error(error?.message || 'Failed to save designation');
+    } finally {
+      setDesignationLoading(false);
     }
   };
 
@@ -100,35 +198,141 @@ const Configurations = () => {
   const handleEditTrack = (record) => {
     setIsEditMode(true);
     setSelectedItem(record);
-    trackForm.setFieldsValue(record);
+    trackForm.setFieldsValue({
+      name: record.name,
+      description: record.description,
+      is_active: record.is_active !== undefined ? record.is_active : true,
+    });
     setIsTrackModalVisible(true);
   };
 
   const handleDeleteTrack = (record) => {
-    // TODO: Add confirmation dialog
-    setTracks(tracks.filter(item => item.key !== record.key));
+    Modal.confirm({
+      title: 'Delete Track',
+      content: `Are you sure you want to delete "${record.name}"? This action cannot be undone.`,
+      okText: 'Delete',
+      okType: 'danger',
+      cancelText: 'Cancel',
+      onOk: async () => {
+        try {
+          // Note: API doesn't have DELETE endpoint, so we'll deactivate instead
+          // If DELETE endpoint exists, uncomment below:
+          // await tracksService.delete(record.id);
+          
+          // For now, update to inactive
+          await tracksService.update(record.id, {
+            name: record.name,
+            description: record.description,
+            is_active: false,
+          });
+          
+          message.success('Track deactivated successfully');
+          fetchTracks();
+        } catch (error) {
+          console.error('Failed to delete track:', error);
+          message.error(error?.message || 'Failed to delete track');
+        }
+      },
+    });
   };
+
+  // Fetch tracks from API
+  const fetchTracks = async () => {
+    try {
+      setLoadingTracks(true);
+      const response = await tracksService.getAll();
+      
+      // Handle response structure after interceptor transformation
+      let tracksData = [];
+      
+      if (response) {
+        // Check if response has data array directly (after interceptor transformation)
+        if (Array.isArray(response.data)) {
+          tracksData = response.data;
+        }
+        // Check if response has nested data structure
+        else if (response.data && response.data.data && Array.isArray(response.data.data)) {
+          tracksData = response.data.data;
+        }
+        // Check if response is the data object directly
+        else if (response.data && Array.isArray(response.data)) {
+          tracksData = response.data;
+        }
+        // Fallback: response is an array
+        else if (Array.isArray(response)) {
+          tracksData = response;
+        }
+      }
+
+      // Transform tracks data to match table format
+      const transformedTracks = tracksData.map((track) => ({
+        key: track.id,
+        id: track.id,
+        name: track.name,
+        description: track.description || '',
+        is_active: track.is_active !== undefined ? track.is_active : true,
+      }));
+
+      setTracks(transformedTracks);
+    } catch (error) {
+      console.error('Failed to fetch tracks:', error);
+      message.error('Failed to load tracks');
+    } finally {
+      setLoadingTracks(false);
+    }
+  };
+
+  // Fetch tracks on component mount and when tracks tab is active
+  useEffect(() => {
+    if (activeTab === 'tracks') {
+      fetchTracks();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
 
   const handleTrackSubmit = async () => {
     try {
+      setTrackLoading(true);
       const values = await trackForm.validateFields();
+      
+      // Prepare API payload
+      const trackPayload = {
+        name: values.name,
+        description: values.description || '',
+        is_active: values.is_active !== undefined ? values.is_active : true,
+      };
+
       if (isEditMode) {
-        setTracks(tracks.map(item =>
-          item.key === selectedItem.key ? { ...values, key: item.key } : item
-        ));
+        // Update track
+        const response = await tracksService.update(selectedItem.id, trackPayload);
+        
+        if (response && (response.success !== false || response.data)) {
+          message.success('Track updated successfully');
+          await fetchTracks();
+        } else {
+          message.error(response?.message || 'Failed to update track');
+        }
       } else {
-        const newTrack = {
-          ...values,
-          key: String(tracks.length + 1),
-        };
-        setTracks([...tracks, newTrack]);
+        // Create track
+        const response = await tracksService.create(trackPayload);
+        
+        if (response && (response.success !== false || response.data)) {
+          message.success('Track created successfully');
+          await fetchTracks();
+        } else {
+          message.error(response?.message || 'Failed to create track');
+        }
       }
+
       setIsTrackModalVisible(false);
       trackForm.resetFields();
       setSelectedItem(null);
       setIsEditMode(false);
     } catch (error) {
-      console.error('Validation failed:', error);
+      console.error('Track submit error:', error);
+      message.error(error?.message || 'Failed to save track');
+    } finally {
+      setTrackLoading(false);
     }
   };
 
@@ -185,16 +389,27 @@ const Configurations = () => {
       fixed: 'left',
     },
     {
-      title: 'Description',
-      dataIndex: 'description',
-      key: 'description',
-      width: 300,
-    },
-    {
       title: 'Tier',
       dataIndex: 'tier',
       key: 'tier',
       width: 120,
+    },
+    {
+      title: 'Level',
+      dataIndex: 'level',
+      key: 'level',
+      width: 100,
+    },
+    {
+      title: 'Status',
+      dataIndex: 'is_active',
+      key: 'is_active',
+      width: 100,
+      render: (isActive) => (
+        <span style={{ color: isActive ? '#52c41a' : '#ff4d4f' }}>
+          {isActive ? 'Active' : 'Inactive'}
+        </span>
+      ),
     },
     {
       title: 'Actions',
@@ -239,6 +454,17 @@ const Configurations = () => {
       dataIndex: 'description',
       key: 'description',
       width: 300,
+    },
+    {
+      title: 'Status',
+      dataIndex: 'is_active',
+      key: 'is_active',
+      width: 100,
+      render: (isActive) => (
+        <span style={{ color: isActive ? '#52c41a' : '#ff4d4f' }}>
+          {isActive ? 'Active' : 'Inactive'}
+        </span>
+      ),
     },
     {
       title: 'Actions',
@@ -347,6 +573,7 @@ const Configurations = () => {
                     columns={designationColumns}
                     dataSource={designations}
                     scroll={{ x: 600 }}
+                    loading={loadingDesignations}
                     pagination={{ pageSize: 20 }}
                   />
                 </div>
@@ -375,6 +602,7 @@ const Configurations = () => {
                     columns={trackColumns}
                     dataSource={tracks}
                     scroll={{ x: 600 }}
+                    loading={loadingTracks}
                     pagination={{ pageSize: 20 }}
                   />
                 </div>
@@ -438,6 +666,7 @@ const Configurations = () => {
             text: isEditMode ? 'Update' : 'Add',
             type: 'primary',
             onClick: handleDesignationSubmit,
+            loading: designationLoading,
           },
         ]}
       >
@@ -445,16 +674,12 @@ const Configurations = () => {
           <Form.Item
             label="Name"
             name="name"
-            rules={[{ required: true, message: 'Name is required' }]}
+            rules={[
+              { required: true, message: 'Name is required' },
+              { max: 50, message: 'Name must be less than 50 characters' },
+            ]}
           >
-            <Input placeholder="Enter designation name (e.g., SE, SSE)" />
-          </Form.Item>
-          <Form.Item
-            label="Description"
-            name="description"
-            rules={[{ required: true, message: 'Description is required' }]}
-          >
-            <Input placeholder="Enter designation description" />
+            <Input placeholder="Enter designation name (e.g., SE, SSE, ATL)" />
           </Form.Item>
           <Form.Item
             label="Tier"
@@ -467,6 +692,14 @@ const Configurations = () => {
               <Option value="Tier 03">Tier 03</Option>
               <Option value="Tier 04">Tier 04</Option>
             </Select>
+          </Form.Item>
+          <Form.Item
+            label="Active"
+            name="is_active"
+            valuePropName="checked"
+            initialValue={true}
+          >
+            <Switch checkedChildren="Active" unCheckedChildren="Inactive" />
           </Form.Item>
         </Form>
       </CustomModal>
@@ -497,6 +730,7 @@ const Configurations = () => {
             text: isEditMode ? 'Update' : 'Add',
             type: 'primary',
             onClick: handleTrackSubmit,
+            loading: trackLoading,
           },
         ]}
       >
@@ -504,16 +738,30 @@ const Configurations = () => {
           <Form.Item
             label="Name"
             name="name"
-            rules={[{ required: true, message: 'Name is required' }]}
+            rules={[
+              { required: true, message: 'Name is required' },
+              { max: 50, message: 'Name must be less than 50 characters' },
+            ]}
           >
             <Input placeholder="Enter track name (e.g., FS, .Net, QA)" />
           </Form.Item>
           <Form.Item
             label="Description"
             name="description"
-            rules={[{ required: true, message: 'Description is required' }]}
+            rules={[
+              { required: true, message: 'Description is required' },
+              { max: 255, message: 'Description must be less than 255 characters' },
+            ]}
           >
             <Input placeholder="Enter track description" />
+          </Form.Item>
+          <Form.Item
+            label="Active"
+            name="is_active"
+            valuePropName="checked"
+            initialValue={true}
+          >
+            <Switch checkedChildren="Active" unCheckedChildren="Inactive" />
           </Form.Item>
         </Form>
       </CustomModal>
