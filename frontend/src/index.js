@@ -2,11 +2,13 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { Provider } from 'react-redux';
 import { BrowserRouter } from 'react-router-dom';
-import { ConfigProvider, theme } from 'antd';
+import { ConfigProvider, App as AntApp, theme } from 'antd';
+import { ToastContainer } from 'react-toastify';
 import App from './App';
 import { store } from './redux/store';
 import '@utils/chartConfig'; // Register Chart.js components
 import '@styles/index.scss';
+import 'react-toastify/dist/ReactToastify.css';
 
 const { defaultAlgorithm } = theme;
 
@@ -50,7 +52,21 @@ root.render(
     <Provider store={store}>
       <BrowserRouter>
         <ConfigProvider theme={antdTheme}>
-          <App />
+          <AntApp>
+            <App />
+            <ToastContainer
+              position="bottom-right"
+              autoClose={5000}
+              hideProgressBar={false}
+              newestOnTop={false}
+              closeOnClick
+              rtl={false}
+              pauseOnFocusLoss
+              draggable
+              pauseOnHover
+              theme="light"
+            />
+          </AntApp>
         </ConfigProvider>
       </BrowserRouter>
     </Provider>

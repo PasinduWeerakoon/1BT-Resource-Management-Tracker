@@ -1,35 +1,23 @@
-import React, { useState, useMemo } from 'react';
-import { Row, Col, Card, Select, Badge, Button } from 'antd';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { Row, Col, Card, Badge, Button, App } from 'antd';
 import { FilterOutlined, UpOutlined, DownOutlined, ReloadOutlined } from '@ant-design/icons';
 import CustomTable from '@components/Table';
-import { useUserAllocationModal } from '@hooks/useUserAllocationModal';
-import UserAllocationModal from '@components/UserAllocationModal';
+import { reportsService } from '@api';
+import { showErrorToast } from '@utils/toast.utils';
 import '@styles/pages/NonBillingReport.scss';
 
-const { Option } = Select;
-
 const NonBillingReport = () => {
+  const { message } = App.useApp();
   const [filtersExpanded, setFiltersExpanded] = useState(false);
-  const [filters, setFilters] = useState({
-    projectName: 'All',
-    accountManager: 'All',
-    track: 'All',
-    techStack: 'All',
-    designation: 'All',
-    tier: 'All',
-  });
+  const [loading, setLoading] = useState(false);
+  const [reportData, setReportData] = useState([]);
+  const [filters, setFilters] = useState({});
+  const fetchInProgressRef = useRef(false);
 
   // Default filter values for comparison
-  const defaultFilters = {
-    projectName: 'All',
-    accountManager: 'All',
-    track: 'All',
-    techStack: 'All',
-    designation: 'All',
-    tier: 'All',
-  };
+  const defaultFilters = {};
 
-  // Count active filters (filters that differ from defaults)
+  // Count active filters
   const activeFiltersCount = useMemo(() => {
     let count = 0;
     Object.keys(filters).forEach((key) => {
@@ -46,27 +34,78 @@ const NonBillingReport = () => {
     setFilters({ ...defaultFilters });
   };
 
-  // KPI Data - Mock data for non-billing
-  const totalNonBillingCount = 12;
-  const totalEmployees = 114;
-  const nonBillingPercentage = ((totalNonBillingCount / totalEmployees) * 100).toFixed(1);
+  // Fetch non-billing report data
+  const fetchNonBillingReport = async () => {
+    // Prevent duplicate calls
+    if (fetchInProgressRef.current) {
+      return;
+    }
+    
+    try {
+      fetchInProgressRef.current = true;
+      setLoading(true);
+      
+      const response = await reportsService.getNonBilling(filters);
+      
+      // Handle response structure - API returns { data: [...], total: number, generatedAt: string }
+      let reportDataArray = [];
+      if (response) {
+        if (response.data && Array.isArray(response.data)) {
+          reportDataArray = response.data;
+        } else if (Array.isArray(response)) {
+          reportDataArray = response;
+        }
+      }
+      
+      // Transform API data to table format
+      const transformedData = reportDataArray.map((item, index) => {
+        const allocationPercentage = parseFloat(item.allocation_percentage || 0);
+        const billingPercentage = parseFloat(item.billing_percentage || 0);
+        
+        return {
+          key: item.id || `non-billing-${index}`,
+          id: item.id,
+          employeeId: item.employee_id || 'N/A',
+          employeeName: item.name || 'N/A',
+          email: item.email || 'N/A',
+          designation: item.designation || 'N/A',
+          track: item.track || 'N/A',
+          projectName: item.project_name || 'N/A',
+          allocationPercentage: allocationPercentage,
+          allocationPercentageFormatted: `${allocationPercentage.toFixed(2)}%`,
+          billingPercentage: billingPercentage,
+          billingPercentageFormatted: `${billingPercentage.toFixed(2)}%`,
+          startDate: item.start_date ? new Date(item.start_date).toLocaleDateString() : 'N/A',
+          endDate: item.end_date ? new Date(item.end_date).toLocaleDateString() : 'Ongoing',
+        };
+      });
+      
+      setReportData(transformedData);
+    } catch (error) {
+      console.error('Failed to fetch non-billing report:', error);
+      showErrorToast('Failed to load non-billing report');
+      setReportData([]);
+    } finally {
+      setLoading(false);
+      fetchInProgressRef.current = false;
+    }
+  };
 
-  // User allocation modal hook
-  const {
-    isUserAllocationModalVisible,
-    selectedEmployee,
-    userAllocationsList,
-    userAllocationsForm,
-    handleRowClick,
-    handleUserAllocationCancel,
-    handleAddUserAllocationRow,
-    handleRemoveUserAllocationRow,
-    handleUserAllocationFieldChange,
-    handleUserAllocationsSubmit,
-  } = useUserAllocationModal(nonBillingData);
+  // Fetch data on component mount
+  useEffect(() => {
+    fetchNonBillingReport();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  // Table Columns - Same as BY ALLOCATION
-  const allocationColumns = [
+  // Table columns
+  const columns = [
+    {
+      title: 'Employee ID',
+      dataIndex: 'employeeId',
+      key: 'employeeId',
+      width: 120,
+      sorter: (a, b) => a.employeeId.localeCompare(b.employeeId),
+    },
     {
       title: 'Employee Name',
       dataIndex: 'employeeName',
@@ -75,202 +114,78 @@ const NonBillingReport = () => {
       sorter: (a, b) => a.employeeName.localeCompare(b.employeeName),
     },
     {
-      title: 'Project',
-      dataIndex: 'project',
-      key: 'project',
+      title: 'Email',
+      dataIndex: 'email',
+      key: 'email',
+      width: 200,
+    },
+    {
+      title: 'Designation',
+      dataIndex: 'designation',
+      key: 'designation',
       width: 150,
     },
     {
-      title: 'Project Allocated Date',
-      dataIndex: 'allocatedDate',
-      key: 'allocatedDate',
-      width: 160,
+      title: 'Track',
+      dataIndex: 'track',
+      key: 'track',
+      width: 120,
     },
     {
-      title: 'Project Deallocated Date',
-      dataIndex: 'deallocatedDate',
-      key: 'deallocatedDate',
+      title: 'Project Name',
+      dataIndex: 'projectName',
+      key: 'projectName',
       width: 180,
+      sorter: (a, b) => a.projectName.localeCompare(b.projectName),
     },
     {
-      title: 'Billing Status',
-      dataIndex: 'billingStatus',
-      key: 'billingStatus',
-      width: 130,
+      title: 'Allocation Percentage',
+      dataIndex: 'allocationPercentageFormatted',
+      key: 'allocationPercentage',
+      width: 160,
+      sorter: (a, b) => a.allocationPercentage - b.allocationPercentage,
+      render: (text) => (
+        <span style={{ color: '#1890ff' }}>
+          {text}
+        </span>
+      ),
     },
     {
       title: 'Billing Percentage',
-      dataIndex: 'billingPercentage',
+      dataIndex: 'billingPercentageFormatted',
       key: 'billingPercentage',
-      width: 140,
+      width: 150,
+      sorter: (a, b) => a.billingPercentage - b.billingPercentage,
+      render: (text, record) => (
+        <span style={{ 
+          color: record.billingPercentage === 0 ? '#ff4d4f' : '#999',
+          fontWeight: record.billingPercentage === 0 ? 'bold' : 'normal'
+        }}>
+          {text}
+        </span>
+      ),
     },
     {
-      title: 'Project Allocation',
-      dataIndex: 'projectAllocation',
-      key: 'projectAllocation',
-      width: 140,
+      title: 'Start Date',
+      dataIndex: 'startDate',
+      key: 'startDate',
+      width: 120,
     },
     {
-      title: 'Duration (Days)',
-      dataIndex: 'duration',
-      key: 'duration',
-      width: 130,
-    },
-    {
-      title: 'Status',
-      dataIndex: 'status',
-      key: 'status',
-      width: 100,
+      title: 'End Date',
+      dataIndex: 'endDate',
+      key: 'endDate',
+      width: 120,
+      render: (text) => (
+        <span style={{ color: text === 'Ongoing' ? '#52c41a' : '#262626' }}>
+          {text}
+        </span>
+      ),
     },
   ];
 
-  // Mock non-billing data
-  const nonBillingData = [
-    {
-      key: '1',
-      employeeName: 'Akeel Aliyar',
-      project: 'Healthfinder',
-      allocatedDate: '13 Oct 2025',
-      deallocatedDate: '',
-      billingStatus: 'Non-Billing',
-      billingPercentage: '0.00%',
-      projectAllocation: '100.00%',
-      duration: 1,
-      status: 'Active',
-    },
-    {
-      key: '2',
-      employeeName: 'Buddhika Silva',
-      project: 'Seer Insights',
-      allocatedDate: '15 Sep 2025',
-      deallocatedDate: '',
-      billingStatus: 'Non-Billing',
-      billingPercentage: '0.00%',
-      projectAllocation: '100.00%',
-      duration: 1,
-      status: 'Active',
-    },
-    {
-      key: '3',
-      employeeName: 'Chamara Fernando',
-      project: 'Healthfinder',
-      allocatedDate: '20 Oct 2025',
-      deallocatedDate: '',
-      billingStatus: 'Non-Billing',
-      billingPercentage: '0.00%',
-      projectAllocation: '100.00%',
-      duration: 1,
-      status: 'Active',
-    },
-    {
-      key: '4',
-      employeeName: 'Dilani Jayasuriya',
-      project: 'Healthfinder',
-      allocatedDate: '05 Nov 2025',
-      deallocatedDate: '',
-      billingStatus: 'Non-Billing',
-      billingPercentage: '0.00%',
-      projectAllocation: '100.00%',
-      duration: 1,
-      status: 'Active',
-    },
-    {
-      key: '5',
-      employeeName: 'Eranda Wijesinghe',
-      project: 'Seer Home Page',
-      allocatedDate: '10 Sep 2025',
-      deallocatedDate: '',
-      billingStatus: 'Non-Billing',
-      billingPercentage: '0.00%',
-      projectAllocation: '100.00%',
-      duration: 1,
-      status: 'Active',
-    },
-    {
-      key: '6',
-      employeeName: 'Fathima Nazeer',
-      project: 'MillionSpaces',
-      allocatedDate: '25 Oct 2025',
-      deallocatedDate: '',
-      billingStatus: 'Non-Billing',
-      billingPercentage: '0.00%',
-      projectAllocation: '50.00%',
-      duration: 1,
-      status: 'Active',
-    },
-    {
-      key: '7',
-      employeeName: 'Gayani Perera',
-      project: 'Seer Insights',
-      allocatedDate: '12 Nov 2025',
-      deallocatedDate: '',
-      billingStatus: 'Non-Billing',
-      billingPercentage: '0.00%',
-      projectAllocation: '100.00%',
-      duration: 1,
-      status: 'Active',
-    },
-    {
-      key: '8',
-      employeeName: 'Harshani De Silva',
-      project: 'Seer Home Page',
-      allocatedDate: '18 Sep 2025',
-      deallocatedDate: '',
-      billingStatus: 'Non-Billing',
-      billingPercentage: '0.00%',
-      projectAllocation: '100.00%',
-      duration: 1,
-      status: 'Active',
-    },
-    {
-      key: '9',
-      employeeName: 'Ishara Jayasuriya',
-      project: 'Healthfinder',
-      allocatedDate: '22 Oct 2025',
-      deallocatedDate: '',
-      billingStatus: 'Non-Billing',
-      billingPercentage: '0.00%',
-      projectAllocation: '100.00%',
-      duration: 1,
-      status: 'Active',
-    },
-    {
-      key: '10',
-      employeeName: 'Janith Perera',
-      project: 'MillionSpaces',
-      allocatedDate: '08 Nov 2025',
-      deallocatedDate: '',
-      billingStatus: 'Non-Billing',
-      billingPercentage: '0.00%',
-      projectAllocation: '100.00%',
-      duration: 1,
-      status: 'Active',
-    },
-    {
-      key: '11',
-      employeeName: 'Kasun Wijesinghe',
-      project: 'Seer Insights',
-      allocatedDate: '12 Oct 2025',
-      deallocatedDate: '',
-      billingStatus: 'Non-Billing',
-      billingPercentage: '0.00%',
-      projectAllocation: '100.00%',
-      duration: 1,
-      status: 'Active',
-    },
-    {
-      key: '12',
-      employeeName: 'Lakshan De Silva',
-      project: 'Healthfinder',
-      allocatedDate: '25 Sep 2025',
-      deallocatedDate: '',
-      billingStatus: 'Non-Billing',
-      billingPercentage: '0.00%',
-      projectAllocation: '100.00%',
-      duration: 1,
-      status: 'Active',
-    },
-  ];
+  // Calculate KPI
+  const totalNonBillingCount = reportData.length;
 
   return (
     <div className="non-billing-report-page">
@@ -314,101 +229,8 @@ const NonBillingReport = () => {
         </div>
         {filtersExpanded && (
           <div className="filters-content">
-            <Row gutter={[16, 16]} className="filters-row">
-              <Col xs={24} sm={12} md={8} lg={6}>
-                <div className="filter-item">
-                  <label>Project Name</label>
-                  <Select
-                    value={filters.projectName}
-                    onChange={(value) => setFilters({ ...filters, projectName: value })}
-                    style={{ width: '100%' }}
-                  >
-                    <Option value="All">All</Option>
-                    <Option value="Healthfinder">Healthfinder</Option>
-                    <Option value="Seer Insights">Seer Insights</Option>
-                    <Option value="MillionSpaces">MillionSpaces</Option>
-                  </Select>
-                </div>
-              </Col>
-              <Col xs={24} sm={12} md={8} lg={6}>
-                <div className="filter-item">
-                  <label>Account Manager</label>
-                  <Select
-                    value={filters.accountManager}
-                    onChange={(value) => setFilters({ ...filters, accountManager: value })}
-                    style={{ width: '100%' }}
-                  >
-                    <Option value="All">All</Option>
-                    <Option value="Randika Swaris">Randika Swaris</Option>
-                  </Select>
-                </div>
-              </Col>
-              <Col xs={24} sm={12} md={8} lg={6}>
-                <div className="filter-item">
-                  <label>Track</label>
-                  <Select
-                    value={filters.track}
-                    onChange={(value) => setFilters({ ...filters, track: value })}
-                    style={{ width: '100%' }}
-                  >
-                    <Option value="All">All</Option>
-                    <Option value="Dev">Dev</Option>
-                    <Option value="QA">QA</Option>
-                    <Option value="PM">PM</Option>
-                    <Option value="BA">BA</Option>
-                  </Select>
-                </div>
-              </Col>
-              <Col xs={24} sm={12} md={8} lg={6}>
-                <div className="filter-item">
-                  <label>Tech Stack</label>
-                  <Select
-                    value={filters.techStack}
-                    onChange={(value) => setFilters({ ...filters, techStack: value })}
-                    style={{ width: '100%' }}
-                  >
-                    <Option value="All">All</Option>
-                    <Option value=".NET">.NET</Option>
-                    <Option value="Full Stack">Full Stack</Option>
-                    <Option value="QA">QA</Option>
-                  </Select>
-                </div>
-              </Col>
-              <Col xs={24} sm={12} md={8} lg={6}>
-                <div className="filter-item">
-                  <label>Designation</label>
-                  <Select
-                    value={filters.designation}
-                    onChange={(value) => setFilters({ ...filters, designation: value })}
-                    style={{ width: '100%' }}
-                  >
-                    <Option value="All">All</Option>
-                    <Option value="ASE">ASE</Option>
-                    <Option value="SE">SE</Option>
-                    <Option value="STL">STL</Option>
-                  </Select>
-                </div>
-              </Col>
-              <Col xs={24} sm={12} md={8} lg={6}>
-                <div className="filter-item">
-                  <label>Tier</label>
-                  <Select
-                    value={filters.tier}
-                    onChange={(value) => setFilters({ ...filters, tier: value })}
-                    style={{ width: '100%' }}
-                  >
-                    <Option value="All">All</Option>
-                    <Option value="0">Tier 0</Option>
-                    <Option value="1">Tier 1</Option>
-                    <Option value="2">Tier 2</Option>
-                    <Option value="3">Tier 3</Option>
-                    <Option value="4">Tier 4</Option>
-                    <Option value="5">Tier 5</Option>
-                    <Option value="99">Tier 99</Option>
-                  </Select>
-                </div>
-              </Col>
-            </Row>
+            {/* No filters for non-billing report currently */}
+            <p style={{ padding: '16px', color: '#999' }}>No filters available for this report</p>
           </div>
         )}
       </Card>
@@ -418,44 +240,22 @@ const NonBillingReport = () => {
         <Col xs={24} sm={12} md={8} lg={6}>
           <Card className="kpi-card">
             <div className="kpi-value">{totalNonBillingCount}</div>
-            <div className="kpi-label">TOTAL NON-BILLING COUNT</div>
-          </Card>
-        </Col>
-        <Col xs={24} sm={12} md={8} lg={6}>
-          <Card className="kpi-card">
-            <div className="kpi-value">{nonBillingPercentage}%</div>
-            <div className="kpi-label">NON-BILLING PERCENTAGE</div>
+            <div className="kpi-label">TOTAL NON-BILLING RESOURCES</div>
           </Card>
         </Col>
       </Row>
 
       {/* Table Section */}
-      <Card className="table-card" title="BY ALLOCATION">
+      <Card className="table-card" title="Non-Billing Resources">
         <CustomTable
-          columns={allocationColumns}
-          dataSource={nonBillingData}
+          columns={columns}
+          dataSource={reportData}
           pagination={{ pageSize: 10 }}
-          scroll={{ x: 1200 }}
+          scroll={{ x: 1500 }}
           size="small"
-          onRow={(record) => ({
-            onClick: () => handleRowClick(record),
-            style: { cursor: 'pointer' },
-          })}
+          loading={loading}
         />
       </Card>
-
-      {/* User Allocations Modal */}
-      <UserAllocationModal
-        visible={isUserAllocationModalVisible}
-        selectedEmployee={selectedEmployee}
-        allocationsList={userAllocationsList}
-        form={userAllocationsForm}
-        onCancel={handleUserAllocationCancel}
-        onAddRow={handleAddUserAllocationRow}
-        onRemoveRow={handleRemoveUserAllocationRow}
-        onFieldChange={handleUserAllocationFieldChange}
-        onSubmit={handleUserAllocationsSubmit}
-      />
     </div>
   );
 };

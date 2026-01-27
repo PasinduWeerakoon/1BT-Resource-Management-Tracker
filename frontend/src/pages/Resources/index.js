@@ -1,24 +1,34 @@
-import React, { useState, useMemo } from 'react';
-import { Row, Col, Card, Button, Table, Space, Form, Input, InputNumber, Select, DatePicker, Upload, Avatar, Tooltip, Tabs, Badge } from 'antd';
+import React, { useState, useMemo, useEffect } from 'react';
+import { Row, Col, Card, Button, Table, Space, Form, Input, InputNumber, Select, DatePicker, Upload, Avatar, Tooltip, Tabs, Badge, App } from 'antd';
 import { PlusOutlined, EditOutlined, EyeOutlined, UserOutlined, UploadOutlined, FilterOutlined, UpOutlined, DownOutlined, ReloadOutlined } from '@ant-design/icons';
 import { Doughnut, Bar, Line } from 'react-chartjs-2';
 import { commonOptions, colors } from '@utils/chartConfig';
 import CustomModal from '@components/Modal';
 import CustomTable from '@components/Table';
+import { resourcesService, designationsService, tracksService } from '@api';
 import dayjs from 'dayjs';
 import '@styles/pages/Resources.scss';
 
 const { Option } = Select;
-const { TextArea } = Input;
 const { RangePicker } = DatePicker;
 
 const Resources = () => {
+  const { message } = App.useApp();
   const [form] = Form.useForm();
   const [isAddEmployeeModalVisible, setIsAddEmployeeModalVisible] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [isProfileModalVisible, setIsProfileModalVisible] = useState(false);
   const [filtersExpanded, setFiltersExpanded] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [fetchingEmployees, setFetchingEmployees] = useState(false);
+  const [designations, setDesignations] = useState([]);
+  const [tracks, setTracks] = useState([]);
+  const [pagination, setPagination] = useState({
+    current: 1,
+    pageSize: 20,
+    total: 0,
+  });
   const [filters, setFilters] = useState({
     tier: 'All',
     position: 'All',
@@ -26,6 +36,8 @@ const Resources = () => {
     joinDateRange: null,
     employeeNumber: '',
     name: '',
+    track_id: undefined,
+    designation_id: undefined,
   });
 
   // Default filter values for comparison
@@ -36,6 +48,8 @@ const Resources = () => {
     joinDateRange: null,
     employeeNumber: '',
     name: '',
+    track_id: undefined,
+    designation_id: undefined,
   };
 
   // Count active filters (filters that differ from defaults)
@@ -55,29 +69,7 @@ const Resources = () => {
     setFilters({ ...defaultFilters });
   };
 
-  const [employees, setEmployees] = useState([
-    // Mock data - will be replaced with API call
-    {
-      key: '1',
-      employeeNumber: 'EMP001',
-      name: 'John Doe',
-      tier: 'Tier 01',
-      position: 'Senior Software Engineer',
-      joinDate: '2023-01-15',
-      status: 'Active',
-      photo: null,
-    },
-    {
-      key: '2',
-      employeeNumber: 'EMP002',
-      name: 'Jane Smith',
-      tier: 'Tier 02',
-      position: 'Software Engineer',
-      joinDate: '2023-03-20',
-      status: 'Active',
-      photo: null,
-    },
-  ]);
+  const [employees, setEmployees] = useState([]);
 
   // Handle Add Employee
   const handleAddEmployee = () => {
@@ -105,54 +97,223 @@ const Resources = () => {
     setIsProfileModalVisible(true);
   };
 
+  // Fetch designations and tracks on component mount
+  useEffect(() => {
+    const fetchDropdownData = async () => {
+      try {
+        const [designationsRes, tracksRes] = await Promise.all([
+          designationsService.getAll(),
+          tracksService.getAll(),
+        ]);
+
+        if (designationsRes && designationsRes.data) {
+          setDesignations(designationsRes.data);
+        }
+        if (tracksRes && tracksRes.data) {
+          setTracks(tracksRes.data);
+        }
+      } catch (error) {
+        console.error('Failed to fetch designations/tracks:', error);
+      }
+    };
+
+    fetchDropdownData();
+  }, []);
+
+  // Fetch employees from API
+  const fetchEmployees = async (page = 1, limit = 20) => {
+    try {
+      setFetchingEmployees(true);
+
+      // Build query params
+      const queryParams = {
+        page,
+        limit,
+      };
+
+      // Add search if name or employeeNumber is provided
+      if (filters.name || filters.employeeNumber) {
+        queryParams.search = filters.name || filters.employeeNumber;
+      }
+
+      // Add filters
+      if (filters.track_id) {
+        queryParams.track_id = filters.track_id;
+      }
+      if (filters.designation_id) {
+        queryParams.designation_id = filters.designation_id;
+      }
+      if (filters.status && filters.status !== 'All') {
+        queryParams.status = filters.status;
+      }
+
+      const response = await resourcesService.getAll(queryParams);
+
+      // Handle response structure after interceptor transformation
+      // API returns: {success: true, data: {data: [...], pagination: {...}}}
+      // Interceptor: response.data = response.data.data || response.data
+      // For resources API: response.data = {data: [...], pagination: {...}}
+      // Service returns: response.data || response
+      // So we get: {data: [...], pagination: {...}}
+
+      let employeesData = [];
+      let paginationData = {};
+
+      if (response) {
+        // Most likely case: response = {data: [...], pagination: {...}}
+        if (response.data && Array.isArray(response.data)) {
+          employeesData = response.data;
+          paginationData = response.pagination || {};
+        }
+        // Case: response = {success: true, data: {data: [...], pagination: {...}}}
+        else if (response.data && response.data.data && Array.isArray(response.data.data)) {
+          employeesData = response.data.data;
+          paginationData = response.data.pagination || {};
+        }
+        // Case: response is the data object directly {data: [...], pagination: {...}}
+        else if (response.pagination && response.data && Array.isArray(response.data)) {
+          employeesData = response.data;
+          paginationData = response.pagination;
+        }
+        // Fallback: response is an array
+        else if (Array.isArray(response)) {
+          employeesData = response;
+          paginationData = {};
+        }
+      }
+
+      // Ensure pagination has default values
+      paginationData = {
+        total: paginationData.total || 0,
+        page: paginationData.page || page,
+        limit: paginationData.limit || limit,
+        totalPages: paginationData.totalPages || 0,
+      };
+
+
+      // Transform employees data to match table format
+      const transformedEmployees = employeesData.map((employee) => {
+        // Format tier from designation_level (1-4) to "Tier 01" format
+        const tier = employee.designation_level
+          ? `Tier ${String(employee.designation_level).padStart(2, '0')}`
+          : null;
+
+        // Format date_of_joining from ISO string to YYYY-MM-DD
+        const joinDate = employee.date_of_joining
+          ? dayjs(employee.date_of_joining).format('YYYY-MM-DD')
+          : null;
+
+        return {
+          key: employee.id || employee.employee_number,
+          id: employee.id,
+          employee_id: employee.employee_id,
+          employeeNumber: employee.employee_number || employee.employeeNumber,
+          name: employee.name,
+          email: employee.email,
+          mobile: employee.phone_number || employee.mobile,
+          tier: tier,
+          position: employee.designation_name || employee.position,
+          designation_id: employee.designation_id,
+          designation_name: employee.designation_name,
+          designation_level: employee.designation_level,
+          track_id: employee.track_id,
+          track_name: employee.track_name,
+          joinDate: joinDate,
+          status: employee.status,
+          photo: employee.photo,
+          nic: employee.nic,
+          address: employee.address,
+          is_intern: employee.intern_classification !== null ? employee.intern_classification : false,
+          intern_classification: employee.intern_classification,
+          skills: employee.skills || [],
+          notice_period_end_date: employee.notice_period_end_date,
+          date_of_joining: employee.date_of_joining,
+          // Keep all original data for reference
+          ...employee,
+        };
+      });
+
+      setEmployees(transformedEmployees);
+      setPagination({
+        current: paginationData.page || page,
+        pageSize: paginationData.limit || limit,
+        total: paginationData.total || 0,
+      });
+    } catch (error) {
+      console.error('Failed to fetch employees:', error);
+      message.error('Failed to load employees');
+    } finally {
+      setFetchingEmployees(false);
+    }
+  };
+
+  // Fetch employees on component mount
+  useEffect(() => {
+    fetchEmployees(1, 20);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Fetch employees when API-supported filters change
+  useEffect(() => {
+    // Reset to page 1 when filters change
+    setPagination(prev => ({ ...prev, current: 1 }));
+    fetchEmployees(1, pagination.pageSize);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters.name, filters.employeeNumber, filters.track_id, filters.designation_id, filters.status]);
+
   // Handle Add/Edit Employee Submit
   const handleEmployeeSubmit = async () => {
     try {
+      setLoading(true);
       const values = await form.validateFields();
-      const employeeData = {
-        ...values,
-        joinDate: values.joinDate ? values.joinDate.format('YYYY-MM-DD') : null,
-        bod: values.bod ? values.bod.format('YYYY-MM-DD') : null,
-        photo: values.photo ? values.photo.fileList?.[0]?.thumbUrl : null,
-      };
 
       if (isEditMode) {
-        // Update existing employee
-        setEmployees(employees.map(emp => 
-          emp.key === selectedEmployee.key 
-            ? { ...emp, ...employeeData, key: emp.key }
-            : emp
-        ));
-      } else {
-        // Add new employee
-        const newEmployee = {
-          ...employeeData,
-          key: `EMP${String(employees.length + 1).padStart(3, '0')}`,
-          employeeNumber: employeeData.employeeNumber || `EMP${String(employees.length + 1).padStart(3, '0')}`,
-          status: employeeData.status || 'Active',
+        // Prepare API payload for update
+        // API only accepts: name, email, mobile, designation_id, status
+        const updatePayload = {
+          name: values.name,
+          email: values.email || '',
+          mobile: values.mobile || '',
+          designation_id: values.designation_id,
+          status: values.status || 'Active',
         };
-        setEmployees([...employees, newEmployee]);
-        
-        // Auto-assign new employee to Bench project
-        // This should be done via API call in production
-        // For now, we log it - the backend should handle this automatically
-        console.log('New employee added, auto-assigning to Bench project:', {
-          employeeNumber: newEmployee.employeeNumber,
-          employeeName: newEmployee.name,
-          project: 'Bench',
-          allocation: 100,
-          billingStatus: 'Bench',
-          status: 'Active',
-        });
-        
-        // TODO: Make API call to create allocation
-        // await createAllocation({
-        //   employeeId: newEmployee.employeeNumber,
-        //   projectId: 'BENCH_PROJECT_ID',
-        //   projectAllocation: 100,
-        //   billingStatus: 'Bench',
-        //   status: 'Active',
-        // });
+
+        // Call update resource API
+        const response = await resourcesService.update(selectedEmployee.id, updatePayload);
+
+        if (response && (response.success !== false || response.data)) {
+          message.success('Employee updated successfully');
+
+          // Refresh employee list from API
+          await fetchEmployees(pagination.current, pagination.pageSize);
+        } else {
+          message.error(response?.message || 'Failed to update employee');
+        }
+      } else {
+        // Prepare API payload
+        const apiPayload = {
+          name: values.name,
+          email: values.email || '',
+          mobile: values.mobile || '',
+          nic: values.nicOrPassport || '',
+          designation_id: values.designation_id,
+          track_id: values.track_id,
+          date_of_joining: values.joinDate ? values.joinDate.format('YYYY-MM-DD') : null,
+          status: 'Bench', // Default status is Bench as per requirement
+          is_intern: values.is_intern || false,
+        };
+
+        // Call create resource API
+        const response = await resourcesService.create(apiPayload);
+
+        if (response && (response.success !== false || response.data)) {
+          message.success('Employee created successfully');
+
+          // Refresh employee list from API
+          await fetchEmployees(pagination.current, pagination.pageSize);
+        } else {
+          message.error(response?.message || 'Failed to create employee');
+        }
       }
 
       setIsAddEmployeeModalVisible(false);
@@ -160,7 +321,10 @@ const Resources = () => {
       setSelectedEmployee(null);
       setIsEditMode(false);
     } catch (error) {
-      console.error('Validation failed:', error);
+      console.error('Employee submit error:', error);
+      message.error(error.message || 'Failed to save employee');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -172,14 +336,13 @@ const Resources = () => {
     setIsEditMode(false);
   };
 
-  // Filter employees based on active filters
+  // Filter employees based on local-only filters (tier, position, joinDateRange)
+  // API handles: search, track_id, designation_id, status
   const filteredEmployees = useMemo(() => {
     return employees.filter(employee => {
+      // Client-side filters (not supported by API)
       if (filters.tier !== 'All' && employee.tier !== filters.tier) return false;
       if (filters.position !== 'All' && employee.position !== filters.position) return false;
-      if (filters.status !== 'All' && employee.status !== filters.status) return false;
-      if (filters.employeeNumber && !employee.employeeNumber.toLowerCase().includes(filters.employeeNumber.toLowerCase())) return false;
-      if (filters.name && !employee.name.toLowerCase().includes(filters.name.toLowerCase())) return false;
       if (filters.joinDateRange && filters.joinDateRange.length === 2) {
         const joinDate = dayjs(employee.joinDate);
         const startDate = filters.joinDateRange[0];
@@ -188,7 +351,7 @@ const Resources = () => {
       }
       return true;
     });
-  }, [employees, filters]);
+  }, [employees, filters.tier, filters.position, filters.joinDateRange]);
 
   // Get unique values for filter dropdowns
   const uniqueTiers = useMemo(() => {
@@ -231,6 +394,12 @@ const Resources = () => {
       dataIndex: 'joinDate',
       key: 'joinDate',
       width: 120,
+      render: (date) => date || '-',
+      sorter: (a, b) => {
+        if (!a.joinDate) return 1;
+        if (!b.joinDate) return -1;
+        return dayjs(a.joinDate).unix() - dayjs(b.joinDate).unix();
+      },
     },
     {
       title: 'Status',
@@ -281,7 +450,7 @@ const Resources = () => {
   // Chart data for profile
   const getProfileChartData = (employeeKey) => {
     const allocationData = getAllocationData(employeeKey);
-    
+
     return {
       allocationHistory: {
         labels: allocationData.map(d => d.month),
@@ -410,6 +579,46 @@ const Resources = () => {
               </Col>
               <Col xs={24} sm={12} md={8} lg={6}>
                 <div className="filter-item">
+                  <label>Track</label>
+                  <Select
+                    value={filters.track_id}
+                    onChange={(value) => setFilters({ ...filters, track_id: value || undefined })}
+                    style={{ width: '100%' }}
+                    placeholder="All Tracks"
+                    allowClear
+                    showSearch
+                    optionFilterProp="children"
+                  >
+                    {tracks.map((track) => (
+                      <Option key={track.id} value={track.id}>
+                        {track.name}
+                      </Option>
+                    ))}
+                  </Select>
+                </div>
+              </Col>
+              <Col xs={24} sm={12} md={8} lg={6}>
+                <div className="filter-item">
+                  <label>Designation</label>
+                  <Select
+                    value={filters.designation_id}
+                    onChange={(value) => setFilters({ ...filters, designation_id: value || undefined })}
+                    style={{ width: '100%' }}
+                    placeholder="All Designations"
+                    allowClear
+                    showSearch
+                    optionFilterProp="children"
+                  >
+                    {designations.map((designation) => (
+                      <Option key={designation.id} value={designation.id}>
+                        {designation.name}
+                      </Option>
+                    ))}
+                  </Select>
+                </div>
+              </Col>
+              <Col xs={24} sm={12} md={8} lg={6}>
+                <div className="filter-item">
                   <label>Status</label>
                   <Select
                     value={filters.status}
@@ -419,7 +628,9 @@ const Resources = () => {
                     <Option value="All">All</Option>
                     <Option value="Active">Active</Option>
                     <Option value="Inactive">Inactive</Option>
-                    <Option value="Serving Notice Period">Serving Notice Period</Option>
+                    <Option value="Bench">Bench</Option>
+                    <Option value="Resigned">Resigned</Option>
+                    <Option value="Terminated">Terminated</Option>
                   </Select>
                 </div>
               </Col>
@@ -479,7 +690,22 @@ const Resources = () => {
           columns={columns}
           dataSource={filteredEmployees}
           scroll={{ x: 1000 }}
-          pagination={{ pageSize: 20 }}
+          loading={fetchingEmployees}
+          pagination={{
+            current: pagination.current,
+            pageSize: pagination.pageSize,
+            total: pagination.total,
+            showSizeChanger: true,
+            showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} employees`,
+            onChange: (page, pageSize) => {
+              setPagination(prev => ({ ...prev, current: page, pageSize }));
+              fetchEmployees(page, pageSize);
+            },
+            onShowSizeChange: (current, size) => {
+              setPagination(prev => ({ ...prev, current: 1, pageSize: size }));
+              fetchEmployees(1, size);
+            },
+          }}
         />
       </Card>
 
@@ -499,6 +725,7 @@ const Resources = () => {
             text: isEditMode ? 'Update Details' : 'Add Employee',
             type: 'primary',
             onClick: handleEmployeeSubmit,
+            loading: loading,
           },
         ]}
       >
@@ -538,11 +765,53 @@ const Resources = () => {
             </Col>
             <Col xs={24} sm={12}>
               <Form.Item
-                label="Position"
-                name="position"
-                rules={[{ required: true, message: 'Position is required' }]}
+                label="Email"
+                name="email"
+                rules={[
+                  { required: true, message: 'Email is required' },
+                  { type: 'email', message: 'Please enter a valid email' }
+                ]}
               >
-                <Input placeholder="Enter position" />
+                <Input placeholder="Enter email address" type="email" />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={12}>
+              <Form.Item
+                label="Mobile"
+                name="mobile"
+                rules={[{ required: true, message: 'Mobile number is required' }]}
+              >
+                <Input placeholder="Enter mobile number" />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={12}>
+              <Form.Item
+                label="Designation"
+                name="designation_id"
+                rules={[{ required: true, message: 'Designation is required' }]}
+              >
+                <Select placeholder="Select designation" showSearch optionFilterProp="children">
+                  {designations.map((designation) => (
+                    <Option key={designation.id} value={designation.id}>
+                      {designation.name}
+                    </Option>
+                  ))}
+                </Select>
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={12}>
+              <Form.Item
+                label="Track"
+                name="track_id"
+                rules={[{ required: true, message: 'Track is required' }]}
+              >
+                <Select placeholder="Select track" showSearch optionFilterProp="children">
+                  {tracks.map((track) => (
+                    <Option key={track.id} value={track.id}>
+                      {track.name}
+                    </Option>
+                  ))}
+                </Select>
               </Form.Item>
             </Col>
             <Col xs={24} sm={12}>
@@ -572,27 +841,37 @@ const Resources = () => {
                 <Input placeholder="Enter NIC or Passport number" />
               </Form.Item>
             </Col>
-            <Col xs={24} sm={12}>
-              <Form.Item
-                label="Status"
-                name="status"
-                rules={[{ required: true, message: 'Status is required' }]}
-              >
-                <Select placeholder="Select status">
-                  <Option value="Active">Active</Option>
-                  <Option value="Inactive">Inactive</Option>
-                  <Option value="Serving Notice Period">Serving Notice Period</Option>
-                </Select>
-              </Form.Item>
-            </Col>
-            <Col xs={24}>
-              <Form.Item
-                label="Address"
-                name="address"
-              >
-                <TextArea rows={3} placeholder="Enter address" />
-              </Form.Item>
-            </Col>
+            {!isEditMode && (
+              <Col xs={24} sm={12}>
+                <Form.Item
+                  label="Is Intern"
+                  name="is_intern"
+                  initialValue={false}
+                >
+                  <Select placeholder="Select intern status">
+                    <Option value={false}>No</Option>
+                    <Option value={true}>Yes</Option>
+                  </Select>
+                </Form.Item>
+              </Col>
+            )}
+            {isEditMode && (
+              <Col xs={24} sm={12}>
+                <Form.Item
+                  label="Status"
+                  name="status"
+                  rules={[{ required: true, message: 'Status is required' }]}
+                >
+                  <Select placeholder="Select status">
+                    <Option value="Active">Active</Option>
+                    <Option value="Inactive">Inactive</Option>
+                    <Option value="Bench">Bench</Option>
+                    <Option value="Resigned">Resigned</Option>
+                    <Option value="Terminated">Terminated</Option>
+                  </Select>
+                </Form.Item>
+              </Col>
+            )}
             <Col xs={24}>
               <Form.Item
                 label="Photo"
