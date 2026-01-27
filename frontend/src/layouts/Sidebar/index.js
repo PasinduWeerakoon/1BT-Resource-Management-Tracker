@@ -45,8 +45,14 @@ const Sidebar = () => {
   };
 
   // Get user initials for avatar
-  const getInitials = (name) => {
+  const getInitials = (user) => {
+    if (!user) return 'U';
+    
+    // Try to get name from various fields
+    const name = user.name || user.given_name || user.preferred_username || user.email || '';
+    
     if (!name) return 'U';
+    
     const parts = name.split(' ');
     if (parts.length >= 2) {
       return (parts[0][0] + parts[1][0]).toUpperCase();
@@ -54,13 +60,24 @@ const Sidebar = () => {
     return name.substring(0, 2).toUpperCase();
   };
 
+  // Format user display name: "name | email" or just "email" if no name
+  const getUserDisplayName = () => {
+    const name = user?.name?.trim();
+    const email = user?.email || user?.username || '';
+    
+    if (name && name !== email) {
+      return `${name} | ${email}`;
+    }
+    return email || 'User';
+  };
+
   const userMenuItems = [
     {
       key: 'user-info',
       label: (
         <div className="sidebar-user-info">
-          <div className="sidebar-user-name">{user?.name || 'User'}</div>
-          <div className="sidebar-user-email">{user?.email || user?.username || ''}</div>
+          <div className="sidebar-user-name">{getUserDisplayName()}</div>
+          <div className="sidebar-user-email">{role || 'User'}</div>
         </div>
       ),
       disabled: true,
@@ -188,12 +205,12 @@ const Sidebar = () => {
                   flexShrink: 0,
                 }}
               >
-                {getInitials(user?.name)}
+                {getInitials(user)}
               </Avatar>
               {!sidebarCollapsed && (
                 <div className="sidebar-user-details">
                   <div className="sidebar-user-name-text">
-                    {user?.name || 'User'}
+                    {user?.name || user?.given_name || user?.preferred_username || user?.email || 'User'}
                   </div>
                   <div className="sidebar-user-role-text">
                     {role || 'User'}

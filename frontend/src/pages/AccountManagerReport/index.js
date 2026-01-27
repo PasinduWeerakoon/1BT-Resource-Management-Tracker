@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Row, Col, Card, Select, DatePicker, Table, Button, Space, Badge, Form, Input, InputNumber, Divider, Tooltip, App, Switch } from 'antd';
 import dayjs from 'dayjs';
 import {
@@ -76,6 +76,13 @@ const AccountManagerReport = () => {
     const [loadingResourceAllocations, setLoadingResourceAllocations] = useState(false);
     const [selectedResourceId, setSelectedResourceId] = useState(null);
     const [selectedResourceName, setSelectedResourceName] = useState('');
+
+    // Refs to prevent duplicate API calls
+    const fetchProjectsInProgressRef = useRef(false);
+    const fetchClientsInProgressRef = useRef(false);
+    const fetchResourcesInProgressRef = useRef(false);
+    const fetchAllocationsInProgressRef = useRef(false);
+
     const [filters, setFilters] = useState({
         accountManager: 'Randika Swaris',
         projectName: 'All',
@@ -140,7 +147,13 @@ const AccountManagerReport = () => {
 
     // Fetch projects from API
     const fetchProjects = async (page = 1, limit = 10) => {
+        // Prevent duplicate calls
+        if (fetchProjectsInProgressRef.current) {
+            return;
+        }
+
         try {
+            fetchProjectsInProgressRef.current = true;
             setLoadingProjects(true);
 
             // Build query parameters from filters
@@ -236,6 +249,7 @@ const AccountManagerReport = () => {
             showErrorToast('Failed to load projects');
         } finally {
             setLoadingProjects(false);
+            fetchProjectsInProgressRef.current = false;
         }
     };
 
@@ -901,7 +915,13 @@ const AccountManagerReport = () => {
     // Fetch resources list for allocation form
     useEffect(() => {
         const fetchResources = async () => {
+            // Prevent duplicate calls
+            if (fetchResourcesInProgressRef.current) {
+                return;
+            }
+
             try {
+                fetchResourcesInProgressRef.current = true;
                 const response = await resourcesService.getAll({ limit: 10 });
                 let resourcesData = [];
 
@@ -1375,7 +1395,13 @@ const AccountManagerReport = () => {
     const fetchProjectAllocations = async (projectId, page = 1, limit = 10) => {
         if (!projectId) return;
 
+        // Prevent duplicate calls
+        if (fetchAllocationsInProgressRef.current) {
+            return;
+        }
+
         try {
+            fetchAllocationsInProgressRef.current = true;
             setLoadingAllocations(true);
             // Note: projectsService.getAllocations doesn't support pagination directly
             // We'll fetch all and paginate client-side, or use allocationsService.getAll with project_id filter
@@ -1525,6 +1551,7 @@ const AccountManagerReport = () => {
             setAllocationData([]);
         } finally {
             setLoadingAllocations(false);
+            fetchAllocationsInProgressRef.current = false;
         }
     };
 
