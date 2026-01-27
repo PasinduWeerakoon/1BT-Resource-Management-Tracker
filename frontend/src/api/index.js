@@ -65,6 +65,7 @@ export { default as designationsService } from './services/designations.service'
 export { default as clientsService } from './services/clients.service';
 export { default as projectsService } from './services/projects.service';
 export { default as allocationsService } from './services/allocations.service';
+export { default as reportsService } from './services/reports.service';
 
 // Utilities
 export * from './utils';

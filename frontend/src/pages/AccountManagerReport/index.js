@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Row, Col, Card, Select, DatePicker, Table, Button, Space, Badge, Form, Input, InputNumber, Divider, Tooltip } from 'antd';
+import { Row, Col, Card, Select, DatePicker, Table, Button, Space, Badge, Form, Input, InputNumber, Divider, Tooltip, App, Switch } from 'antd';
 import dayjs from 'dayjs';
 import {
     UserOutlined,
@@ -13,18 +13,22 @@ import {
     ReloadOutlined,
     EditOutlined,
     UserAddOutlined,
-    DeleteOutlined
+    DeleteOutlined,
+    EyeOutlined
 } from '@ant-design/icons';
 import { Doughnut, Bar } from 'react-chartjs-2';
 import { commonOptions, colors } from '@utils/chartConfig';
 import CustomTable from '@components/Table';
 import CustomModal from '@components/Modal';
+import { projectsService, clientsService, allocationsService, resourcesService } from '@api';
+import { showErrorToast, showSuccessToast, showWarningToast } from '@utils/toast.utils';
 import '@styles/pages/AccountManagerReport.scss';
 
 const { Option } = Select;
 const { RangePicker } = DatePicker;
 
 const AccountManagerReport = () => {
+    const { message } = App.useApp();
     const [form] = Form.useForm();
     const [billingType, setBillingType] = useState(null);
     const [accountType, setAccountType] = useState('External');
@@ -44,6 +48,34 @@ const AccountManagerReport = () => {
     const [selectedEmployee, setSelectedEmployee] = useState(null);
     const [userAllocationsList, setUserAllocationsList] = useState([]);
     const [userAllocationsForm] = Form.useForm();
+    const [isSubmittingProject, setIsSubmittingProject] = useState(false);
+    const [clientsList, setClientsList] = useState([]);
+    const [projectData, setProjectData] = useState([]);
+    const [loadingProjects, setLoadingProjects] = useState(false);
+    const [projectPagination, setProjectPagination] = useState({
+        current: 1,
+        pageSize: 10,
+        total: 0,
+    });
+    const [selectedProjectId, setSelectedProjectId] = useState(null);
+    const [allocationData, setAllocationData] = useState([]);
+    const [loadingAllocations, setLoadingAllocations] = useState(false);
+    const [allocationPagination, setAllocationPagination] = useState({
+        current: 1,
+        pageSize: 10,
+        total: 0,
+    });
+    const [isAllocationModalVisible, setIsAllocationModalVisible] = useState(false);
+    const [isEditAllocationMode, setIsEditAllocationMode] = useState(false);
+    const [selectedAllocation, setSelectedAllocation] = useState(null);
+    const [allocationForm] = Form.useForm();
+    const [isSubmittingAllocation, setIsSubmittingAllocation] = useState(false);
+    const [resourcesList, setResourcesList] = useState([]);
+    const [isResourceAllocationsModalVisible, setIsResourceAllocationsModalVisible] = useState(false);
+    const [resourceAllocationsData, setResourceAllocationsData] = useState([]);
+    const [loadingResourceAllocations, setLoadingResourceAllocations] = useState(false);
+    const [selectedResourceId, setSelectedResourceId] = useState(null);
+    const [selectedResourceName, setSelectedResourceName] = useState('');
     const [filters, setFilters] = useState({
         accountManager: 'Randika Swaris',
         projectName: 'All',
@@ -80,13 +112,171 @@ const AccountManagerReport = () => {
         return count;
     }, [filters]);
 
+    // Fetch clients list for client lookup
+    useEffect(() => {
+        const fetchClients = async () => {
+            try {
+                const response = await clientsService.getAll({ limit: 10 });
+                let clientsData = [];
+
+                if (response) {
+                    if (Array.isArray(response.data)) {
+                        clientsData = response.data;
+                    } else if (response.data && response.data.data && Array.isArray(response.data.data)) {
+                        clientsData = response.data.data;
+                    } else if (response.data && Array.isArray(response.data)) {
+                        clientsData = response.data;
+                    }
+                }
+
+                setClientsList(clientsData);
+            } catch (error) {
+                console.error('Failed to fetch clients:', error);
+            }
+        };
+
+        fetchClients();
+    }, []);
+
+    // Fetch projects from API
+    const fetchProjects = async (page = 1, limit = 10) => {
+        try {
+            setLoadingProjects(true);
+
+            // Build query parameters from filters
+            const queryParams = {
+                page: page || projectPagination.current,
+                limit: limit || projectPagination.pageSize,
+            };
+
+            // Add filters if they're set and not "All"
+            if (filters.projectName && filters.projectName !== 'All') {
+                queryParams.search = filters.projectName;
+            }
+
+            if (filters.projectStatus && filters.projectStatus !== 'All') {
+                queryParams.status = filters.projectStatus;
+            }
+
+            // Note: client_id and project_type filters can be added here if needed
+            // if (filters.clientName && filters.clientName !== 'All') {
+            //     queryParams.client_id = filters.clientName;
+            // }
+
+            const response = await projectsService.getAll(queryParams);
+
+            // Handle response structure after interceptor transformation
+            let projectsData = [];
+
+            if (response) {
+                // Check if response has data array directly (after interceptor transformation)
+                if (Array.isArray(response.data)) {
+                    projectsData = response.data;
+                }
+                // Check if response has nested data structure
+                else if (response.data && response.data.data && Array.isArray(response.data.data)) {
+                    projectsData = response.data.data;
+                }
+                // Check if response is the data object directly
+                else if (response.data && Array.isArray(response.data)) {
+                    projectsData = response.data;
+                }
+                // Fallback: response is an array
+                else if (Array.isArray(response)) {
+                    projectsData = response;
+                }
+            }
+
+            // Get pagination info from response
+            let paginationData = {};
+            if (response) {
+                if (response.pagination) {
+                    paginationData = response.pagination;
+                } else if (response.data && response.data.pagination) {
+                    paginationData = response.data.pagination;
+                }
+            }
+
+            // Transform projects data to match table format
+            const transformedProjects = projectsData.map((project) => ({
+                key: project.id,
+                id: project.id,
+                project: project.project_name || project.name,
+                customer: project.client_name || 'N/A',
+                projectType: project.project_type || 'N/A',
+                teamSize: 0, // TODO: Calculate from allocations if needed
+                status: project.status,
+                project_name: project.project_name,
+                project_code: project.project_code,
+                client_id: project.client_id,
+                is_billable: project.is_billable,
+                start_date: project.start_date,
+                end_date: project.end_date,
+                description: project.description,
+                project_type: project.project_type,
+            }));
+
+            setProjectData(transformedProjects);
+
+            // Update pagination state
+            setProjectPagination({
+                current: paginationData.page || page || 1,
+                pageSize: paginationData.limit || limit || 10,
+                total: paginationData.total || 0,
+            });
+
+            // Auto-select first project and fetch its allocations (only on initial load)
+            if (transformedProjects.length > 0 && !selectedProjectId && page === 1) {
+                const firstProject = transformedProjects[0];
+                setSelectedProjectId(firstProject.id);
+                fetchProjectAllocations(firstProject.id, 1, allocationPagination.pageSize);
+            }
+        } catch (error) {
+            console.error('Failed to fetch projects:', error);
+            showErrorToast('Failed to load projects');
+        } finally {
+            setLoadingProjects(false);
+        }
+    };
+
+    // Fetch projects on component mount and when filters change
+    useEffect(() => {
+        fetchProjects(projectPagination.current, projectPagination.pageSize);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [filters.projectName, filters.projectStatus]);
+
     // Reset filters to default values
     const handleResetFilters = (e) => {
         e.stopPropagation(); // Prevent collapsing/expanding when clicking reset
         setFilters({ ...defaultFilters });
     };
 
-    // Handle create new project modal
+    // Fetch clients list for client lookup
+    useEffect(() => {
+        const fetchClients = async () => {
+            try {
+                const response = await clientsService.getAll({ limit: 10 });
+                let clientsData = [];
+
+                if (response) {
+                    if (Array.isArray(response.data)) {
+                        clientsData = response.data;
+                    } else if (response.data && response.data.data && Array.isArray(response.data.data)) {
+                        clientsData = response.data.data;
+                    } else if (response.data && Array.isArray(response.data)) {
+                        clientsData = response.data;
+                    }
+                }
+
+                setClientsList(clientsData);
+            } catch (error) {
+                console.error('Failed to fetch clients:', error);
+            }
+        };
+
+        fetchClients();
+    }, []);
+
     const handleCreateProject = () => {
         // Set initial form values including account manager from filters
         const accountManagerValue = filters.accountManager && filters.accountManager !== 'All'
@@ -118,24 +308,41 @@ const AccountManagerReport = () => {
         setSelectedProject(project);
         setIsEditMode(true);
 
+        // Determine account type based on project_type
+        let accountType = 'External';
+        let projectType = project.projectType;
+
+        if (project.project_type === 'Internal') {
+            accountType = 'Internal';
+            projectType = 'Internal';
+        } else {
+            // Map project_type back to form projectType
+            const projectTypeReverseMap = {
+                'Client': 'Client',
+                'Bench': 'Bench',
+                'Training': 'Training',
+                'Pre-Sales': 'Presale',
+            };
+            projectType = projectTypeReverseMap[project.project_type] || project.projectType;
+        }
+
         // Map project data to form fields
         const formValues = {
-            projectName: project.project,
+            projectName: project.project_name || project.project,
             status: project.status || 'Active',
-            projectType: project.projectType,
-            accountType: project.accountType || 'External',
-            clientName: project.customer,
-            projectStartDate: project.projectStartDate ? dayjs(project.projectStartDate) : undefined,
-            projectEndDate: project.projectEndDate ? dayjs(project.projectEndDate) : undefined,
-            accountManager: project.accountManager || filters.accountManager,
-            billingType: project.billingType || 'Billing',
-            budget: project.budget,
-            teamSize: project.teamSize,
-            description: project.description,
-            clientContact: project.clientContact,
-            clientEmail: project.clientEmail,
-            clientPhone: project.clientPhone,
-            clientAddress: project.clientAddress,
+            projectType: projectType,
+            accountType: accountType,
+            clientName: project.customer || '',
+            projectStartDate: project.start_date ? dayjs(project.start_date) : undefined,
+            projectEndDate: project.end_date ? dayjs(project.end_date) : undefined,
+            accountManager: filters.accountManager,
+            billingType: project.is_billable ? 'Billing' : 'Non-Billing',
+            teamSize: project.teamSize || 0,
+            description: project.description || '',
+            clientContact: '',
+            clientEmail: '',
+            clientPhone: '',
+            clientAddress: '',
         };
 
         form.setFieldsValue(formValues);
@@ -308,39 +515,14 @@ const AccountManagerReport = () => {
 
     // Handle user allocation modal
     const handleRowClick = (record) => {
-        const employeeName = record.employeeName;
-        setSelectedEmployee(employeeName);
-
-        // Get all allocations for this employee
-        const employeeAllocations = allocationData.filter(item => item.employeeName === employeeName);
-
-        // Transform to modal format
-        const allocationsList = employeeAllocations.map((allocation, index) => {
-            let allocatedDate = undefined;
-            let deallocatedDate = undefined;
-            if (allocation.allocatedDate) {
-                allocatedDate = dayjs(allocation.allocatedDate, 'DD MMM YYYY');
-            }
-            if (allocation.deallocatedDate) {
-                deallocatedDate = dayjs(allocation.deallocatedDate, 'DD MMM YYYY');
-            }
-
-            return {
-                key: `existing-${allocation.key}`,
-                projectName: allocation.project,
-                allocatedDate: allocatedDate,
-                deallocatedDate: deallocatedDate,
-                billingStatus: allocation.billingStatus,
-                billingPercentage: parseFloat(allocation.billingPercentage.replace('%', '')) || 0,
-                projectAllocation: parseFloat(allocation.projectAllocation.replace('%', '')) || 0,
-                duration: allocation.duration || 0,
-                status: allocation.status,
-                isExisting: true,
-            };
-        });
-
-        setUserAllocationsList(allocationsList);
-        setIsUserAllocationModalVisible(true);
+        // When clicking on a row in BY ALLOCATION table, show resource allocations from API
+        console.log('Row clicked:', record);
+        if (record.resource_id) {
+            handleViewResourceAllocations(record);
+        } else {
+            console.warn('Resource ID not found in record:', record);
+            showWarningToast('Resource ID not found for this allocation');
+        }
     };
 
     const handleUserAllocationCancel = () => {
@@ -431,32 +613,124 @@ const AccountManagerReport = () => {
 
     const handleCreateProjectSubmit = async (values) => {
         try {
-            if (isEditMode && selectedProject) {
-                // Update existing project
-                console.log('Updating project with values:', values);
-                // TODO: Add API call to update project
-                // await updateProject(selectedProject.key, values);
+            setIsSubmittingProject(true);
+
+            // Map project type from form to API format
+            const projectTypeMap = {
+                'Client': 'Client',
+                'Bench': 'Bench',
+                'Training': 'Training',
+                'POC': 'Client', // POC maps to Client
+                'Presale': 'Pre-Sales',
+            };
+
+            // Determine project_type based on accountType
+            let project_type;
+            if (values.accountType === 'Internal') {
+                project_type = 'Internal';
             } else {
-                // Create new project
-                console.log('Creating project with values:', values);
-                // TODO: Add API call to create project
-                // await createProject(values);
+                project_type = projectTypeMap[values.projectType] || 'Client';
             }
 
-            // Close modal and reset form on success
-            setIsCreateProjectModalVisible(false);
-            setIsEditMode(false);
-            setSelectedProject(null);
-            form.resetFields();
-            setBillingType(null);
-            setAccountType('External');
+            // Handle client_id - if External and clientName provided, try to find or create client
+            let client_id = null;
+            if (values.accountType === 'External' && values.clientName) {
+                // Try to find existing client by name
+                const existingClient = clientsList.find(
+                    client => client.client_name?.toLowerCase() === values.clientName?.toLowerCase()
+                );
 
-            // TODO: Refresh project list or show success message
-            // message.success('Project created successfully');
+                if (existingClient) {
+                    client_id = existingClient.id;
+                } else {
+                    // Create new client if not found
+                    try {
+                        const newClientResponse = await clientsService.create({
+                            client_name: values.clientName,
+                            contact_person: values.clientContact || '',
+                            contact_email: values.clientEmail || '',
+                            contact_phone: values.clientPhone || '',
+                            address: values.clientAddress || '',
+                            is_active: true,
+                        });
+
+                        if (newClientResponse && newClientResponse.data) {
+                            client_id = newClientResponse.data.id;
+                            // Update clients list
+                            setClientsList(prev => [...prev, newClientResponse.data]);
+                        }
+                    } catch (clientError) {
+                        console.error('Failed to create client:', clientError);
+                        // Continue without client_id if client creation fails
+                    }
+                }
+            }
+
+            // Map billing type to is_billable
+            const is_billable = values.billingType === 'Billing';
+
+            // Prepare API payload
+            const projectPayload = {
+                project_name: values.projectName,
+                project_code: '', // Optional, can be generated by backend
+                client_id: client_id,
+                project_type: project_type,
+                is_billable: is_billable,
+                status: values.status === 'Active' ? 'Active' : 'On Hold', // Map status
+                start_date: values.projectStartDate ? values.projectStartDate.format('YYYY-MM-DD') : null,
+                end_date: values.projectEndDate ? values.projectEndDate.format('YYYY-MM-DD') : null,
+                description: values.description || '',
+            };
+
+            if (isEditMode && selectedProject) {
+                // Update existing project
+                const updatePayload = {
+                    project_name: values.projectName,
+                    client_id: client_id,
+                    status: values.status === 'Active' ? 'Active' : 'On Hold',
+                    description: values.description || '',
+                };
+
+                const response = await projectsService.update(selectedProject.key || selectedProject.id, updatePayload);
+
+                if (response && (response.success !== false || response.data)) {
+                    showSuccessToast('Project updated successfully');
+                    // Close modal and reset form on success
+                    setIsCreateProjectModalVisible(false);
+                    setIsEditMode(false);
+                    setSelectedProject(null);
+                    form.resetFields();
+                    setBillingType(null);
+                    setAccountType('External');
+                    // Refresh project list
+                    await fetchProjects();
+                } else {
+                    showErrorToast(response?.message || 'Failed to update project');
+                }
+            } else {
+                // Create new project
+                const response = await projectsService.create(projectPayload);
+
+                if (response && (response.success !== false || response.data)) {
+                    showSuccessToast('Project created successfully');
+                    // Close modal and reset form on success
+                    setIsCreateProjectModalVisible(false);
+                    setIsEditMode(false);
+                    setSelectedProject(null);
+                    form.resetFields();
+                    setBillingType(null);
+                    setAccountType('External');
+                    // Refresh project list
+                    await fetchProjects();
+                } else {
+                    showErrorToast(response?.message || 'Failed to create project');
+                }
+            }
         } catch (error) {
-            console.error('Error creating project:', error);
-            // TODO: Show error message
-            // message.error('Failed to create project');
+            console.error('Error creating/updating project:', error);
+            showErrorToast(error?.response?.data?.message || error?.message || 'Failed to save project');
+        } finally {
+            setIsSubmittingProject(false);
         }
     };
 
@@ -624,6 +898,269 @@ const AccountManagerReport = () => {
     };
 
     // Mock data for tables
+    // Fetch resources list for allocation form
+    useEffect(() => {
+        const fetchResources = async () => {
+            try {
+                const response = await resourcesService.getAll({ limit: 10 });
+                let resourcesData = [];
+
+                if (response) {
+                    // Handle different response structures
+                    if (Array.isArray(response.data)) {
+                        resourcesData = response.data;
+                    } else if (response.data && response.data.data && Array.isArray(response.data.data)) {
+                        resourcesData = response.data.data;
+                    } else if (response.data && Array.isArray(response.data)) {
+                        resourcesData = response.data;
+                    } else if (Array.isArray(response)) {
+                        resourcesData = response;
+                    }
+                }
+
+                // Ensure we have the correct structure with id and name
+                const formattedResources = resourcesData.map((resource) => ({
+                    id: resource.id,
+                    name: resource.name, // API returns 'name' field
+                    email: resource.email,
+                    status: resource.status,
+                })).filter(resource => resource.id && resource.name); // Filter out invalid entries
+
+                setResourcesList(formattedResources);
+            } catch (error) {
+                console.error('Failed to fetch resources:', error);
+                showErrorToast('Failed to load resources');
+            }
+        };
+
+        fetchResources();
+    }, []);
+
+    // Handle add allocation
+    const handleAddAllocation = () => {
+        setIsEditAllocationMode(false);
+        setSelectedAllocation(null);
+        allocationForm.resetFields();
+        allocationForm.setFieldsValue({
+            project_id: undefined, // Don't pre-select project, let user choose
+            allocation_percentage: 100,
+            billing_percentage: 100,
+            is_active: true,
+        });
+        setIsAllocationModalVisible(true);
+    };
+
+    // Handle edit allocation
+    const handleEditAllocation = (record) => {
+        setIsEditAllocationMode(true);
+        setSelectedAllocation(record);
+
+        // Find the resource ID from the resource name
+        const resource = resourcesList.find(r => r.name === record.employeeName);
+
+        allocationForm.setFieldsValue({
+            resource_id: resource?.id,
+            project_id: selectedProjectId,
+            allocation_percentage: parseFloat(record.projectAllocation?.replace('%', '') || '0'),
+            billing_percentage: parseFloat(record.billingPercentage?.replace('%', '') || '0'),
+            start_date: record.allocatedDate ? dayjs(record.allocatedDate, 'DD MMM YYYY') : null,
+            end_date: record.deallocatedDate ? dayjs(record.deallocatedDate, 'DD MMM YYYY') : null,
+            is_active: record.status === 'Active',
+            notes: '',
+        });
+        setIsAllocationModalVisible(true);
+    };
+
+    // Handle delete allocation
+    const handleDeleteAllocation = (record) => {
+        Modal.confirm({
+            title: 'Delete Allocation',
+            content: `Are you sure you want to delete the allocation for "${record.employeeName}"? This action cannot be undone.`,
+            okText: 'Delete',
+            okType: 'danger',
+            cancelText: 'Cancel',
+            onOk: async () => {
+                try {
+                    setLoadingAllocations(true);
+                    const response = await allocationsService.delete(record.id);
+
+                    if (response && (response.success !== false || response.message)) {
+                        showSuccessToast('Allocation deleted successfully');
+                        // Refresh allocations for the selected project
+                        await fetchProjectAllocations(selectedProjectId, allocationPagination.current, allocationPagination.pageSize);
+                    } else {
+                        showErrorToast(response?.message || 'Failed to delete allocation');
+                    }
+                } catch (error) {
+                    console.error('Failed to delete allocation:', error);
+                    showErrorToast(error?.response?.data?.message || error?.message || 'Failed to delete allocation');
+                } finally {
+                    setLoadingAllocations(false);
+                }
+            },
+        });
+    };
+
+    // Handle allocation form submit
+    const handleAllocationSubmit = async () => {
+        try {
+            setIsSubmittingAllocation(true);
+            const values = await allocationForm.validateFields();
+
+            // Prepare API payload
+            const allocationPayload = {
+                resource_id: values.resource_id,
+                project_id: values.project_id,
+                allocation_percentage: values.allocation_percentage,
+                billing_percentage: values.billing_percentage,
+                start_date: values.start_date ? values.start_date.format('YYYY-MM-DD') : null,
+                end_date: values.end_date ? values.end_date.format('YYYY-MM-DD') : null,
+                notes: values.notes || '',
+            };
+
+            if (isEditAllocationMode && selectedAllocation) {
+                // Update allocation
+                const updatePayload = {
+                    allocation_percentage: values.allocation_percentage,
+                    billing_percentage: values.billing_percentage,
+                    start_date: values.start_date ? values.start_date.format('YYYY-MM-DD') : null,
+                    end_date: values.end_date ? values.end_date.format('YYYY-MM-DD') : null,
+                    is_active: values.is_active !== undefined ? values.is_active : true,
+                    notes: values.notes || '',
+                };
+
+                const response = await allocationsService.update(selectedAllocation.id, updatePayload);
+
+                if (response && (response.success !== false || response.data)) {
+                    showSuccessToast('Allocation updated successfully');
+                    setIsAllocationModalVisible(false);
+                    allocationForm.resetFields();
+                    setSelectedAllocation(null);
+                    setIsEditAllocationMode(false);
+                    // Refresh allocations
+                    await fetchProjectAllocations(selectedProjectId, allocationPagination.current, allocationPagination.pageSize);
+                } else {
+                    showErrorToast(response?.message || 'Failed to update allocation');
+                }
+            } else {
+                // Create allocation
+                const response = await allocationsService.create(allocationPayload);
+
+                if (response && (response.success !== false || response.data)) {
+                    showSuccessToast('Allocation created successfully');
+                    setIsAllocationModalVisible(false);
+                    allocationForm.resetFields();
+                    setSelectedAllocation(null);
+                    setIsEditAllocationMode(false);
+                    // Refresh allocations
+                    await fetchProjectAllocations(selectedProjectId, allocationPagination.current, allocationPagination.pageSize);
+                } else {
+                    showErrorToast(response?.message || 'Failed to create allocation');
+                }
+            }
+        } catch (error) {
+            console.error('Allocation submit error:', error);
+            if (error.errorFields) {
+                // Form validation errors
+                return;
+            }
+            showErrorToast(error?.response?.data?.message || error?.message || 'Failed to save allocation');
+        } finally {
+            setIsSubmittingAllocation(false);
+        }
+    };
+
+    // Handle view resource allocations
+    const handleViewResourceAllocations = async (record) => {
+        console.log('handleViewResourceAllocations called with record:', record);
+        if (!record.resource_id) {
+            console.error('Resource ID not found in record:', record);
+            showWarningToast('Resource ID not found');
+            return;
+        }
+
+        setSelectedResourceId(record.resource_id);
+        setSelectedResourceName(record.employeeName || 'N/A');
+        setIsResourceAllocationsModalVisible(true);
+
+        try {
+            setLoadingResourceAllocations(true);
+            console.log('Fetching allocations for resource_id:', record.resource_id);
+            const response = await resourcesService.getAllocations(record.resource_id);
+            console.log('Resource allocations API response:', response);
+
+            // Handle response structure after interceptor transformation
+            let allocationsData = [];
+
+            if (response) {
+                // Check if response is an array directly
+                if (Array.isArray(response)) {
+                    allocationsData = response;
+                }
+                // Check if response has data array
+                else if (Array.isArray(response.data)) {
+                    allocationsData = response.data;
+                }
+                // Check if response.data is a single object (wrap it in array)
+                else if (response.data && typeof response.data === 'object' && !Array.isArray(response.data) && response.data.id) {
+                    allocationsData = [response.data];
+                }
+            }
+
+            // Transform allocations data to match table format
+            const transformedAllocations = allocationsData.map((allocation, index) => {
+                // Calculate duration in days
+                let duration = 0;
+                if (allocation.start_date) {
+                    const startDate = dayjs(allocation.start_date);
+                    const endDate = allocation.end_date ? dayjs(allocation.end_date) : dayjs();
+                    duration = endDate.diff(startDate, 'day');
+                }
+
+                // Handle allocation_percentage and billing_percentage as strings or numbers
+                const allocationPercentage = typeof allocation.allocation_percentage === 'string'
+                    ? parseFloat(allocation.allocation_percentage)
+                    : (allocation.allocation_percentage || 0);
+                const billingPercentage = typeof allocation.billing_percentage === 'string'
+                    ? parseFloat(allocation.billing_percentage)
+                    : (allocation.billing_percentage || 0);
+
+                // Determine billing status
+                let billingStatus = 'Non-Billing';
+                if (allocation.project_is_billable) {
+                    billingStatus = 'Billing';
+                } else if (allocation.project_type === 'Bench') {
+                    billingStatus = 'Bench';
+                } else if (allocation.project_type === 'Pre-Sales' || allocation.project_type === 'Presale') {
+                    billingStatus = 'Presale';
+                } else if (allocation.project_type === 'Training') {
+                    billingStatus = 'Training';
+                }
+
+                return {
+                    key: allocation.id || `allocation-${index}`,
+                    id: allocation.id,
+                    project: allocation.project_name || 'N/A',
+                    allocatedDate: allocation.start_date ? dayjs(allocation.start_date).format('DD MMM YYYY') : '',
+                    deallocatedDate: allocation.end_date ? dayjs(allocation.end_date).format('DD MMM YYYY') : '',
+                    billingStatus: billingStatus,
+                    billingPercentage: billingPercentage ? `${billingPercentage.toFixed(2)}%` : '0.00%',
+                    projectAllocation: allocationPercentage ? `${allocationPercentage.toFixed(2)}%` : '0.00%',
+                    duration: duration,
+                    status: allocation.is_active !== undefined ? (allocation.is_active ? 'Active' : 'Inactive') : (allocation.status || 'Active'),
+                    project_id: allocation.project_id,
+                };
+            });
+
+            setResourceAllocationsData(transformedAllocations);
+        } catch (error) {
+            console.error('Failed to fetch resource allocations:', error);
+            setResourceAllocationsData([]);
+        } finally {
+            setLoadingResourceAllocations(false);
+        }
+    };
+
     const allocationColumns = [
         {
             title: 'Employee Name',
@@ -679,104 +1216,53 @@ const AccountManagerReport = () => {
             key: 'status',
             width: 100,
         },
-    ];
-
-    const allocationData = [
         {
-            key: '1',
-            employeeName: 'Akeel Aliyar',
-            project: 'Healthfinder',
-            allocatedDate: '13 Oct 2025',
-            deallocatedDate: '',
-            billingStatus: 'Non-Billing',
-            billingPercentage: '0.00%',
-            projectAllocation: '100.00%',
-            duration: 1,
-            status: 'Active',
-        },
-        {
-            key: '2',
-            employeeName: 'Amaniya Faizal',
-            project: 'Bench',
-            allocatedDate: '02 Sep 2025',
-            deallocatedDate: '',
-            billingStatus: 'Bench',
-            billingPercentage: '0.00%',
-            projectAllocation: '100.00%',
-            duration: 1,
-            status: 'Active',
-        },
-        {
-            key: '3',
-            employeeName: 'Anushka Wickramaratne',
-            project: 'Presale',
-            allocatedDate: '01 Nov 2025',
-            deallocatedDate: '',
-            billingStatus: 'Presale',
-            billingPercentage: '0.00%',
-            projectAllocation: '100.00%',
-            duration: 1,
-            status: 'Active',
-        },
-        {
-            key: '4',
-            employeeName: 'Avanthi Amunugama',
-            project: 'Ideapoint',
-            allocatedDate: '01 Apr 2022',
-            deallocatedDate: '',
-            billingStatus: 'Billing',
-            billingPercentage: '100.00%',
-            projectAllocation: '100.00%',
-            duration: 1,
-            status: 'Active',
-        },
-        {
-            key: '5',
-            employeeName: 'Chaminda Pragnarathne',
-            project: 'MillionSpaces',
-            allocatedDate: '04 Aug 2025',
-            deallocatedDate: '',
-            billingStatus: 'Training',
-            billingPercentage: '0.00%',
-            projectAllocation: '80.00%',
-            duration: 1,
-            status: 'Active',
-        },
-        {
-            key: '6',
-            employeeName: 'Chanka Sonnadara',
-            project: 'Support AI Model',
-            allocatedDate: '10 Nov 2025',
-            deallocatedDate: '',
-            billingStatus: 'Training',
-            billingPercentage: '0.00%',
-            projectAllocation: '100.00%',
-            duration: 1,
-            status: 'Active',
-        },
-        {
-            key: '7',
-            employeeName: 'Charith Bandara',
-            project: 'MillionSpaces',
-            allocatedDate: '22 Jan 2025',
-            deallocatedDate: '',
-            billingStatus: 'Training',
-            billingPercentage: '0.00%',
-            projectAllocation: '50.00%',
-            duration: 1,
-            status: 'Active',
-        },
-        {
-            key: '8',
-            employeeName: 'Charith Bandara',
-            project: 'Bench',
-            allocatedDate: '13 Oct 2025',
-            deallocatedDate: '',
-            billingStatus: 'Bench',
-            billingPercentage: '0.00%',
-            projectAllocation: '50.00%',
-            duration: 1,
-            status: 'Active',
+            title: 'Actions',
+            key: 'actions',
+            width: 120,
+            fixed: 'right',
+            align: 'center',
+            render: (_, record) => (
+                <Space size="small" style={{ justifyContent: 'center', width: '100%' }}>
+                    <Tooltip title="View Allocations">
+                        <Button
+                            type="text"
+                            icon={<EyeOutlined />}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                handleViewResourceAllocations(record);
+                            }}
+                            className="action-icon-btn"
+                            size="small"
+                        />
+                    </Tooltip>
+                    <Tooltip title="Edit">
+                        <Button
+                            type="text"
+                            icon={<EditOutlined />}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                handleEditAllocation(record);
+                            }}
+                            className="action-icon-btn"
+                            size="small"
+                        />
+                    </Tooltip>
+                    <Tooltip title="Delete">
+                        <Button
+                            type="text"
+                            icon={<DeleteOutlined />}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteAllocation(record);
+                            }}
+                            className="action-icon-btn"
+                            danger
+                            size="small"
+                        />
+                    </Tooltip>
+                </Space>
+            ),
         },
     ];
 
@@ -885,6 +1371,169 @@ const AccountManagerReport = () => {
         },
     ];
 
+    // Fetch allocations for a project
+    const fetchProjectAllocations = async (projectId, page = 1, limit = 10) => {
+        if (!projectId) return;
+
+        try {
+            setLoadingAllocations(true);
+            // Note: projectsService.getAllocations doesn't support pagination directly
+            // We'll fetch all and paginate client-side, or use allocationsService.getAll with project_id filter
+            const response = await allocationsService.getAll({
+                project_id: projectId,
+                page: page || allocationPagination.current,
+                limit: limit || allocationPagination.pageSize,
+            });
+
+            console.log('Allocations API response:', response);
+
+            // Handle response structure after interceptor transformation
+            let allocationsData = [];
+            let paginationData = {};
+
+            if (response) {
+                // Check if response itself is an array (after interceptor transformation)
+                if (Array.isArray(response)) {
+                    allocationsData = response;
+                    paginationData = {};
+                }
+                // Check if response has data array directly (after interceptor transformation)
+                else if (Array.isArray(response.data)) {
+                    allocationsData = response.data;
+                    paginationData = response.pagination || {};
+                }
+                // Check if response has nested data structure with data array
+                else if (response.data && response.data.data && Array.isArray(response.data.data)) {
+                    allocationsData = response.data.data;
+                    paginationData = response.data.pagination || {};
+                }
+                // Check if response.data is a single object (wrap it in array)
+                else if (response.data && typeof response.data === 'object' && !Array.isArray(response.data) && response.data.id) {
+                    // Single allocation object - wrap in array
+                    allocationsData = [response.data];
+                    paginationData = response.pagination || { total: 1, page: 1, limit: 10 };
+                }
+                // Check if response itself is a single allocation object (after interceptor transformation)
+                else if (typeof response === 'object' && !Array.isArray(response) && response.id && response.resource_id) {
+                    // Single allocation object after interceptor - wrap in array
+                    allocationsData = [response];
+                    paginationData = { total: 1, page: 1, limit: 10 };
+                }
+                // Check if response is the data object directly with array
+                else if (response.data && Array.isArray(response.data)) {
+                    allocationsData = response.data;
+                    paginationData = response.pagination || {};
+                }
+            }
+
+            // Transform allocations data to match table format
+            const transformedAllocations = await Promise.all(allocationsData.map(async (allocation, index) => {
+                // Calculate duration in days
+                let duration = 0;
+                if (allocation.start_date) {
+                    const startDate = dayjs(allocation.start_date);
+                    const endDate = allocation.end_date ? dayjs(allocation.end_date) : dayjs();
+                    duration = endDate.diff(startDate, 'day');
+                }
+
+                // Get resource name if not provided
+                let resourceName = allocation.resource_name || allocation.employee_name || 'N/A';
+                if (!resourceName && allocation.resource_id) {
+                    const resource = resourcesList.find(r => r.id === allocation.resource_id);
+                    if (resource) {
+                        resourceName = resource.name;
+                    } else {
+                        // Try to fetch resource if not in list
+                        try {
+                            const resourceResponse = await resourcesService.getById(allocation.resource_id);
+                            if (resourceResponse && resourceResponse.data) {
+                                resourceName = resourceResponse.data.name || 'N/A';
+                            }
+                        } catch (error) {
+                            console.error('Failed to fetch resource:', error);
+                        }
+                    }
+                }
+
+                // Get project name if not provided
+                let projectName = allocation.project_name || 'N/A';
+                if (!projectName && allocation.project_id) {
+                    const project = projectData.find(p => p.id === allocation.project_id);
+                    if (project) {
+                        projectName = project.project_name || project.project || 'N/A';
+                    } else {
+                        // Try to fetch project if not in list
+                        try {
+                            const projectResponse = await projectsService.getById(allocation.project_id);
+                            if (projectResponse && projectResponse.data) {
+                                projectName = projectResponse.data.project_name || 'N/A';
+                            }
+                        } catch (error) {
+                            console.error('Failed to fetch project:', error);
+                        }
+                    }
+                }
+
+                // Determine billing status based on project type and allocation
+                let billingStatus = 'Non-Billing';
+                if (allocation.project_is_billable) {
+                    billingStatus = 'Billing';
+                } else if (allocation.project_type === 'Bench') {
+                    billingStatus = 'Bench';
+                } else if (allocation.project_type === 'Pre-Sales' || allocation.project_type === 'Presale') {
+                    billingStatus = 'Presale';
+                } else if (allocation.project_type === 'Training') {
+                    billingStatus = 'Training';
+                }
+
+                // Handle allocation_percentage and billing_percentage as strings or numbers
+                const allocationPercentage = typeof allocation.allocation_percentage === 'string'
+                    ? parseFloat(allocation.allocation_percentage)
+                    : (allocation.allocation_percentage || 0);
+                const billingPercentage = typeof allocation.billing_percentage === 'string'
+                    ? parseFloat(allocation.billing_percentage)
+                    : (allocation.billing_percentage || 0);
+
+                return {
+                    key: allocation.id || `allocation-${index}`,
+                    id: allocation.id,
+                    employeeName: resourceName,
+                    project: projectName,
+                    allocatedDate: allocation.start_date ? dayjs(allocation.start_date).format('DD MMM YYYY') : '',
+                    deallocatedDate: allocation.end_date ? dayjs(allocation.end_date).format('DD MMM YYYY') : '',
+                    billingStatus: billingStatus,
+                    billingPercentage: billingPercentage ? `${billingPercentage.toFixed(2)}%` : '0.00%',
+                    projectAllocation: allocationPercentage ? `${allocationPercentage.toFixed(2)}%` : '0.00%',
+                    duration: duration,
+                    status: allocation.is_active !== undefined ? (allocation.is_active ? 'Active' : 'Inactive') : (allocation.status || 'Active'),
+                    resource_id: allocation.resource_id,
+                    project_id: allocation.project_id,
+                };
+            }));
+
+            setAllocationData(transformedAllocations);
+
+            // Update pagination state
+            setAllocationPagination({
+                current: paginationData.page || page || 1,
+                pageSize: paginationData.limit || limit || 10,
+                total: paginationData.total || 0,
+            });
+        } catch (error) {
+            console.error('Failed to fetch project allocations:', error);
+            showErrorToast('Failed to load allocations');
+            setAllocationData([]);
+        } finally {
+            setLoadingAllocations(false);
+        }
+    };
+
+    // Handle project row click
+    const handleProjectClick = (project) => {
+        setSelectedProjectId(project.id);
+        fetchProjectAllocations(project.id, 1, allocationPagination.pageSize);
+    };
+
     const projectColumns = [
         {
             title: 'Project',
@@ -922,7 +1571,10 @@ const AccountManagerReport = () => {
                         <Button
                             type="default"
                             icon={<EditOutlined />}
-                            onClick={() => handleEditProject(record)}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                handleEditProject(record);
+                            }}
                             size="small"
                             className="action-icon-btn"
                         />
@@ -931,7 +1583,10 @@ const AccountManagerReport = () => {
                         <Button
                             type="default"
                             icon={<UserAddOutlined />}
-                            onClick={() => handleAddTeamMembers(record)}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                handleAddTeamMembers(record);
+                            }}
                             size="small"
                             className="action-icon-btn"
                         />
@@ -941,50 +1596,6 @@ const AccountManagerReport = () => {
         },
     ];
 
-    const projectData = [
-        {
-            key: '1',
-            project: 'Bench',
-            customer: '1BT',
-            projectType: 'Bench',
-            teamSize: 19,
-        },
-        {
-            key: '2',
-            project: 'DXC',
-            customer: 'DXC',
-            projectType: 'Client',
-            teamSize: 2,
-        },
-        {
-            key: '3',
-            project: 'Healthfinder',
-            customer: 'Healthfinder',
-            projectType: 'Client',
-            teamSize: 17,
-        },
-        {
-            key: '4',
-            project: 'Ideapoint',
-            customer: 'Ideapoint',
-            projectType: 'Client',
-            teamSize: 4,
-        },
-        {
-            key: '5',
-            project: 'MillionSpaces',
-            customer: 'MillionSpaces',
-            projectType: 'Client',
-            teamSize: 10,
-        },
-        {
-            key: '6',
-            project: 'Presale',
-            customer: '1BT',
-            projectType: 'Client',
-            teamSize: 6,
-        },
-    ];
 
     return (
         <div className="account-manager-report-page">
@@ -1268,9 +1879,32 @@ const AccountManagerReport = () => {
                     <CustomTable
                         columns={projectColumns}
                         dataSource={projectData}
-                        pagination={false}
+                        pagination={{
+                            current: projectPagination.current,
+                            pageSize: projectPagination.pageSize,
+                            total: projectPagination.total,
+                            showSizeChanger: true,
+                            showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} projects`,
+                            onChange: (page, pageSize) => {
+                                setProjectPagination(prev => ({ ...prev, current: page, pageSize }));
+                                fetchProjects(page, pageSize);
+                            },
+                            onShowSizeChange: (current, size) => {
+                                setProjectPagination(prev => ({ ...prev, current: 1, pageSize: size }));
+                                fetchProjects(1, size);
+                            },
+                        }}
                         size="small"
                         scroll={{ x: 800 }}
+                        loading={loadingProjects}
+                        onRow={(record) => ({
+                            onClick: () => handleProjectClick(record),
+                            style: {
+                                cursor: 'pointer',
+                                backgroundColor: selectedProjectId === record.id ? '#e6f7ff' : 'transparent',
+                            },
+                        })}
+                        rowClassName={(record) => selectedProjectId === record.id ? 'selected-project-row' : ''}
                     />
                 )}
             </Card>
@@ -1279,12 +1913,26 @@ const AccountManagerReport = () => {
             <Card
                 className="table-card"
                 title={
-                    <div
-                        className="collapsible-header"
-                        onClick={() => setByAllocationExpanded(!byAllocationExpanded)}
-                    >
-                        <span>BY ALLOCATION</span>
-                        {byAllocationExpanded ? <UpOutlined /> : <DownOutlined />}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+                        <div
+                            className="collapsible-header"
+                            onClick={() => setByAllocationExpanded(!byAllocationExpanded)}
+                            style={{ flex: 1 }}
+                        >
+                            <span>BY ALLOCATION</span>
+                            {byAllocationExpanded ? <UpOutlined /> : <DownOutlined />}
+                        </div>
+                        {byAllocationExpanded && (
+                            <Button
+                                type="primary"
+                                icon={<PlusOutlined />}
+                                onClick={handleAddAllocation}
+                                size="small"
+                                style={{ marginLeft: 16 }}
+                            >
+                                Add Allocation
+                            </Button>
+                        )}
                     </div>
                 }
             >
@@ -1292,9 +1940,28 @@ const AccountManagerReport = () => {
                     <CustomTable
                         columns={allocationColumns}
                         dataSource={allocationData}
-                        pagination={{ pageSize: 10 }}
+                        pagination={{
+                            current: allocationPagination.current,
+                            pageSize: allocationPagination.pageSize,
+                            total: allocationPagination.total,
+                            showSizeChanger: true,
+                            showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} allocations`,
+                            onChange: (page, pageSize) => {
+                                setAllocationPagination(prev => ({ ...prev, current: page, pageSize }));
+                                if (selectedProjectId) {
+                                    fetchProjectAllocations(selectedProjectId, page, pageSize);
+                                }
+                            },
+                            onShowSizeChange: (current, size) => {
+                                setAllocationPagination(prev => ({ ...prev, current: 1, pageSize: size }));
+                                if (selectedProjectId) {
+                                    fetchProjectAllocations(selectedProjectId, 1, size);
+                                }
+                            },
+                        }}
                         scroll={{ x: 1200 }}
                         size="small"
+                        loading={loadingAllocations}
                         onRow={(record) => ({
                             onClick: () => handleRowClick(record),
                             style: { cursor: 'pointer' },
@@ -1351,6 +2018,7 @@ const AccountManagerReport = () => {
                         onClick: () => {
                             form.submit();
                         },
+                        loading: isSubmittingProject,
                     },
                 ]}
             >
@@ -1500,21 +2168,6 @@ const AccountManagerReport = () => {
                                     <Option value="Randika Swaris">Randika Swaris</Option>
                                     {/* Add more account managers as needed */}
                                 </Select>
-                            </Form.Item>
-                        </Col>
-                        <Col xs={24} sm={12}>
-                            <Form.Item
-                                label="Budget"
-                                name="budget"
-                            >
-                                <InputNumber
-                                    style={{ width: '100%' }}
-                                    placeholder="Enter budget"
-                                    min={0}
-                                    disabled={billingType === 'Non-Billing'}
-                                    formatter={value => `$ ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-                                    parser={value => value.replace(/\$\s?|(,*)/g, '')}
-                                />
                             </Form.Item>
                         </Col>
                     </Row>
@@ -2031,6 +2684,273 @@ const AccountManagerReport = () => {
                         Add New Allocation
                     </Button>
                 </Form>
+            </CustomModal>
+
+            {/* Add/Edit Allocation Modal */}
+            <CustomModal
+                title={isEditAllocationMode ? 'Edit Allocation' : 'Add New Allocation'}
+                open={isAllocationModalVisible}
+                onClose={() => {
+                    setIsAllocationModalVisible(false);
+                    allocationForm.resetFields();
+                    setSelectedAllocation(null);
+                    setIsEditAllocationMode(false);
+                }}
+                width={700}
+                buttons={[
+                    {
+                        text: 'Cancel',
+                        type: 'default',
+                        onClick: () => {
+                            setIsAllocationModalVisible(false);
+                            allocationForm.resetFields();
+                            setSelectedAllocation(null);
+                            setIsEditAllocationMode(false);
+                        },
+                    },
+                    {
+                        text: isEditAllocationMode ? 'Update' : 'Add',
+                        type: 'primary',
+                        onClick: handleAllocationSubmit,
+                        loading: isSubmittingAllocation,
+                    },
+                ]}
+            >
+                <Form form={allocationForm} layout="vertical">
+                    <Row gutter={16}>
+                        <Col xs={24} sm={12}>
+                            <Form.Item
+                                label="Resource (Employee)"
+                                name="resource_id"
+                                rules={[{ required: true, message: 'Resource is required' }]}
+                            >
+                                <Select
+                                    placeholder="Select resource"
+                                    showSearch
+                                    optionFilterProp="children"
+                                    disabled={isEditAllocationMode}
+                                    filterOption={(input, option) =>
+                                        (option?.children ?? '').toLowerCase().includes(input.toLowerCase())
+                                    }
+                                >
+                                    {resourcesList.length > 0 ? (
+                                        resourcesList.map((resource) => (
+                                            <Option key={resource.id} value={resource.id}>
+                                                {resource.name}
+                                            </Option>
+                                        ))
+                                    ) : (
+                                        <Option disabled value="">
+                                            Loading resources...
+                                        </Option>
+                                    )}
+                                </Select>
+                            </Form.Item>
+                        </Col>
+                        <Col xs={24} sm={12}>
+                            <Form.Item
+                                label="Project"
+                                name="project_id"
+                                rules={[{ required: true, message: 'Project is required' }]}
+                            >
+                                <Select
+                                    placeholder="Select project"
+                                    showSearch
+                                    optionFilterProp="children"
+                                    allowClear
+                                    disabled={isEditAllocationMode}
+                                    filterOption={(input, option) =>
+                                        (option?.children ?? '').toLowerCase().includes(input.toLowerCase())
+                                    }
+                                >
+                                    {projectData.length > 0 ? (
+                                        projectData.map((project) => (
+                                            <Option key={project.id} value={project.id}>
+                                                {project.project_name || project.project}
+                                            </Option>
+                                        ))
+                                    ) : (
+                                        <Option disabled value="">
+                                            Loading projects...
+                                        </Option>
+                                    )}
+                                </Select>
+                            </Form.Item>
+                        </Col>
+                        <Col xs={24} sm={12}>
+                            <Form.Item
+                                label="Allocation Percentage"
+                                name="allocation_percentage"
+                                rules={[
+                                    { required: true, message: 'Allocation percentage is required' },
+                                    { type: 'number', min: 0, max: 100, message: 'Must be between 0 and 100' },
+                                ]}
+                            >
+                                <InputNumber
+                                    style={{ width: '100%' }}
+                                    placeholder="Enter allocation percentage"
+                                    min={0}
+                                    max={100}
+                                    formatter={value => `${value}%`}
+                                    parser={value => value.replace('%', '')}
+                                />
+                            </Form.Item>
+                        </Col>
+                        <Col xs={24} sm={12}>
+                            <Form.Item
+                                label="Billing Percentage"
+                                name="billing_percentage"
+                                rules={[
+                                    { required: true, message: 'Billing percentage is required' },
+                                    { type: 'number', min: 0, max: 100, message: 'Must be between 0 and 100' },
+                                ]}
+                            >
+                                <InputNumber
+                                    style={{ width: '100%' }}
+                                    placeholder="Enter billing percentage"
+                                    min={0}
+                                    max={100}
+                                    formatter={value => `${value}%`}
+                                    parser={value => value.replace('%', '')}
+                                />
+                            </Form.Item>
+                        </Col>
+                        <Col xs={24} sm={12}>
+                            <Form.Item
+                                label="Start Date"
+                                name="start_date"
+                                rules={[{ required: true, message: 'Start date is required' }]}
+                            >
+                                <DatePicker
+                                    style={{ width: '100%' }}
+                                    placeholder="Select start date"
+                                    format="YYYY-MM-DD"
+                                />
+                            </Form.Item>
+                        </Col>
+                        <Col xs={24} sm={12}>
+                            <Form.Item
+                                label="End Date"
+                                name="end_date"
+                                dependencies={['start_date']}
+                                rules={[
+                                    ({ getFieldValue }) => ({
+                                        validator(_, value) {
+                                            const startDate = getFieldValue('start_date');
+                                            if (!value || !startDate || value >= startDate) {
+                                                return Promise.resolve();
+                                            }
+                                            return Promise.reject(new Error('End date must be greater than or equal to start date'));
+                                        },
+                                    }),
+                                ]}
+                            >
+                                <DatePicker
+                                    style={{ width: '100%' }}
+                                    placeholder="Select end date (optional)"
+                                    format="YYYY-MM-DD"
+                                />
+                            </Form.Item>
+                        </Col>
+                        {isEditAllocationMode && (
+                            <Col xs={24} sm={12}>
+                                <Form.Item
+                                    label="Active"
+                                    name="is_active"
+                                    valuePropName="checked"
+                                    initialValue={true}
+                                >
+                                    <Switch checkedChildren="Active" unCheckedChildren="Inactive" />
+                                </Form.Item>
+                            </Col>
+                        )}
+                        <Col xs={24}>
+                            <Form.Item
+                                label="Notes"
+                                name="notes"
+                            >
+                                <Input.TextArea
+                                    rows={3}
+                                    placeholder="Enter allocation notes (optional)"
+                                    maxLength={500}
+                                    showCount
+                                />
+                            </Form.Item>
+                        </Col>
+                    </Row>
+                </Form>
+            </CustomModal>
+
+            {/* Resource Allocations Modal */}
+            <CustomModal
+                title={`Project Allocations - ${selectedResourceName}`}
+                open={isResourceAllocationsModalVisible}
+                onClose={() => {
+                    setIsResourceAllocationsModalVisible(false);
+                    setResourceAllocationsData([]);
+                    setSelectedResourceId(null);
+                    setSelectedResourceName('');
+                }}
+                width={1200}
+                footer={null}
+            >
+                <CustomTable
+                    columns={[
+                        {
+                            title: 'Project',
+                            dataIndex: 'project',
+                            key: 'project',
+                            width: 200,
+                        },
+                        {
+                            title: 'Project Allocated Date',
+                            dataIndex: 'allocatedDate',
+                            key: 'allocatedDate',
+                            width: 160,
+                        },
+                        {
+                            title: 'Project Deallocated Date',
+                            dataIndex: 'deallocatedDate',
+                            key: 'deallocatedDate',
+                            width: 180,
+                        },
+                        {
+                            title: 'Billing Status',
+                            dataIndex: 'billingStatus',
+                            key: 'billingStatus',
+                            width: 130,
+                        },
+                        {
+                            title: 'Billing Percentage',
+                            dataIndex: 'billingPercentage',
+                            key: 'billingPercentage',
+                            width: 140,
+                        },
+                        {
+                            title: 'Project Allocation',
+                            dataIndex: 'projectAllocation',
+                            key: 'projectAllocation',
+                            width: 140,
+                        },
+                        {
+                            title: 'Duration (Days)',
+                            dataIndex: 'duration',
+                            key: 'duration',
+                            width: 130,
+                        },
+                        {
+                            title: 'Status',
+                            dataIndex: 'status',
+                            key: 'status',
+                            width: 100,
+                        },
+                    ]}
+                    dataSource={resourceAllocationsData}
+                    pagination={false}
+                    scroll={{ x: 1000 }}
+                    size="small"
+                    loading={loadingResourceAllocations}
+                />
             </CustomModal>
         </div>
     );

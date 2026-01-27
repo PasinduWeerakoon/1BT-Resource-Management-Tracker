@@ -80,6 +80,20 @@ export const ENDPOINTS = {
     GET_BY_ID: (id) => `${BASE_URL}/allocations/${id}`,
     UPDATE: (id) => `${BASE_URL}/allocations/${id}`,
     DELETE: (id) => `${BASE_URL}/allocations/${id}`,
+    MONTHLY: `${BASE_URL}/allocations/monthly`,
+    HISTORY: (resourceId) => `${BASE_URL}/allocations/history/${resourceId}`,
+  },
+
+  // Reports
+  REPORTS: {
+    BASE: `${BASE_URL}/reports`,
+    BENCH: `${BASE_URL}/reports/bench`,
+    ACCOUNT_MANAGER: `${BASE_URL}/reports/account-manager`,
+    EMPLOYEE: `${BASE_URL}/reports/employee`,
+    MONTHLY_ALLOCATION: `${BASE_URL}/reports/monthly-allocation`,
+    EXCEPTION: `${BASE_URL}/reports/exception`,
+    NON_BILLING: `${BASE_URL}/reports/non-billing`,
+    PRE_SALE: `${BASE_URL}/reports/pre-sale`,
   },
 };
 

@@ -9,6 +9,7 @@ import { getStoredAuth, clearAuth, storeAuth } from '@utils/auth.utils';
 import { authService } from './services/auth.service';
 import { store } from '@redux/store';
 import { logoutUser } from '@redux/slices/authSlice';
+import { showErrorToast, getErrorMessage } from '@utils/toast.utils';
 
 // Create axios instance
 const apiClient = axios.create({
@@ -68,16 +69,19 @@ apiClient.interceptors.response.use(
     // Handle common errors
     if (error.response) {
       const { status, data } = error.response;
+      const originalRequest = error.config || {};
 
       switch (status) {
         case 400:
-          // Bad Request
+          // Bad Request - Don't show toast for 401 as it's handled separately
+          if (!originalRequest.url?.includes('/auth/refresh') && 
+              !originalRequest.url?.includes('/auth/login')) {
+            showErrorToast(getErrorMessage({ response: { data } }));
+          }
           console.error('Bad request:', data?.message || 'Invalid request parameters');
           break;
         case 401:
           // Unauthorized - Try to refresh token if refreshToken exists
-          const originalRequest = error.config;
-          
           // Don't retry if it's already a refresh request or login request
           if (originalRequest.url?.includes('/auth/refresh') || 
               originalRequest.url?.includes('/auth/login') ||
@@ -167,25 +171,31 @@ apiClient.interceptors.response.use(
           }
         case 403:
           // Forbidden
+          showErrorToast(getErrorMessage({ response: { data } }));
           console.error('Access forbidden:', data?.message || 'You do not have permission to access this resource');
           break;
         case 404:
           // Not found
+          showErrorToast(getErrorMessage({ response: { data } }));
           console.error('Resource not found:', data?.message || 'The requested resource was not found');
           break;
         case 409:
           // Conflict
+          showErrorToast(getErrorMessage({ response: { data } }));
           console.error('Conflict:', data?.message || 'Resource conflict occurred');
           break;
         case 422:
           // Validation Error
+          showErrorToast(getErrorMessage({ response: { data } }));
           console.error('Validation error:', data?.message || 'Validation failed');
           break;
         case 500:
           // Server error
+          showErrorToast(getErrorMessage({ response: { data } }));
           console.error('Server error:', data?.message || 'An internal server error occurred');
           break;
         default:
+          showErrorToast(getErrorMessage({ response: { data }, message: error.message }));
           console.error('API error:', data?.message || error.message);
       }
 
@@ -197,13 +207,16 @@ apiClient.interceptors.response.use(
       });
     } else if (error.request) {
       // Request made but no response received
-      console.error('Network error:', 'No response received from server');
+      const networkError = 'Network error: No response received from server';
+      showErrorToast(networkError);
+      console.error('Network error:', networkError);
       return Promise.reject({
         ...error,
-        message: 'Network error: No response received from server',
+        message: networkError,
       });
     } else {
       // Something else happened
+      showErrorToast(error.message || 'An unexpected error occurred');
       console.error('Error:', error.message);
       return Promise.reject(error);
     }

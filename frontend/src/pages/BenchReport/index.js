@@ -1,32 +1,27 @@
-import React, { useState, useMemo } from 'react';
-import { Row, Col, Card, Select, Badge, Button } from 'antd';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { Row, Col, Card, Select, Badge, Button, App } from 'antd';
 import { FilterOutlined, UpOutlined, DownOutlined, ReloadOutlined } from '@ant-design/icons';
 import CustomTable from '@components/Table';
-import { useUserAllocationModal } from '@hooks/useUserAllocationModal';
-import UserAllocationModal from '@components/UserAllocationModal';
+import { reportsService, tracksService } from '@api';
+import { showErrorToast } from '@utils/toast.utils';
 import '@styles/pages/BenchReport.scss';
 
 const { Option } = Select;
 
 const BenchReport = () => {
+  const { message } = App.useApp();
   const [filtersExpanded, setFiltersExpanded] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [benchData, setBenchData] = useState([]);
+  const [tracksList, setTracksList] = useState([]);
   const [filters, setFilters] = useState({
-    projectName: 'All',
-    accountManager: 'All',
-    track: 'All',
-    techStack: 'All',
-    designation: 'All',
-    tier: 'All',
+    track_id: undefined, // Changed from 'track: All' to track_id for API
   });
+  const fetchInProgressRef = useRef(false);
 
   // Default filter values for comparison
   const defaultFilters = {
-    projectName: 'All',
-    accountManager: 'All',
-    track: 'All',
-    techStack: 'All',
-    designation: 'All',
-    tier: 'All',
+    track_id: undefined,
   };
 
   // Count active filters (filters that differ from defaults)
@@ -46,27 +41,103 @@ const BenchReport = () => {
     setFilters({ ...defaultFilters });
   };
 
-  // KPI Data - Mock data for bench
-  const totalBenchCount = 15;
-  const totalEmployees = 114;
-  const benchPercentage = ((totalBenchCount / totalEmployees) * 100).toFixed(1);
+  // Fetch tracks for filter dropdown
+  useEffect(() => {
+    const fetchTracks = async () => {
+      try {
+        const response = await tracksService.getAll({ limit: 100 });
+        let tracksData = [];
+        
+        if (response) {
+          if (Array.isArray(response.data)) {
+            tracksData = response.data;
+          } else if (response.data && response.data.data && Array.isArray(response.data.data)) {
+            tracksData = response.data.data;
+          }
+        }
+        
+        setTracksList(tracksData);
+      } catch (error) {
+        console.error('Failed to fetch tracks:', error);
+      }
+    };
+    
+    fetchTracks();
+  }, []);
 
-  // User allocation modal hook
-  const {
-    isUserAllocationModalVisible,
-    selectedEmployee,
-    userAllocationsList,
-    userAllocationsForm,
-    handleRowClick,
-    handleUserAllocationCancel,
-    handleAddUserAllocationRow,
-    handleRemoveUserAllocationRow,
-    handleUserAllocationFieldChange,
-    handleUserAllocationsSubmit,
-  } = useUserAllocationModal(benchData);
+  // Fetch bench report data
+  const fetchBenchReport = async () => {
+    // Prevent duplicate calls
+    if (fetchInProgressRef.current) {
+      return;
+    }
+    
+    try {
+      fetchInProgressRef.current = true;
+      setLoading(true);
+      const queryParams = {};
+      
+      // Add track_id filter if selected
+      if (filters.track_id) {
+        queryParams.track_id = filters.track_id;
+      }
+      
+      const response = await reportsService.getBench(queryParams);
+      
+      // Handle response structure
+      let reportData = [];
+      if (response) {
+        if (Array.isArray(response.data)) {
+          reportData = response.data;
+        } else if (response.data && Array.isArray(response.data)) {
+          reportData = response.data;
+        } else if (Array.isArray(response)) {
+          reportData = response;
+        }
+      }
+      
+      // Transform API data to table format
+      const transformedData = reportData.map((item, index) => ({
+        key: item.id || `bench-${index}`,
+        id: item.id,
+        employeeName: item.name || 'N/A',
+        designation: item.designation || 'N/A',
+        track: item.track || 'N/A',
+        daysOnBench: item.days_on_bench || 0,
+        project: 'Bench', // All bench resources are on Bench project
+        allocatedDate: '', // Can be calculated if needed
+        deallocatedDate: '',
+        billingStatus: 'Bench',
+        billingPercentage: '0.00%',
+        projectAllocation: '100.00%', // Default for bench
+        duration: item.days_on_bench || 0,
+        status: 'Active',
+      }));
+      
+      setBenchData(transformedData);
+    } catch (error) {
+      console.error('Failed to fetch bench report:', error);
+      showErrorToast('Failed to load bench report');
+      setBenchData([]);
+    } finally {
+      setLoading(false);
+      fetchInProgressRef.current = false;
+    }
+  };
 
-  // Table Columns - Same as BY ALLOCATION
-  const allocationColumns = [
+  // Fetch data when filters change
+  useEffect(() => {
+    fetchBenchReport();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters.track_id]);
+
+  // KPI Data - Calculate from actual data
+  const totalBenchCount = benchData.length;
+  const totalEmployees = 114; // This might need to come from another API
+  const benchPercentage = totalEmployees > 0 ? ((totalBenchCount / totalEmployees) * 100).toFixed(1) : '0.0';
+
+  // Table Columns for Bench Report
+  const benchColumns = [
     {
       title: 'Employee Name',
       dataIndex: 'employeeName',
@@ -75,238 +146,27 @@ const BenchReport = () => {
       sorter: (a, b) => a.employeeName.localeCompare(b.employeeName),
     },
     {
-      title: 'Project',
-      dataIndex: 'project',
-      key: 'project',
+      title: 'Designation',
+      dataIndex: 'designation',
+      key: 'designation',
       width: 150,
     },
     {
-      title: 'Project Allocated Date',
-      dataIndex: 'allocatedDate',
-      key: 'allocatedDate',
-      width: 160,
+      title: 'Track',
+      dataIndex: 'track',
+      key: 'track',
+      width: 120,
     },
     {
-      title: 'Project Deallocated Date',
-      dataIndex: 'deallocatedDate',
-      key: 'deallocatedDate',
-      width: 180,
-    },
-    {
-      title: 'Billing Status',
-      dataIndex: 'billingStatus',
-      key: 'billingStatus',
+      title: 'Days on Bench',
+      dataIndex: 'daysOnBench',
+      key: 'daysOnBench',
       width: 130,
-    },
-    {
-      title: 'Billing Percentage',
-      dataIndex: 'billingPercentage',
-      key: 'billingPercentage',
-      width: 140,
-    },
-    {
-      title: 'Project Allocation',
-      dataIndex: 'projectAllocation',
-      key: 'projectAllocation',
-      width: 140,
-    },
-    {
-      title: 'Duration (Days)',
-      dataIndex: 'duration',
-      key: 'duration',
-      width: 130,
-    },
-    {
-      title: 'Status',
-      dataIndex: 'status',
-      key: 'status',
-      width: 100,
+      sorter: (a, b) => a.daysOnBench - b.daysOnBench,
+      render: (days) => `${days} days`,
     },
   ];
 
-  // Mock bench data - filtered to show only Bench billing status
-  const benchData = [
-    {
-      key: '1',
-      employeeName: 'Amaniya Faizal',
-      project: 'Bench',
-      allocatedDate: '02 Sep 2025',
-      deallocatedDate: '',
-      billingStatus: 'Bench',
-      billingPercentage: '0.00%',
-      projectAllocation: '100.00%',
-      duration: 1,
-      status: 'Active',
-    },
-    {
-      key: '2',
-      employeeName: 'Anushka Wickramaratne',
-      project: 'Bench',
-      allocatedDate: '01 Nov 2025',
-      deallocatedDate: '',
-      billingStatus: 'Bench',
-      billingPercentage: '0.00%',
-      projectAllocation: '100.00%',
-      duration: 1,
-      status: 'Active',
-    },
-    {
-      key: '3',
-      employeeName: 'Chaminda Pragnarathne',
-      project: 'Bench',
-      allocatedDate: '15 Oct 2025',
-      deallocatedDate: '',
-      billingStatus: 'Bench',
-      billingPercentage: '0.00%',
-      projectAllocation: '100.00%',
-      duration: 1,
-      status: 'Active',
-    },
-    {
-      key: '4',
-      employeeName: 'Charith Bandara',
-      project: 'Bench',
-      allocatedDate: '20 Sep 2025',
-      deallocatedDate: '',
-      billingStatus: 'Bench',
-      billingPercentage: '0.00%',
-      projectAllocation: '50.00%',
-      duration: 1,
-      status: 'Active',
-    },
-    {
-      key: '5',
-      employeeName: 'Dilshan Perera',
-      project: 'Bench',
-      allocatedDate: '10 Nov 2025',
-      deallocatedDate: '',
-      billingStatus: 'Bench',
-      billingPercentage: '0.00%',
-      projectAllocation: '100.00%',
-      duration: 1,
-      status: 'Active',
-    },
-    {
-      key: '6',
-      employeeName: 'Gayan Silva',
-      project: 'Bench',
-      allocatedDate: '05 Oct 2025',
-      deallocatedDate: '',
-      billingStatus: 'Bench',
-      billingPercentage: '0.00%',
-      projectAllocation: '100.00%',
-      duration: 1,
-      status: 'Active',
-    },
-    {
-      key: '7',
-      employeeName: 'Harsha Fernando',
-      project: 'Bench',
-      allocatedDate: '18 Sep 2025',
-      deallocatedDate: '',
-      billingStatus: 'Bench',
-      billingPercentage: '0.00%',
-      projectAllocation: '100.00%',
-      duration: 1,
-      status: 'Active',
-    },
-    {
-      key: '8',
-      employeeName: 'Ishara Jayasuriya',
-      project: 'Bench',
-      allocatedDate: '22 Oct 2025',
-      deallocatedDate: '',
-      billingStatus: 'Bench',
-      billingPercentage: '0.00%',
-      projectAllocation: '100.00%',
-      duration: 1,
-      status: 'Active',
-    },
-    {
-      key: '9',
-      employeeName: 'Janith Perera',
-      project: 'Bench',
-      allocatedDate: '08 Nov 2025',
-      deallocatedDate: '',
-      billingStatus: 'Bench',
-      billingPercentage: '0.00%',
-      projectAllocation: '100.00%',
-      duration: 1,
-      status: 'Active',
-    },
-    {
-      key: '10',
-      employeeName: 'Kasun Wijesinghe',
-      project: 'Bench',
-      allocatedDate: '12 Oct 2025',
-      deallocatedDate: '',
-      billingStatus: 'Bench',
-      billingPercentage: '0.00%',
-      projectAllocation: '100.00%',
-      duration: 1,
-      status: 'Active',
-    },
-    {
-      key: '11',
-      employeeName: 'Lakshan De Silva',
-      project: 'Bench',
-      allocatedDate: '25 Sep 2025',
-      deallocatedDate: '',
-      billingStatus: 'Bench',
-      billingPercentage: '0.00%',
-      projectAllocation: '100.00%',
-      duration: 1,
-      status: 'Active',
-    },
-    {
-      key: '12',
-      employeeName: 'Madhushan Perera',
-      project: 'Bench',
-      allocatedDate: '30 Oct 2025',
-      deallocatedDate: '',
-      billingStatus: 'Bench',
-      billingPercentage: '0.00%',
-      projectAllocation: '100.00%',
-      duration: 1,
-      status: 'Active',
-    },
-    {
-      key: '13',
-      employeeName: 'Nadeesha Gamage',
-      project: 'Bench',
-      allocatedDate: '14 Nov 2025',
-      deallocatedDate: '',
-      billingStatus: 'Bench',
-      billingPercentage: '0.00%',
-      projectAllocation: '100.00%',
-      duration: 1,
-      status: 'Active',
-    },
-    {
-      key: '14',
-      employeeName: 'Oshada Karunarathne',
-      project: 'Bench',
-      allocatedDate: '03 Oct 2025',
-      deallocatedDate: '',
-      billingStatus: 'Bench',
-      billingPercentage: '0.00%',
-      projectAllocation: '100.00%',
-      duration: 1,
-      status: 'Active',
-    },
-    {
-      key: '15',
-      employeeName: 'Prasanna Jayawardena',
-      project: 'Bench',
-      allocatedDate: '28 Sep 2025',
-      deallocatedDate: '',
-      billingStatus: 'Bench',
-      billingPercentage: '0.00%',
-      projectAllocation: '100.00%',
-      duration: 1,
-      status: 'Active',
-    },
-  ];
 
   return (
     <div className="bench-report-page">
@@ -353,92 +213,19 @@ const BenchReport = () => {
             <Row gutter={[16, 16]} className="filters-row">
               <Col xs={24} sm={12} md={8} lg={6}>
                 <div className="filter-item">
-                  <label>Project Name</label>
-                  <Select
-                    value={filters.projectName}
-                    onChange={(value) => setFilters({ ...filters, projectName: value })}
-                    style={{ width: '100%' }}
-                  >
-                    <Option value="All">All</Option>
-                    <Option value="Bench">Bench</Option>
-                  </Select>
-                </div>
-              </Col>
-              <Col xs={24} sm={12} md={8} lg={6}>
-                <div className="filter-item">
-                  <label>Account Manager</label>
-                  <Select
-                    value={filters.accountManager}
-                    onChange={(value) => setFilters({ ...filters, accountManager: value })}
-                    style={{ width: '100%' }}
-                  >
-                    <Option value="All">All</Option>
-                    <Option value="Randika Swaris">Randika Swaris</Option>
-                  </Select>
-                </div>
-              </Col>
-              <Col xs={24} sm={12} md={8} lg={6}>
-                <div className="filter-item">
                   <label>Track</label>
                   <Select
-                    value={filters.track}
-                    onChange={(value) => setFilters({ ...filters, track: value })}
+                    value={filters.track_id}
+                    onChange={(value) => setFilters({ ...filters, track_id: value || undefined })}
                     style={{ width: '100%' }}
+                    allowClear
+                    placeholder="All Tracks"
                   >
-                    <Option value="All">All</Option>
-                    <Option value="Dev">Dev</Option>
-                    <Option value="QA">QA</Option>
-                    <Option value="PM">PM</Option>
-                    <Option value="BA">BA</Option>
-                  </Select>
-                </div>
-              </Col>
-              <Col xs={24} sm={12} md={8} lg={6}>
-                <div className="filter-item">
-                  <label>Tech Stack</label>
-                  <Select
-                    value={filters.techStack}
-                    onChange={(value) => setFilters({ ...filters, techStack: value })}
-                    style={{ width: '100%' }}
-                  >
-                    <Option value="All">All</Option>
-                    <Option value=".NET">.NET</Option>
-                    <Option value="Full Stack">Full Stack</Option>
-                    <Option value="QA">QA</Option>
-                  </Select>
-                </div>
-              </Col>
-              <Col xs={24} sm={12} md={8} lg={6}>
-                <div className="filter-item">
-                  <label>Designation</label>
-                  <Select
-                    value={filters.designation}
-                    onChange={(value) => setFilters({ ...filters, designation: value })}
-                    style={{ width: '100%' }}
-                  >
-                    <Option value="All">All</Option>
-                    <Option value="ASE">ASE</Option>
-                    <Option value="SE">SE</Option>
-                    <Option value="STL">STL</Option>
-                  </Select>
-                </div>
-              </Col>
-              <Col xs={24} sm={12} md={8} lg={6}>
-                <div className="filter-item">
-                  <label>Tier</label>
-                  <Select
-                    value={filters.tier}
-                    onChange={(value) => setFilters({ ...filters, tier: value })}
-                    style={{ width: '100%' }}
-                  >
-                    <Option value="All">All</Option>
-                    <Option value="0">Tier 0</Option>
-                    <Option value="1">Tier 1</Option>
-                    <Option value="2">Tier 2</Option>
-                    <Option value="3">Tier 3</Option>
-                    <Option value="4">Tier 4</Option>
-                    <Option value="5">Tier 5</Option>
-                    <Option value="99">Tier 99</Option>
+                    {tracksList.map((track) => (
+                      <Option key={track.id} value={track.id}>
+                        {track.name}
+                      </Option>
+                    ))}
                   </Select>
                 </div>
               </Col>
@@ -464,32 +251,17 @@ const BenchReport = () => {
       </Row>
 
       {/* Table Section */}
-      <Card className="table-card" title="BY ALLOCATION">
+      <Card className="table-card" title="Bench Resources">
         <CustomTable
-          columns={allocationColumns}
+          columns={benchColumns}
           dataSource={benchData}
           pagination={{ pageSize: 10 }}
-          scroll={{ x: 1200 }}
+          scroll={{ x: 800 }}
           size="small"
-          onRow={(record) => ({
-            onClick: () => handleRowClick(record),
-            style: { cursor: 'pointer' },
-          })}
+          loading={loading}
         />
       </Card>
 
-      {/* User Allocations Modal */}
-      <UserAllocationModal
-        visible={isUserAllocationModalVisible}
-        selectedEmployee={selectedEmployee}
-        allocationsList={userAllocationsList}
-        form={userAllocationsForm}
-        onCancel={handleUserAllocationCancel}
-        onAddRow={handleAddUserAllocationRow}
-        onRemoveRow={handleRemoveUserAllocationRow}
-        onFieldChange={handleUserAllocationFieldChange}
-        onSubmit={handleUserAllocationsSubmit}
-      />
     </div>
   );
 };

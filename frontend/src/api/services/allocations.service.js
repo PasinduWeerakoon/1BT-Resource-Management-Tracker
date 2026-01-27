@@ -14,7 +14,7 @@ export const allocationsService = {
    * @param {number} params.limit - Items per page
    * @param {string} params.resource_id - Filter by resource ID
    * @param {string} params.project_id - Filter by project ID
-   * @param {string} params.status - Filter by status (ACTIVE|COMPLETED|CANCELLED)
+   * @param {boolean} params.is_active - Filter by active status
    * @returns {Promise<{success: boolean, data: {items: Array, total: number, page: number, limit: number}}>}
    */
   getAll: async (params = {}) => {
@@ -25,7 +25,8 @@ export const allocationsService = {
         ...params,
       },
     });
-    return response.data;
+    // The interceptor transforms the response
+    return response.data || response;
   },
 
   /**
@@ -35,51 +36,82 @@ export const allocationsService = {
    */
   getById: async (id) => {
     const response = await apiClient.get(ENDPOINTS.ALLOCATIONS.GET_BY_ID(id));
-    return response.data;
+    // The interceptor transforms the response
+    return response.data || response;
   },
 
   /**
    * Create new allocation
    * @param {Object} allocationData - Allocation data
-   * @param {string} allocationData.resource_id - Resource ID
-   * @param {string} allocationData.project_id - Project ID
-   * @param {number} allocationData.allocation_percentage - Allocation percentage (validates total doesn't exceed 100%)
+   * @param {string} allocationData.resource_id - Resource ID (UUID)
+   * @param {string} allocationData.project_id - Project ID (UUID)
+   * @param {number} allocationData.allocation_percentage - Allocation percentage (0-100)
+   * @param {number} allocationData.billing_percentage - Billing percentage (0-100)
    * @param {string} allocationData.start_date - Start date (YYYY-MM-DD)
-   * @param {string} allocationData.end_date - End date (YYYY-MM-DD)
-   * @param {string} allocationData.status - Status (ACTIVE|COMPLETED|CANCELLED)
-   * @param {string} allocationData.notes - Allocation notes
+   * @param {string} allocationData.end_date - End date (YYYY-MM-DD, optional)
+   * @param {string} allocationData.notes - Allocation notes (optional)
    * @returns {Promise<{success: boolean, data: {id: string, allocation_percentage: number, resource_name: string, ...}}>}
    */
   create: async (allocationData) => {
     const response = await apiClient.post(ENDPOINTS.ALLOCATIONS.CREATE, allocationData);
-    return response.data;
+    // The interceptor transforms the response
+    return response.data || response;
   },
 
   /**
    * Update allocation
    * @param {string} id - Allocation ID
    * @param {Object} allocationData - Updated allocation data
-   * @param {number} allocationData.allocation_percentage - Allocation percentage (validates 100% cap)
+   * @param {number} allocationData.allocation_percentage - Allocation percentage (0-100)
+   * @param {number} allocationData.billing_percentage - Billing percentage (0-100)
    * @param {string} allocationData.start_date - Start date (YYYY-MM-DD)
-   * @param {string} allocationData.end_date - End date (YYYY-MM-DD)
-   * @param {string} allocationData.status - Status (ACTIVE|COMPLETED|CANCELLED)
-   * @param {string} allocationData.notes - Allocation notes
-   * @param {number} allocationData.version - Version for optimistic locking
-   * @returns {Promise<{success: boolean, data: {id: string, version: number, ...}}>}
+   * @param {string} allocationData.end_date - End date (YYYY-MM-DD, optional)
+   * @param {boolean} allocationData.is_active - Is active status
+   * @param {string} allocationData.notes - Allocation notes (optional)
+   * @returns {Promise<{success: boolean, data: {id: string, ...}}>}
    */
   update: async (id, allocationData) => {
     const response = await apiClient.put(ENDPOINTS.ALLOCATIONS.UPDATE(id), allocationData);
-    return response.data;
+    // The interceptor transforms the response
+    return response.data || response;
   },
 
   /**
-   * Delete allocation (hard delete - logs to allocation_history before delete)
+   * Soft delete allocation
    * @param {string} id - Allocation ID
-   * @returns {Promise<void>}
+   * @returns {Promise<{success: boolean, message: string}>}
    */
   delete: async (id) => {
     const response = await apiClient.delete(ENDPOINTS.ALLOCATIONS.DELETE(id));
-    return response.data;
+    // The interceptor transforms the response
+    return response.data || response;
+  },
+
+  /**
+   * Get monthly allocations
+   * @param {Object} params - Query parameters
+   * @param {number} params.year - Year
+   * @param {number} params.month - Month (1-12)
+   * @param {string} params.track_id - Filter by track ID (optional)
+   * @returns {Promise<{success: boolean, data: Array}>}
+   */
+  getMonthly: async (params = {}) => {
+    const response = await apiClient.get(ENDPOINTS.ALLOCATIONS.MONTHLY, {
+      params,
+    });
+    // The interceptor transforms the response
+    return response.data || response;
+  },
+
+  /**
+   * Get allocation history for a resource
+   * @param {string} resourceId - Resource ID
+   * @returns {Promise<{success: boolean, data: Array}>}
+   */
+  getHistory: async (resourceId) => {
+    const response = await apiClient.get(ENDPOINTS.ALLOCATIONS.HISTORY(resourceId));
+    // The interceptor transforms the response
+    return response.data || response;
   },
 };
 

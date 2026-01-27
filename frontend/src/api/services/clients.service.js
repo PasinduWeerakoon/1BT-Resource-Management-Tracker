@@ -14,7 +14,7 @@ export const clientsService = {
    * @param {number} params.limit - Items per page
    * @param {string} params.search - Search term (name or contact person)
    * @param {boolean} params.is_active - Filter by active status
-   * @returns {Promise<{success: boolean, data: {items: Array, total: number, page: number, limit: number}}>}
+   * @returns {Promise<{success: boolean, data: {data: Array, pagination: {total: number, page: number, limit: number, totalPages: number}}}>}
    */
   getAll: async (params = {}) => {
     const response = await apiClient.get(ENDPOINTS.CLIENTS.LIST, {
@@ -24,7 +24,8 @@ export const clientsService = {
         ...params,
       },
     });
-    return response.data;
+    // The interceptor transforms the response
+    return response.data || response;
   },
 
   /**
@@ -34,7 +35,8 @@ export const clientsService = {
    */
   getById: async (id) => {
     const response = await apiClient.get(ENDPOINTS.CLIENTS.GET_BY_ID(id));
-    return response.data;
+    // The interceptor transforms the response
+    return response.data || response;
   },
 
   /**
@@ -50,7 +52,8 @@ export const clientsService = {
    */
   create: async (clientData) => {
     const response = await apiClient.post(ENDPOINTS.CLIENTS.CREATE, clientData);
-    return response.data;
+    // The interceptor transforms the response
+    return response.data || response;
   },
 
   /**
@@ -65,17 +68,19 @@ export const clientsService = {
    */
   update: async (id, clientData) => {
     const response = await apiClient.put(ENDPOINTS.CLIENTS.UPDATE(id), clientData);
-    return response.data;
+    // The interceptor transforms the response
+    return response.data || response;
   },
 
   /**
    * Soft delete client
    * @param {string} id - Client ID
-   * @returns {Promise<void>}
+   * @returns {Promise<{success: boolean, message: string}>}
    */
   delete: async (id) => {
     const response = await apiClient.delete(ENDPOINTS.CLIENTS.DELETE(id));
-    return response.data;
+    // The interceptor transforms the response
+    return response.data || response;
   },
 
   /**
@@ -85,7 +90,8 @@ export const clientsService = {
    */
   getProjects: async (id) => {
     const response = await apiClient.get(ENDPOINTS.CLIENTS.PROJECTS(id));
-    return response.data;
+    // The interceptor transforms the response
+    return response.data || response;
   },
 };
 
