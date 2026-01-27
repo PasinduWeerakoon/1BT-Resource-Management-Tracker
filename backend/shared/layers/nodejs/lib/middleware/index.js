@@ -123,3 +123,4 @@ const withMiddleware = (handler, options = {}) => {
 };
 
 export { withMiddleware, requestLogger, errorLogger, authContext };
+export { auditMiddleware, auditAction, sanitizeValues } from './audit.js';

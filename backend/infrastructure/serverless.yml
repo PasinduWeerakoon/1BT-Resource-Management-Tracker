@@ -722,6 +722,39 @@ resources:
             - !Ref CognitoUserPoolClient
           Issuer: !Sub "https://cognito-idp.${AWS::Region}.amazonaws.com/${CognitoUserPool}"
 
+    # ================================================================
+    # AUDIT TRAIL - SQS QUEUES
+    # ================================================================
+
+    # Dead Letter Queue for failed audit messages
+    AuditDeadLetterQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: onebt-audit-dlq-${self:provider.stage}
+        MessageRetentionPeriod: 1209600 # 14 days
+        Tags:
+          - Key: Name
+            Value: onebt-audit-dlq-${self:provider.stage}
+          - Key: Environment
+            Value: ${self:provider.stage}
+
+    # Main Audit Queue
+    AuditQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: onebt-audit-queue-${self:provider.stage}
+        VisibilityTimeout: 60 # 6x Lambda timeout (10s)
+        MessageRetentionPeriod: 345600 # 4 days
+        ReceiveMessageWaitTimeSeconds: 20 # Long polling
+        RedrivePolicy:
+          deadLetterTargetArn: !GetAtt AuditDeadLetterQueue.Arn
+          maxReceiveCount: 3 # Retry 3 times before DLQ
+        Tags:
+          - Key: Name
+            Value: onebt-audit-queue-${self:provider.stage}
+          - Key: Environment
+            Value: ${self:provider.stage}
+
   # ================================================================
   # OUTPUTS (Exported for microservices to import)
   # ================================================================
@@ -825,6 +858,31 @@ resources:
       Value: !Ref CognitoAuthorizer
       Export:
         Name: onebt-${self:provider.stage}-CognitoAuthorizerId
+
+    # Audit Queue Outputs
+    AuditQueueUrl:
+      Description: Audit Queue URL for sending audit events
+      Value: !Ref AuditQueue
+      Export:
+        Name: onebt-${self:provider.stage}-AuditQueueUrl
+
+    AuditQueueArn:
+      Description: Audit Queue ARN for Lambda triggers and IAM
+      Value: !GetAtt AuditQueue.Arn
+      Export:
+        Name: onebt-${self:provider.stage}-AuditQueueArn
+
+    AuditDlqUrl:
+      Description: Audit Dead Letter Queue URL for failed messages
+      Value: !Ref AuditDeadLetterQueue
+      Export:
+        Name: onebt-${self:provider.stage}-AuditDlqUrl
+
+    AuditDlqArn:
+      Description: Audit Dead Letter Queue ARN
+      Value: !GetAtt AuditDeadLetterQueue.Arn
+      Export:
+        Name: onebt-${self:provider.stage}-AuditDlqArn
 
     # Bastion Outputs (conditional)
     BastionInstanceId:

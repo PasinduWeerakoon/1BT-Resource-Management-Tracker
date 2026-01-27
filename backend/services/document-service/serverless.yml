@@ -28,6 +28,7 @@ provider:
     DB_NAME: !ImportValue onebt-${self:provider.stage}-DbName
     DB_SECRET_ARN: !ImportValue onebt-${self:provider.stage}-RdsSecretArn
     S3_BUCKET: !Ref DocumentsBucket
+    AUDIT_QUEUE_URL: !ImportValue onebt-${self:provider.stage}-AuditQueueUrl
 
   iam:
     role:
@@ -43,6 +44,10 @@ provider:
             - s3:DeleteObject
           Resource:
             - !Sub arn:aws:s3:::${DocumentsBucket}/*
+        - Effect: Allow
+          Action:
+            - sqs:SendMessage
+          Resource: !ImportValue onebt-${self:provider.stage}-AuditQueueArn
 
   httpApi:
     id: !ImportValue onebt-${self:provider.stage}-HttpApiId

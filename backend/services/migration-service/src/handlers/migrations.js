@@ -435,6 +435,65 @@ const migrations = [
 
             logger.info('Migration 005 completed: Projects schema fixed');
         }
+    },
+    {
+        id: '006_audit_logs',
+        name: 'Audit Logs Table - Industry-grade audit trail',
+        up: async (client) => {
+            // Create audit_action enum type
+            await client.query(`
+                DO $$ BEGIN
+                    CREATE TYPE audit_action AS ENUM (
+                        'CREATE', 'READ', 'UPDATE', 'DELETE',
+                        'LOGIN', 'LOGOUT', 'LOGIN_FAILED',
+                        'PASSWORD_CHANGE', 'EXPORT', 'BULK_UPDATE', 'RESTORE'
+                    );
+                EXCEPTION WHEN duplicate_object THEN NULL;
+                END $$;
+            `);
+
+            // Create audit_logs table
+            await client.query(`
+                CREATE TABLE IF NOT EXISTS audit_logs (
+                    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                    timestamp TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    user_id UUID,
+                    user_email VARCHAR(255),
+                    user_name VARCHAR(255),
+                    action audit_action NOT NULL,
+                    entity_type VARCHAR(100) NOT NULL,
+                    entity_id VARCHAR(255),
+                    entity_name VARCHAR(500),
+                    old_values JSONB,
+                    new_values JSONB,
+                    changed_fields TEXT[],
+                    ip_address INET,
+                    user_agent TEXT,
+                    request_id VARCHAR(100),
+                    service_name VARCHAR(50),
+                    api_endpoint VARCHAR(500),
+                    metadata JSONB,
+                    message_id VARCHAR(100) UNIQUE,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            `);
+
+            // Create indexes for common queries
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS idx_audit_logs_timestamp ON audit_logs(timestamp DESC);
+                CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id);
+                CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs(entity_type, entity_id);
+                CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON audit_logs(action);
+                CREATE INDEX IF NOT EXISTS idx_audit_logs_dashboard ON audit_logs(timestamp DESC, action, entity_type);
+            `);
+
+            // Create GIN index on metadata for JSONB queries
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS idx_audit_logs_metadata ON audit_logs USING GIN (metadata);
+            `);
+
+            logger.info('Migration 006 completed: Audit logs table created');
+        }
     }
 ];
 
