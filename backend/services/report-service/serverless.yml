@@ -45,7 +45,7 @@ provider:
     id: !ImportValue onebt-${self:provider.stage}-HttpApiId
 
   layers:
-    - !ImportValue onebt-shared-layer-${self:provider.stage}-arn
+    - arn:aws:lambda:${self:provider.region}:550586832874:layer:onebt-shared-libs-${self:provider.stage}:24
 
 plugins:
   - serverless-offline
@@ -77,10 +77,19 @@ functions:
 
   accountManagerReport:
     handler: src/handlers/reports.getAccountManagerReport
-    description: Get account manager report
+    description: Get account manager report with filters, charts, and tables
     events:
       - httpApi:
           path: /api/v1/reports/account-manager
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  listAccountManagers:
+    handler: src/handlers/reports.getAccountManagers
+    description: Get list of all account managers
+    events:
+      - httpApi:
+          path: /api/v1/account-managers
           method: GET
           authorizer: ${self:custom.authorizer}
 

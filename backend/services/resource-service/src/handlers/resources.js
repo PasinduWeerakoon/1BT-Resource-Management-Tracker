@@ -201,8 +201,9 @@ export const create = async (event) => {
             INSERT INTO resources (
                 employee_id, employee_number, name, phone_number, email, address,
                 designation_id, track_id, intern_classification, skills,
-                date_of_joining, status, created_by
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                date_of_joining, date_of_birth, nic_passport, is_intern,
+                tier, tech_stack, photo_url, status, created_by
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
             RETURNING *
         `;
 
@@ -218,6 +219,12 @@ export const create = async (event) => {
             validated.intern_classification || null,
             validated.skills || [],
             validated.date_of_joining || null,
+            validated.date_of_birth || null,
+            validated.nic_passport || null,
+            validated.is_intern || false,
+            validated.tier || null,
+            validated.tech_stack || null,
+            validated.photo_url || null,
             validated.status || 'Active',
             userId
         ];
@@ -451,5 +458,155 @@ export const getDesignationHistory = async (event) => {
     } catch (err) {
         log.error('Failed to get designation history', { id, error: err.message });
         return error('Failed to get designation history', err);
+    }
+};
+
+/**
+ * Toggle account manager status for a resource
+ */
+export const toggleAccountManager = async (event) => {
+    const log = logger.child({ handler: 'resources.toggleAccountManager' });
+    const { id } = event.pathParameters;
+
+    try {
+        const body = JSON.parse(event.body || '{}');
+        const { is_account_manager } = body;
+
+        log.info('Toggling account manager status', { id, is_account_manager });
+
+        // Check if resource exists
+        const resourceCheck = await db.query(
+            'SELECT id, name, is_account_manager FROM resources WHERE id = $1 AND deleted_at IS NULL',
+            [id]
+        );
+
+        if (resourceCheck.rows.length === 0) {
+            return notFound('Resource not found');
+        }
+
+        const resource = resourceCheck.rows[0];
+        const newStatus = is_account_manager !== undefined ? is_account_manager : !resource.is_account_manager;
+
+        // Update resource
+        const updateQuery = `
+            UPDATE resources 
+            SET is_account_manager = $1, updated_at = CURRENT_TIMESTAMP
+            WHERE id = $2
+            RETURNING id, name, email, is_account_manager
+        `;
+
+        const result = await db.query(updateQuery, [newStatus, id]);
+
+        log.info('Account manager status updated', { id, is_account_manager: newStatus });
+
+        return success({
+            message: `Resource ${newStatus ? 'assigned as' : 'removed from'} account manager`,
+            data: result.rows[0]
+        });
+
+    } catch (err) {
+        log.error('Failed to toggle account manager status', { id, error: err.message });
+        return error('Failed to toggle account manager status', err);
+    }
+};
+
+/**
+ * Update resource tier
+ */
+export const updateTier = async (event) => {
+    const log = logger.child({ handler: 'resources.updateTier' });
+    const { id } = event.pathParameters;
+
+    try {
+        const body = JSON.parse(event.body || '{}');
+        const { tier } = body;
+
+        const validTiers = ['Synergy', 'Tier - 1', 'Tier - 2', 'Tier - 3', 'Tier - 4', 'Intern'];
+        if (!tier || !validTiers.includes(tier)) {
+            return validationError(`Invalid tier. Must be one of: ${validTiers.join(', ')}`);
+        }
+
+        log.info('Updating resource tier', { id, tier });
+
+        // Check if resource exists
+        const resourceCheck = await db.query(
+            'SELECT id, name, tier FROM resources WHERE id = $1 AND deleted_at IS NULL',
+            [id]
+        );
+
+        if (resourceCheck.rows.length === 0) {
+            return notFound('Resource not found');
+        }
+
+        // Update resource
+        const updateQuery = `
+            UPDATE resources 
+            SET tier = $1, updated_at = CURRENT_TIMESTAMP
+            WHERE id = $2
+            RETURNING id, name, tier
+        `;
+
+        const result = await db.query(updateQuery, [tier, id]);
+
+        log.info('Resource tier updated', { id, tier });
+
+        return success({
+            message: 'Resource tier updated successfully',
+            data: result.rows[0]
+        });
+
+    } catch (err) {
+        log.error('Failed to update resource tier', { id, error: err.message });
+        return error('Failed to update resource tier', err);
+    }
+};
+
+/**
+ * Update resource tech stack
+ */
+export const updateTechStack = async (event) => {
+    const log = logger.child({ handler: 'resources.updateTechStack' });
+    const { id } = event.pathParameters;
+
+    try {
+        const body = JSON.parse(event.body || '{}');
+        const { tech_stack } = body;
+
+        if (!tech_stack || typeof tech_stack !== 'string') {
+            return validationError('Tech stack is required and must be a string');
+        }
+
+        log.info('Updating resource tech stack', { id, tech_stack });
+
+        // Check if resource exists
+        const resourceCheck = await db.query(
+            'SELECT id, name, tech_stack FROM resources WHERE id = $1 AND deleted_at IS NULL',
+            [id]
+        );
+
+        if (resourceCheck.rows.length === 0) {
+            return notFound('Resource not found');
+        }
+
+        // Update resource
+        const updateQuery = `
+            UPDATE resources 
+            SET tech_stack = $1, updated_at = CURRENT_TIMESTAMP
+            WHERE id = $2
+            RETURNING id, name, tech_stack
+        `;
+
+        const result = await db.query(updateQuery, [tech_stack, id]);
+
+        log.info('Resource tech stack updated', { id, tech_stack });
+
+        return success({
+            message: 'Resource tech stack updated successfully',
+            data: result.rows[0]
+        });
+
+    } catch (err) {
+        log.error('Failed to update resource tech stack', { id, error: err.message });
+        return error('Failed to update resource tech stack', err);
     }
 };

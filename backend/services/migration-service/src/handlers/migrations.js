@@ -494,6 +494,98 @@ const migrations = [
 
             logger.info('Migration 006 completed: Audit logs table created');
         }
+    },
+    {
+        id: '007_account_manager_fields',
+        name: 'Add account manager fields and tier system',
+        up: async (client) => {
+            // Add is_account_manager flag to resources
+            await client.query(`
+                DO $$ BEGIN
+                    ALTER TABLE resources ADD COLUMN is_account_manager BOOLEAN DEFAULT false;
+                EXCEPTION WHEN duplicate_column THEN NULL;
+                END $$;
+            `);
+
+            // Add tier column to resources for tier tracking (Synergy, Tier-1, Tier-2, etc.)
+            await client.query(`
+                DO $$ BEGIN
+                    ALTER TABLE resources ADD COLUMN tier VARCHAR(20);
+                EXCEPTION WHEN duplicate_column THEN NULL;
+                END $$;
+            `);
+
+            // Add tech_stack column to resources for Full Stack, .NET, etc.
+            await client.query(`
+                DO $$ BEGIN
+                    ALTER TABLE resources ADD COLUMN tech_stack VARCHAR(50);
+                EXCEPTION WHEN duplicate_column THEN NULL;
+                END $$;
+            `);
+
+            // Create index on is_account_manager for faster queries
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS idx_resources_account_manager 
+                ON resources(is_account_manager) WHERE is_account_manager = true;
+            `);
+
+            // Create index on tier
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS idx_resources_tier ON resources(tier);
+            `);
+
+            // Create index on tech_stack
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS idx_resources_tech_stack ON resources(tech_stack);
+            `);
+
+            logger.info('Migration 007 completed: Account manager fields and tier system added');
+        }
+    },
+    {
+        id: '008_employee_additional_fields',
+        name: 'Add date of birth, NIC/passport, is_intern, and photo fields',
+        up: async (client) => {
+            // Add date_of_birth column
+            await client.query(`
+                DO $$ BEGIN
+                    ALTER TABLE resources ADD COLUMN date_of_birth DATE;
+                EXCEPTION WHEN duplicate_column THEN NULL;
+                END $$;
+            `);
+
+            // Add nic_passport column for NIC or Passport number
+            await client.query(`
+                DO $$ BEGIN
+                    ALTER TABLE resources ADD COLUMN nic_passport VARCHAR(50);
+                EXCEPTION WHEN duplicate_column THEN NULL;
+                END $$;
+            `);
+
+            // Add is_intern boolean column
+            await client.query(`
+                DO $$ BEGIN
+                    ALTER TABLE resources ADD COLUMN is_intern BOOLEAN DEFAULT false;
+                EXCEPTION WHEN duplicate_column THEN NULL;
+                END $$;
+            `);
+
+            // Add photo_url column for employee photo
+            await client.query(`
+                DO $$ BEGIN
+                    ALTER TABLE resources ADD COLUMN photo_url VARCHAR(500);
+                EXCEPTION WHEN duplicate_column THEN NULL;
+                END $$;
+            `);
+
+            // Create index on is_intern for filtering
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS idx_resources_is_intern 
+                ON resources(is_intern) WHERE is_intern = true;
+            `);
+
+            logger.info('Migration 008 completed: Employee additional fields added');
+        }
     }
 ];
 

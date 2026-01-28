@@ -45,7 +45,7 @@ provider:
     id: !ImportValue onebt-${self:provider.stage}-HttpApiId
 
   layers:
-    - !ImportValue onebt-shared-layer-${self:provider.stage}-arn
+    - arn:aws:lambda:${self:provider.region}:550586832874:layer:onebt-shared-libs-${self:provider.stage}:24
 
 plugins:
   - serverless-offline
@@ -127,6 +127,33 @@ functions:
       - httpApi:
           path: /api/v1/resources/{id}/designation-history
           method: GET
+          authorizer: ${self:custom.authorizer}
+
+  toggleAccountManager:
+    handler: src/handlers/resources.toggleAccountManager
+    description: Toggle account manager status for a resource
+    events:
+      - httpApi:
+          path: /api/v1/resources/{id}/account-manager
+          method: PUT
+          authorizer: ${self:custom.authorizer}
+
+  updateResourceTier:
+    handler: src/handlers/resources.updateTier
+    description: Update resource tier
+    events:
+      - httpApi:
+          path: /api/v1/resources/{id}/tier
+          method: PUT
+          authorizer: ${self:custom.authorizer}
+
+  updateResourceTechStack:
+    handler: src/handlers/resources.updateTechStack
+    description: Update resource tech stack
+    events:
+      - httpApi:
+          path: /api/v1/resources/{id}/tech-stack
+          method: PUT
           authorizer: ${self:custom.authorizer}
 
   # ==================== DESIGNATIONS ====================
