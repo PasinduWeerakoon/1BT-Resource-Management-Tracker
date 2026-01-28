@@ -1,10 +1,8 @@
 service: onebt-shared
 
-frameworkVersion: "3"
-
 provider:
   name: aws
-  runtime: nodejs20.x
+  runtime: nodejs22.x
   stage: ${opt:stage, 'dev'}
   region: ${opt:region, 'ap-southeast-1'}
 
@@ -14,7 +12,7 @@ layers:
     name: onebt-shared-libs-${self:provider.stage}
     description: Shared libraries (database, logger, middleware, utils)
     compatibleRuntimes:
-      - nodejs20.x
+      - nodejs22.x
     retain: false
 
 resources:

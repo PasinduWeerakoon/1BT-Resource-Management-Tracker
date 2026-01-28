@@ -1,10 +1,8 @@
 service: onebt-resource-service
 
-frameworkVersion: "3"
-
 provider:
   name: aws
-  runtime: nodejs20.x
+  runtime: nodejs22.x
   stage: ${opt:stage, 'dev'}
   region: ${opt:region, 'ap-southeast-1'}
   memorySize: 256
@@ -129,6 +127,33 @@ functions:
           method: GET
           authorizer: ${self:custom.authorizer}
 
+  toggleAccountManager:
+    handler: src/handlers/resources.toggleAccountManager
+    description: Toggle account manager status for a resource
+    events:
+      - httpApi:
+          path: /api/v1/resources/{id}/account-manager
+          method: PUT
+          authorizer: ${self:custom.authorizer}
+
+  updateResourceTier:
+    handler: src/handlers/resources.updateTier
+    description: Update resource tier
+    events:
+      - httpApi:
+          path: /api/v1/resources/{id}/tier
+          method: PUT
+          authorizer: ${self:custom.authorizer}
+
+  updateResourceTechStack:
+    handler: src/handlers/resources.updateTechStack
+    description: Update resource tech stack
+    events:
+      - httpApi:
+          path: /api/v1/resources/{id}/tech-stack
+          method: PUT
+          authorizer: ${self:custom.authorizer}
+
   # ==================== DESIGNATIONS ====================
   listDesignations:
     handler: src/handlers/designations.list
@@ -201,4 +226,50 @@ functions:
       - httpApi:
           path: /api/v1/tracks/{id}
           method: PUT
+          authorizer: ${self:custom.authorizer}
+
+  # ==================== TIERS ====================
+  listTiers:
+    handler: src/handlers/tiers.list
+    description: List all tiers
+    events:
+      - httpApi:
+          path: /api/v1/tiers
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  getTier:
+    handler: src/handlers/tiers.getById
+    description: Get a tier by ID
+    events:
+      - httpApi:
+          path: /api/v1/tiers/{id}
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  createTier:
+    handler: src/handlers/tiers.create
+    description: Create a new tier
+    events:
+      - httpApi:
+          path: /api/v1/tiers
+          method: POST
+          authorizer: ${self:custom.authorizer}
+
+  updateTier:
+    handler: src/handlers/tiers.update
+    description: Update an existing tier
+    events:
+      - httpApi:
+          path: /api/v1/tiers/{id}
+          method: PUT
+          authorizer: ${self:custom.authorizer}
+
+  deleteTier:
+    handler: src/handlers/tiers.remove
+    description: Delete a tier
+    events:
+      - httpApi:
+          path: /api/v1/tiers/{id}
+          method: DELETE
           authorizer: ${self:custom.authorizer}

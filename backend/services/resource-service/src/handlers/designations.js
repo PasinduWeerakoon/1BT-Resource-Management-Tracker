@@ -7,6 +7,9 @@ import * as db from '/opt/nodejs/database/index.js';
 import logger from '/opt/nodejs/logger/index.js';
 import { success, error, notFound, validationError } from '/opt/nodejs/utils/response.js';
 import { validate, designationSchemas } from '/opt/nodejs/validation/index.js';
+import audit from '/opt/nodejs/lib/audit/index.js';
+
+const SERVICE_NAME = 'resource-service';
 
 /**
  * List all designations
@@ -82,10 +85,21 @@ export const create = async (event) => {
         ];
 
         const result = await db.query(query, params);
+        const newDesignation = result.rows[0];
 
-        log.info('Designation created', { id: result.rows[0].id });
+        // Send audit event for designation creation
+        await audit.create(
+            event,
+            'designation',
+            newDesignation.id,
+            newDesignation.name,
+            newDesignation,
+            SERVICE_NAME
+        );
 
-        return success(result.rows[0], 201);
+        log.info('Designation created', { id: newDesignation.id });
+
+        return success(newDesignation, 201);
 
     } catch (err) {
         log.error('Failed to create designation', { error: err.message });
@@ -115,11 +129,12 @@ export const update = async (event) => {
 
         log.info('Updating designation', { id });
 
-        // Check if exists
-        const existing = await db.query('SELECT id FROM designations WHERE id = $1', [id]);
-        if (existing.rows.length === 0) {
+        // Check if exists and get current data for audit
+        const existingResult = await db.query('SELECT * FROM designations WHERE id = $1', [id]);
+        if (existingResult.rows.length === 0) {
             return notFound('Designation not found');
         }
+        const existing = existingResult.rows[0];
 
         // Build dynamic update
         const { name, level, is_intern_role, is_active } = validated;
@@ -145,8 +160,7 @@ export const update = async (event) => {
         }
 
         if (updates.length === 0) {
-            const current = await db.query('SELECT * FROM designations WHERE id = $1', [id]);
-            return success(current.rows[0]);
+            return success(existing);
         }
 
         updates.push('updated_at = CURRENT_TIMESTAMP');
@@ -159,10 +173,22 @@ export const update = async (event) => {
         `;
 
         const result = await db.query(query, params);
+        const updatedDesignation = result.rows[0];
+
+        // Send audit event for designation update
+        await audit.update(
+            event,
+            'designation',
+            id,
+            updatedDesignation.name,
+            existing,
+            updatedDesignation,
+            SERVICE_NAME
+        );
 
         log.info('Designation updated', { id });
 
-        return success(result.rows[0]);
+        return success(updatedDesignation);
 
     } catch (err) {
         log.error('Failed to update designation', { id, error: err.message });

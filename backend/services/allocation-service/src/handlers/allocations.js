@@ -1,18 +1,62 @@
 /**
  * Allocations Handler
  * Lambda handlers for resource allocation management
+ * 
+ * Bench Auto-Allocation System:
+ * - New resources are automatically allocated 100% to Bench
+ * - When allocating to other projects, Bench allocation is automatically reduced
+ * - Allocations exceeding 100% return a warning (not error)
  */
 
 import * as db from '/opt/nodejs/database/index.js';
 import logger from '/opt/nodejs/logger/index.js';
 import { success, error, notFound, validationError, conflict, badRequest } from '/opt/nodejs/utils/response.js';
 import { validate, allocationSchemas } from '/opt/nodejs/validation/index.js';
+import audit from '/opt/nodejs/lib/audit/index.js';
+
+const SERVICE_NAME = 'allocation-service';
+
+// Fixed Bench project ID - will be looked up by is_bench_project flag
+let BENCH_PROJECT_ID = null;
 
 /**
- * Validate total allocation doesn't exceed 100%
+ * Get the Bench project ID (from database by is_bench_project flag)
  */
-const validateAllocation = async (resourceId, newPercentage, excludeAllocationId, startDate, endDate) => {
-    // Convert dates to ISO strings for proper PostgreSQL comparison
+const getBenchProjectId = async () => {
+    // Return cached value if available
+    if (BENCH_PROJECT_ID) {
+        return BENCH_PROJECT_ID;
+    }
+
+    try {
+        const result = await db.query(
+            "SELECT id FROM projects WHERE is_bench_project = true AND deleted_at IS NULL LIMIT 1"
+        );
+        if (result.rows.length > 0) {
+            BENCH_PROJECT_ID = result.rows[0].id;
+            return BENCH_PROJECT_ID;
+        }
+
+        // Fallback: try to find by project code
+        const codeResult = await db.query(
+            "SELECT id FROM projects WHERE project_code = 'BENCH' AND deleted_at IS NULL LIMIT 1"
+        );
+        if (codeResult.rows.length > 0) {
+            BENCH_PROJECT_ID = codeResult.rows[0].id;
+            return BENCH_PROJECT_ID;
+        }
+
+        return null;
+    } catch {
+        return null;
+    }
+};
+
+/**
+ * Calculate total allocation for a resource (excluding bench)
+ */
+const calculateNonBenchTotal = async (resourceId, excludeAllocationId, startDate, endDate) => {
+    const benchProjectId = await getBenchProjectId();
     const startDateStr = startDate instanceof Date ? startDate.toISOString().split('T')[0] : startDate;
     const endDateStr = endDate instanceof Date ? endDate.toISOString().split('T')[0] : endDate;
 
@@ -20,31 +64,128 @@ const validateAllocation = async (resourceId, newPercentage, excludeAllocationId
         SELECT COALESCE(SUM(allocation_percentage), 0) as total
         FROM allocations
         WHERE resource_id = $1
+        AND project_id != $2
         AND is_active = true
-        AND (end_date IS NULL OR end_date >= $2::date)
-        AND start_date <= COALESCE($3::date, '9999-12-31'::date)
+        AND (end_date IS NULL OR end_date >= $3::date)
+        AND start_date <= COALESCE($4::date, '9999-12-31'::date)
     `;
-    const params = [resourceId, startDateStr, endDateStr];
+    const params = [resourceId, benchProjectId, startDateStr, endDateStr];
 
     if (excludeAllocationId) {
-        query += ` AND id != $4`;
+        query += ` AND id != $5`;
         params.push(excludeAllocationId);
     }
 
     const result = await db.query(query, params);
-    const currentTotal = parseInt(result.rows[0].total, 10);
-    const newTotal = currentTotal + newPercentage;
+    return parseInt(result.rows[0].total, 10);
+};
 
-    if (newTotal > 100) {
-        return {
-            valid: false,
-            message: `Allocation would exceed 100%. Current: ${currentTotal}%, Request: ${newPercentage}%, Total would be: ${newTotal}%`,
-            currentTotal,
-            newTotal
-        };
+/**
+ * Get the current bench allocation for a resource (including inactive)
+ */
+const getBenchAllocation = async (resourceId) => {
+    const benchProjectId = await getBenchProjectId();
+    // Get any bench allocation for this resource (active or inactive)
+    const result = await db.query(`
+        SELECT * FROM allocations 
+        WHERE resource_id = $1 
+        AND project_id = $2 
+        ORDER BY is_active DESC, updated_at DESC
+        LIMIT 1
+    `, [resourceId, benchProjectId]);
+
+    return result.rows[0] || null;
+};
+
+/**
+ * Auto-adjust bench allocation based on other allocations
+ * Returns the new bench percentage after adjustment
+ */
+const adjustBenchAllocation = async (resourceId, userId, log) => {
+    const benchProjectId = await getBenchProjectId();
+    const nonBenchTotal = await calculateNonBenchTotal(resourceId, null, new Date().toISOString().split('T')[0], null);
+    const newBenchPercentage = Math.max(0, 100 - nonBenchTotal);
+
+    const benchAllocation = await getBenchAllocation(resourceId);
+
+    if (benchAllocation) {
+        if (newBenchPercentage === 0) {
+            // Deactivate bench allocation if 0%
+            await db.query(`
+                UPDATE allocations 
+                SET is_active = false, allocation_percentage = 0, updated_by = $2, updated_at = CURRENT_TIMESTAMP
+                WHERE id = $1
+            `, [benchAllocation.id, userId || '00000000-0000-0000-0000-000000000000']);
+            log.info('Bench allocation deactivated', { resourceId, previousPercentage: benchAllocation.allocation_percentage });
+        } else if (benchAllocation.allocation_percentage !== newBenchPercentage) {
+            // Update bench allocation percentage
+            await db.query(`
+                UPDATE allocations 
+                SET allocation_percentage = $2, is_active = true, updated_by = $3, updated_at = CURRENT_TIMESTAMP
+                WHERE id = $1
+            `, [benchAllocation.id, newBenchPercentage, userId || '00000000-0000-0000-0000-000000000000']);
+            log.info('Bench allocation adjusted', {
+                resourceId,
+                previousPercentage: benchAllocation.allocation_percentage,
+                newPercentage: newBenchPercentage
+            });
+        }
+    } else if (newBenchPercentage > 0) {
+        // Create bench allocation if it doesn't exist and should have a value
+        await db.query(`
+            INSERT INTO allocations (resource_id, project_id, allocation_percentage, start_date, is_active, notes, created_by)
+            VALUES ($1, $2, $3, CURRENT_DATE, true, 'Auto-created bench allocation', $4)
+        `, [resourceId, benchProjectId, newBenchPercentage, userId || '00000000-0000-0000-0000-000000000000']);
+        log.info('Bench allocation created', { resourceId, percentage: newBenchPercentage });
     }
 
-    return { valid: true, currentTotal, newTotal };
+    return newBenchPercentage;
+};
+
+/**
+ * Validate allocation and return warning if exceeds 100%
+ * Returns { valid: true, warning?: string, ... } instead of blocking
+ */
+const validateAllocation = async (resourceId, newPercentage, excludeAllocationId, startDate, endDate) => {
+    const startDateStr = startDate instanceof Date ? startDate.toISOString().split('T')[0] : startDate;
+    const endDateStr = endDate instanceof Date ? endDate.toISOString().split('T')[0] : endDate;
+    const benchProjectId = await getBenchProjectId();
+
+    // Calculate total excluding bench and current allocation
+    let query = `
+        SELECT COALESCE(SUM(allocation_percentage), 0) as total
+        FROM allocations
+        WHERE resource_id = $1
+        AND project_id != $2
+        AND is_active = true
+        AND (end_date IS NULL OR end_date >= $3::date)
+        AND start_date <= COALESCE($4::date, '9999-12-31'::date)
+    `;
+    const params = [resourceId, benchProjectId, startDateStr, endDateStr];
+
+    if (excludeAllocationId) {
+        query += ` AND id != $5`;
+        params.push(excludeAllocationId);
+    }
+
+    const result = await db.query(query, params);
+    const currentNonBenchTotal = parseInt(result.rows[0].total, 10);
+    const newTotal = currentNonBenchTotal + newPercentage;
+
+    // Always valid, but return warning if exceeds 100%
+    const response = {
+        valid: true,
+        currentTotal: currentNonBenchTotal,
+        newTotal,
+        benchWillBe: Math.max(0, 100 - newTotal)
+    };
+
+    if (newTotal > 100) {
+        response.warning = `Total allocation exceeds 100%. Non-bench allocations: ${currentNonBenchTotal}% + new: ${newPercentage}% = ${newTotal}%. Resource may be over-allocated.`;
+        response.overAllocated = true;
+    }
+
+    return response;
 };
 
 /**
@@ -183,6 +324,7 @@ export const getById = async (event) => {
 
 /**
  * Create a new allocation
+ * Automatically adjusts Bench allocation after creating
  */
 export const create = async (event) => {
     const log = logger.child({ handler: 'allocations.create' });
@@ -191,21 +333,21 @@ export const create = async (event) => {
         const body = JSON.parse(event.body || '{}');
         const validated = validate(body, allocationSchemas.create);
         const userId = event.requestContext?.authorizer?.jwt?.claims?.sub;
+        const benchProjectId = await getBenchProjectId();
 
         log.info('Creating allocation', { resource_id: validated.resource_id, project_id: validated.project_id });
 
-        // Validate allocation doesn't exceed 100%
+        // Check if this is a bench allocation
+        const isBenchAllocation = validated.project_id === benchProjectId;
+
+        // Validate allocation (now returns warning instead of error for >100%)
         const validationResult = await validateAllocation(
             validated.resource_id,
-            validated.allocation_percentage,
+            isBenchAllocation ? 0 : validated.allocation_percentage, // Don't count bench in validation
             null,
             validated.start_date,
             validated.end_date
         );
-
-        if (!validationResult.valid) {
-            return badRequest(validationResult.message);
-        }
 
         const query = `
             INSERT INTO allocations (
@@ -243,9 +385,47 @@ export const create = async (event) => {
         // Log to history
         await logAllocationHistory(allocation, 'CREATED', userId);
 
-        log.info('Allocation created', { id: allocation.id });
+        // Auto-adjust bench allocation if this is not a bench allocation
+        let benchAdjustment = null;
+        if (!isBenchAllocation) {
+            const newBenchPercentage = await adjustBenchAllocation(validated.resource_id, userId, log);
+            benchAdjustment = {
+                benchPercentage: newBenchPercentage,
+                message: `Bench allocation adjusted to ${newBenchPercentage}%`
+            };
+        }
 
-        return success(allocation, 201);
+        // Send audit event for allocation creation
+        await audit.create(
+            event,
+            'allocation',
+            allocation.id,
+            `${validated.resource_id} -> ${validated.project_id}`,
+            allocation,
+            SERVICE_NAME,
+            {
+                resource_id: validated.resource_id,
+                project_id: validated.project_id,
+                percentage: validated.allocation_percentage,
+                benchAdjustment
+            }
+        );
+
+        log.info('Allocation created', { id: allocation.id, warning: validationResult.warning });
+
+        // Build response with optional warning
+        const response = {
+            ...allocation,
+            benchAdjustment
+        };
+
+        if (validationResult.warning) {
+            response.warning = validationResult.warning;
+            response.totalAllocation = validationResult.newTotal;
+            response.overAllocated = validationResult.overAllocated;
+        }
+
+        return success(response, 201);
 
     } catch (err) {
         log.error('Failed to create allocation', { error: err.message });
@@ -264,6 +444,7 @@ export const create = async (event) => {
 
 /**
  * Update an existing allocation
+ * Automatically adjusts Bench allocation after updating
  */
 export const update = async (event) => {
     const log = logger.child({ handler: 'allocations.update' });
@@ -273,6 +454,7 @@ export const update = async (event) => {
         const body = JSON.parse(event.body || '{}');
         const validated = validate(body, allocationSchemas.update);
         const userId = event.requestContext?.authorizer?.jwt?.claims?.sub;
+        const benchProjectId = await getBenchProjectId();
 
         log.info('Updating allocation', { id, userId });
 
@@ -282,24 +464,23 @@ export const update = async (event) => {
             return notFound('Allocation not found');
         }
         const existing = existingResult.rows[0];
+        const isBenchAllocation = existing.project_id === benchProjectId;
 
         // Optimistic locking check
         if (validated.version !== undefined && existing.version !== validated.version) {
             return conflict('Allocation has been modified by another user. Please refresh and try again.');
         }
 
-        // If updating percentage, validate
-        if (validated.allocation_percentage !== undefined) {
-            const validationResult = await validateAllocation(
+        // If updating percentage, validate (warnings instead of errors for >100%)
+        let validationResult = null;
+        if (validated.allocation_percentage !== undefined && !isBenchAllocation) {
+            validationResult = await validateAllocation(
                 existing.resource_id,
                 validated.allocation_percentage,
                 id,
                 validated.start_date || existing.start_date,
                 validated.end_date || existing.end_date
             );
-            if (!validationResult.valid) {
-                return badRequest(validationResult.message);
-            }
         }
 
         // Build dynamic update query
@@ -339,9 +520,43 @@ export const update = async (event) => {
         // Log to history
         await logAllocationHistory(allocation, 'UPDATED', userId);
 
-        log.info('Allocation updated', { id });
+        // Auto-adjust bench allocation if this is not a bench allocation
+        let benchAdjustment = null;
+        if (!isBenchAllocation && validated.allocation_percentage !== undefined) {
+            const newBenchPercentage = await adjustBenchAllocation(existing.resource_id, userId, log);
+            benchAdjustment = {
+                benchPercentage: newBenchPercentage,
+                message: `Bench allocation adjusted to ${newBenchPercentage}%`
+            };
+        }
 
-        return success(allocation);
+        // Send audit event for allocation update
+        await audit.update(
+            event,
+            'allocation',
+            id,
+            `${allocation.resource_id} -> ${allocation.project_id}`,
+            existing,
+            allocation,
+            SERVICE_NAME,
+            { benchAdjustment }
+        );
+
+        log.info('Allocation updated', { id, warning: validationResult?.warning });
+
+        // Build response with optional warning
+        const response = {
+            ...allocation,
+            benchAdjustment
+        };
+
+        if (validationResult?.warning) {
+            response.warning = validationResult.warning;
+            response.totalAllocation = validationResult.newTotal;
+            response.overAllocated = validationResult.overAllocated;
+        }
+
+        return success(response);
 
     } catch (err) {
         log.error('Failed to update allocation', { id, error: err.message });
@@ -356,6 +571,7 @@ export const update = async (event) => {
 
 /**
  * Delete an allocation
+ * Automatically adjusts Bench allocation after deleting (adds freed percentage back to bench)
  */
 export const remove = async (event) => {
     const log = logger.child({ handler: 'allocations.remove' });
@@ -364,12 +580,15 @@ export const remove = async (event) => {
 
     try {
         log.info('Deleting allocation', { id, userId });
+        const benchProjectId = await getBenchProjectId();
 
-        // Get existing for history
+        // Get existing for history and bench adjustment
         const existingResult = await db.query('SELECT * FROM allocations WHERE id = $1', [id]);
         if (existingResult.rows.length === 0) {
             return notFound('Allocation not found');
         }
+        const existing = existingResult.rows[0];
+        const isBenchAllocation = existing.project_id === benchProjectId;
 
         const result = await db.query('DELETE FROM allocations WHERE id = $1 RETURNING id', [id]);
 
@@ -378,11 +597,35 @@ export const remove = async (event) => {
         }
 
         // Log to history
-        await logAllocationHistory(existingResult.rows[0], 'DELETED', userId);
+        await logAllocationHistory(existing, 'DELETED', userId);
 
-        log.info('Allocation deleted', { id });
+        // Auto-adjust bench allocation if this was not a bench allocation
+        let benchAdjustment = null;
+        if (!isBenchAllocation) {
+            const newBenchPercentage = await adjustBenchAllocation(existing.resource_id, userId, log);
+            benchAdjustment = {
+                benchPercentage: newBenchPercentage,
+                message: `Bench allocation adjusted to ${newBenchPercentage}%`
+            };
+        }
 
-        return success({ message: 'Allocation deleted successfully' });
+        // Send audit event for allocation deletion
+        await audit.delete(
+            event,
+            'allocation',
+            id,
+            `${existing.resource_id} -> ${existing.project_id}`,
+            existing,
+            SERVICE_NAME,
+            { benchAdjustment }
+        );
+
+        log.info('Allocation deleted', { id, benchAdjustment });
+
+        return success({
+            message: 'Allocation deleted successfully',
+            benchAdjustment
+        });
 
     } catch (err) {
         log.error('Failed to delete allocation', { id, error: err.message });

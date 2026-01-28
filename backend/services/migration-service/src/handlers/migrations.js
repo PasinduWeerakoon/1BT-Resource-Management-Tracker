@@ -494,6 +494,299 @@ const migrations = [
 
             logger.info('Migration 006 completed: Audit logs table created');
         }
+    },
+    {
+        id: '007_account_manager_fields',
+        name: 'Add account manager fields and tier system',
+        up: async (client) => {
+            // Add is_account_manager flag to resources
+            await client.query(`
+                DO $$ BEGIN
+                    ALTER TABLE resources ADD COLUMN is_account_manager BOOLEAN DEFAULT false;
+                EXCEPTION WHEN duplicate_column THEN NULL;
+                END $$;
+            `);
+
+            // Add tier column to resources for tier tracking (Synergy, Tier-1, Tier-2, etc.)
+            await client.query(`
+                DO $$ BEGIN
+                    ALTER TABLE resources ADD COLUMN tier VARCHAR(20);
+                EXCEPTION WHEN duplicate_column THEN NULL;
+                END $$;
+            `);
+
+            // Add tech_stack column to resources for Full Stack, .NET, etc.
+            await client.query(`
+                DO $$ BEGIN
+                    ALTER TABLE resources ADD COLUMN tech_stack VARCHAR(50);
+                EXCEPTION WHEN duplicate_column THEN NULL;
+                END $$;
+            `);
+
+            // Create index on is_account_manager for faster queries
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS idx_resources_account_manager 
+                ON resources(is_account_manager) WHERE is_account_manager = true;
+            `);
+
+            // Create index on tier
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS idx_resources_tier ON resources(tier);
+            `);
+
+            // Create index on tech_stack
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS idx_resources_tech_stack ON resources(tech_stack);
+            `);
+
+            logger.info('Migration 007 completed: Account manager fields and tier system added');
+        }
+    },
+    {
+        id: '008_employee_additional_fields',
+        name: 'Add date of birth, NIC/passport, is_intern, and photo fields',
+        up: async (client) => {
+            // Add date_of_birth column
+            await client.query(`
+                DO $$ BEGIN
+                    ALTER TABLE resources ADD COLUMN date_of_birth DATE;
+                EXCEPTION WHEN duplicate_column THEN NULL;
+                END $$;
+            `);
+
+            // Add nic_passport column for NIC or Passport number
+            await client.query(`
+                DO $$ BEGIN
+                    ALTER TABLE resources ADD COLUMN nic_passport VARCHAR(50);
+                EXCEPTION WHEN duplicate_column THEN NULL;
+                END $$;
+            `);
+
+            // Add is_intern boolean column
+            await client.query(`
+                DO $$ BEGIN
+                    ALTER TABLE resources ADD COLUMN is_intern BOOLEAN DEFAULT false;
+                EXCEPTION WHEN duplicate_column THEN NULL;
+                END $$;
+            `);
+
+            // Add photo_url column for employee photo
+            await client.query(`
+                DO $$ BEGIN
+                    ALTER TABLE resources ADD COLUMN photo_url VARCHAR(500);
+                EXCEPTION WHEN duplicate_column THEN NULL;
+                END $$;
+            `);
+
+            // Create index on is_intern for filtering
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS idx_resources_is_intern 
+                ON resources(is_intern) WHERE is_intern = true;
+            `);
+
+            logger.info('Migration 008 completed: Employee additional fields added');
+        }
+    },
+    {
+        id: '009_tiers_table',
+        name: 'Create tiers lookup table',
+        up: async (client) => {
+            // Create tiers table
+            await client.query(`
+                CREATE TABLE IF NOT EXISTS tiers (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    name VARCHAR(50) NOT NULL UNIQUE,
+                    description TEXT,
+                    level INTEGER,
+                    is_active BOOLEAN DEFAULT true,
+                    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                    created_by UUID
+                )
+            `);
+
+            // Create updated_at trigger for tiers
+            await client.query(`
+                DROP TRIGGER IF EXISTS update_tiers_updated_at ON tiers;
+                CREATE TRIGGER update_tiers_updated_at
+                    BEFORE UPDATE ON tiers
+                    FOR EACH ROW
+                    EXECUTE FUNCTION update_updated_at_column();
+            `);
+
+            // Seed default tiers
+            await client.query(`
+                INSERT INTO tiers (name, level, description) VALUES
+                    ('Synergy', 1, 'Synergy tier'),
+                    ('Tier - 1', 2, 'Tier 1'),
+                    ('Tier - 2', 3, 'Tier 2'),
+                    ('Tier - 3', 4, 'Tier 3'),
+                    ('Tier - 4', 5, 'Tier 4'),
+                    ('Intern', 6, 'Intern tier')
+                ON CONFLICT (name) DO NOTHING;
+            `);
+
+            // Create index on level for sorting
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS idx_tiers_level ON tiers(level);
+            `);
+
+            // Create index on is_active for filtering
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS idx_tiers_active ON tiers(is_active);
+            `);
+
+            logger.info('Migration 009 completed: Tiers table created');
+        }
+    },
+    {
+        id: '010_bench_project',
+        name: 'Create Bench project and internal projects for auto-allocation',
+        up: async (client) => {
+            // Add is_bench_project column to projects table
+            await client.query(`
+                ALTER TABLE projects 
+                ADD COLUMN IF NOT EXISTS is_bench_project BOOLEAN NOT NULL DEFAULT false;
+            `);
+
+            // Get super admin user ID for created_by
+            const userResult = await client.query(
+                "SELECT id FROM users WHERE email = 'hirun.dealwis@1billiontech.com' LIMIT 1"
+            );
+            const userId = userResult.rows.length > 0 ? userResult.rows[0].id : '00000000-0000-0000-0000-000000000000';
+
+            // Check if Bench project exists by code
+            const benchExists = await client.query("SELECT id FROM projects WHERE project_code = 'BENCH'");
+
+            if (benchExists.rows.length > 0) {
+                // Update existing Bench project
+                await client.query(`
+                    UPDATE projects SET is_bench_project = true WHERE project_code = 'BENCH'
+                `);
+                logger.info('Updated existing Bench project with is_bench_project flag');
+            } else {
+                // Insert new Bench project
+                await client.query(`
+                    INSERT INTO projects (
+                        project_name, project_code, project_type, billing_status,
+                        status, description, is_bench_project, created_by
+                    ) VALUES (
+                        'Bench', 'BENCH', 'Bench', 'Non-Billing',
+                        'Active',
+                        'Default bench allocation for unassigned resources. Resources are automatically allocated 100% to Bench when created.',
+                        true, $1
+                    )
+                `, [userId]);
+                logger.info('Created new Bench project');
+            }
+
+            // Check and insert Pre-Sales project
+            const presalesExists = await client.query("SELECT id FROM projects WHERE project_code = 'PRESALES'");
+            if (presalesExists.rows.length === 0) {
+                await client.query(`
+                    INSERT INTO projects (
+                        project_name, project_code, project_type, billing_status,
+                        status, description, created_by
+                    ) VALUES (
+                        'Pre-Sales', 'PRESALES', 'Presale', 'Non-Billing',
+                        'Active',
+                        'Pre-sales activities including demos, proposals, and client presentations',
+                        $1
+                    )
+                `, [userId]);
+            }
+
+            // Check and insert Training project
+            const trainingExists = await client.query("SELECT id FROM projects WHERE project_code = 'TRAINING'");
+            if (trainingExists.rows.length === 0) {
+                await client.query(`
+                    INSERT INTO projects (
+                        project_name, project_code, project_type, billing_status,
+                        status, description, created_by
+                    ) VALUES (
+                        'Training', 'TRAINING', 'Training', 'Non-Billing',
+                        'Active',
+                        'Training and skill development activities',
+                        $1
+                    )
+                `, [userId]);
+            }
+
+            // Create index on is_bench_project
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS idx_projects_bench 
+                ON projects(is_bench_project) WHERE is_bench_project = true;
+            `);
+
+            logger.info('Migration 010 completed: Bench and internal projects created');
+        }
+    },
+    {
+        id: '011_projects_extra_columns',
+        name: 'Add team_size, account_manager and other columns to projects',
+        up: async (client) => {
+            // Add account_type enum if not exists
+            await client.query(`
+                DO $$ BEGIN
+                    CREATE TYPE account_type AS ENUM ('Internal', 'External');
+                EXCEPTION WHEN duplicate_object THEN NULL;
+                END $$;
+            `);
+
+            // Add team_size column
+            await client.query(`
+                ALTER TABLE projects 
+                ADD COLUMN IF NOT EXISTS team_size INTEGER NOT NULL DEFAULT 1;
+            `);
+
+            // Add account_type column
+            await client.query(`
+                ALTER TABLE projects 
+                ADD COLUMN IF NOT EXISTS account_type account_type NOT NULL DEFAULT 'Internal';
+            `);
+
+            // Add account_manager column (string name, separate from account_manager_id)
+            await client.query(`
+                ALTER TABLE projects 
+                ADD COLUMN IF NOT EXISTS account_manager VARCHAR(100);
+            `);
+
+            // Add account_reg_sales_owner column
+            await client.query(`
+                ALTER TABLE projects 
+                ADD COLUMN IF NOT EXISTS account_reg_sales_owner VARCHAR(100);
+            `);
+
+            // Add budget column
+            await client.query(`
+                ALTER TABLE projects 
+                ADD COLUMN IF NOT EXISTS budget DECIMAL(15,2);
+            `);
+
+            // Add version column if not exists
+            await client.query(`
+                ALTER TABLE projects 
+                ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 1;
+            `);
+
+            // Add constraint for positive team_size
+            await client.query(`
+                DO $$ BEGIN
+                    ALTER TABLE projects ADD CONSTRAINT projects_team_size_positive CHECK (team_size >= 1);
+                EXCEPTION WHEN duplicate_object THEN NULL;
+                END $$;
+            `);
+
+            // Add constraint for positive budget
+            await client.query(`
+                DO $$ BEGIN
+                    ALTER TABLE projects ADD CONSTRAINT projects_budget_positive CHECK (budget IS NULL OR budget >= 0);
+                EXCEPTION WHEN duplicate_object THEN NULL;
+                END $$;
+            `);
+
+            logger.info('Migration 011 completed: Added team_size, account_manager, account_type, budget columns to projects');
+        }
     }
 ];
 

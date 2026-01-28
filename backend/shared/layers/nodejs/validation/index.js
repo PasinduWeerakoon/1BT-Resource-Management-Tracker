@@ -48,6 +48,8 @@ export const resourceSchemas = {
         designation_id: Joi.string().pattern(uuidPattern).optional(),
         status: Joi.string().valid('Active', 'Inactive', 'Serving Notice Period', 'On Leave').optional(),
         intern_classification: Joi.string().optional(),
+        is_intern: Joi.string().valid('true', 'false').optional(),
+        tier: Joi.string().optional(),
     }),
 
     create: Joi.object({
@@ -60,6 +62,12 @@ export const resourceSchemas = {
         track_id: Joi.string().pattern(uuidPattern).required(),
         designation_id: Joi.string().pattern(uuidPattern).required(),
         date_of_joining: Joi.date().iso().optional(),
+        date_of_birth: Joi.date().iso().optional(),
+        nic_passport: Joi.string().max(50).optional(),
+        is_intern: Joi.boolean().default(false),
+        tier: Joi.string().valid('Synergy', 'Tier - 1', 'Tier - 2', 'Tier - 3', 'Tier - 4', 'Intern').optional(),
+        tech_stack: Joi.string().max(50).optional(),
+        photo_url: Joi.string().max(500).optional(),
         intern_classification: Joi.string().max(20).optional(),
         skills: Joi.array().items(Joi.string()).optional(),
         status: Joi.string().valid('Active', 'Inactive', 'Serving Notice Period', 'On Leave').default('Active'),
@@ -75,10 +83,17 @@ export const resourceSchemas = {
         track_id: Joi.string().pattern(uuidPattern).optional(),
         designation_id: Joi.string().pattern(uuidPattern).optional(),
         date_of_joining: Joi.date().iso().optional(),
+        date_of_birth: Joi.date().iso().optional(),
+        nic_passport: Joi.string().max(50).optional(),
+        is_intern: Joi.boolean().optional(),
+        tier: Joi.string().valid('Synergy', 'Tier - 1', 'Tier - 2', 'Tier - 3', 'Tier - 4', 'Intern').allow(null).optional(),
+        tech_stack: Joi.string().max(50).allow(null).optional(),
+        photo_url: Joi.string().max(500).allow(null).optional(),
         intern_classification: Joi.string().max(20).optional(),
         skills: Joi.array().items(Joi.string()).optional(),
         status: Joi.string().valid('Active', 'Inactive', 'Serving Notice Period', 'On Leave').optional(),
         notice_period_end_date: Joi.date().iso().optional(),
+        is_account_manager: Joi.boolean().optional(),
     }),
 };
 
@@ -122,6 +137,29 @@ export const trackSchemas = {
     }),
 };
 
+// Tier Schemas
+export const tierSchemas = {
+    list: Joi.object({
+        ...paginationSchema,
+        search: Joi.string().allow('').optional(),
+        is_active: Joi.string().valid('true', 'false').optional(),
+    }),
+
+    create: Joi.object({
+        name: Joi.string().max(50).required(),
+        level: Joi.number().integer().min(1).max(100).optional(),
+        description: Joi.string().max(500).optional(),
+        is_active: Joi.boolean().default(true),
+    }),
+
+    update: Joi.object({
+        name: Joi.string().max(50).optional(),
+        level: Joi.number().integer().min(1).max(100).optional(),
+        description: Joi.string().max(500).optional(),
+        is_active: Joi.boolean().optional(),
+    }),
+};
+
 // Client Schemas
 export const clientSchemas = {
     list: Joi.object({
@@ -162,26 +200,36 @@ export const projectSchemas = {
     create: Joi.object({
         project_name: Joi.string().max(200).required(),
         project_code: Joi.string().max(50).optional(),
-        project_type: Joi.string().valid('Client', 'Internal', 'Pre-Sales', 'Bench').default('Internal'),
+        project_type: Joi.string().valid('Client', 'Bench', 'Training', 'POC', 'Presale', 'Research').default('Client'),
+        account_type: Joi.string().valid('Internal', 'External').default('Internal'),
         client_id: Joi.string().pattern(uuidPattern).optional(),
         start_date: Joi.date().iso().optional(),
         end_date: Joi.date().iso().optional(),
         status: Joi.string().valid('Active', 'Completed', 'On Hold', 'Cancelled', 'ACTIVE').default('Active'),
         is_billable: Joi.boolean().default(true),
-        account_manager_id: Joi.string().pattern(uuidPattern).optional(),
+        billing_type: Joi.string().valid('Billing', 'Non-Billing').default('Billing'),
+        team_size: Joi.number().integer().min(1).default(1),
+        account_manager: Joi.string().max(100).required(),
+        account_reg_sales_owner: Joi.string().max(100).optional(),
+        budget: Joi.number().min(0).optional(),
         description: Joi.string().max(1000).optional(),
     }),
 
     update: Joi.object({
         project_name: Joi.string().max(200).optional(),
         project_code: Joi.string().max(50).optional(),
-        project_type: Joi.string().valid('Client', 'Internal', 'Pre-Sales', 'Bench').optional(),
-        client_id: Joi.string().pattern(uuidPattern).optional(),
+        project_type: Joi.string().valid('Client', 'Bench', 'Training', 'POC', 'Presale', 'Research').optional(),
+        account_type: Joi.string().valid('Internal', 'External').optional(),
+        client_id: Joi.string().pattern(uuidPattern).allow(null).optional(),
         start_date: Joi.date().iso().optional(),
         end_date: Joi.date().iso().optional(),
         status: Joi.string().valid('Active', 'Completed', 'On Hold', 'Cancelled', 'ACTIVE').optional(),
         is_billable: Joi.boolean().optional(),
-        account_manager_id: Joi.string().pattern(uuidPattern).optional(),
+        billing_type: Joi.string().valid('Billing', 'Non-Billing').optional(),
+        team_size: Joi.number().integer().min(1).optional(),
+        account_manager: Joi.string().max(100).optional(),
+        account_reg_sales_owner: Joi.string().max(100).optional(),
+        budget: Joi.number().min(0).allow(null).optional(),
         description: Joi.string().max(1000).optional(),
     }),
 };
@@ -250,6 +298,7 @@ export default {
     resourceSchemas,
     designationSchemas,
     trackSchemas,
+    tierSchemas,
     clientSchemas,
     projectSchemas,
     allocationSchemas,

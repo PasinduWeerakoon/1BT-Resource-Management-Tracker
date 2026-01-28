@@ -1,10 +1,8 @@
 service: onebt-report-service
 
-frameworkVersion: "3"
-
 provider:
   name: aws
-  runtime: nodejs20.x
+  runtime: nodejs22.x
   stage: ${opt:stage, 'dev'}
   region: ${opt:region, 'ap-southeast-1'}
   memorySize: 512 # Reports need more memory for data processing
@@ -77,10 +75,19 @@ functions:
 
   accountManagerReport:
     handler: src/handlers/reports.getAccountManagerReport
-    description: Get account manager report
+    description: Get account manager report with filters, charts, and tables
     events:
       - httpApi:
           path: /api/v1/reports/account-manager
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  listAccountManagers:
+    handler: src/handlers/reports.getAccountManagers
+    description: Get list of all account managers
+    events:
+      - httpApi:
+          path: /api/v1/account-managers
           method: GET
           authorizer: ${self:custom.authorizer}
 

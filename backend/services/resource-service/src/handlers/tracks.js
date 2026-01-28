@@ -7,6 +7,9 @@ import * as db from '/opt/nodejs/database/index.js';
 import logger from '/opt/nodejs/logger/index.js';
 import { success, error, notFound, validationError } from '/opt/nodejs/utils/response.js';
 import { validate, trackSchemas } from '/opt/nodejs/validation/index.js';
+import audit from '/opt/nodejs/lib/audit/index.js';
+
+const SERVICE_NAME = 'resource-service';
 
 /**
  * List all tracks
@@ -81,10 +84,21 @@ export const create = async (event) => {
         ];
 
         const result = await db.query(query, params);
+        const newTrack = result.rows[0];
 
-        log.info('Track created', { id: result.rows[0].id });
+        // Send audit event for track creation
+        await audit.create(
+            event,
+            'track',
+            newTrack.id,
+            newTrack.name,
+            newTrack,
+            SERVICE_NAME
+        );
 
-        return success(result.rows[0], 201);
+        log.info('Track created', { id: newTrack.id });
+
+        return success(newTrack, 201);
 
     } catch (err) {
         log.error('Failed to create track', { error: err.message });
@@ -114,11 +128,12 @@ export const update = async (event) => {
 
         log.info('Updating track', { id });
 
-        // Check if exists
-        const existing = await db.query('SELECT id FROM tracks WHERE id = $1', [id]);
-        if (existing.rows.length === 0) {
+        // Check if exists and get current data for audit
+        const existingResult = await db.query('SELECT * FROM tracks WHERE id = $1', [id]);
+        if (existingResult.rows.length === 0) {
             return notFound('Track not found');
         }
+        const existing = existingResult.rows[0];
 
         // Build dynamic update
         const { name, description, is_active } = validated;
@@ -140,8 +155,7 @@ export const update = async (event) => {
         }
 
         if (updates.length === 0) {
-            const current = await db.query('SELECT * FROM tracks WHERE id = $1', [id]);
-            return success(current.rows[0]);
+            return success(existing);
         }
 
         updates.push('updated_at = CURRENT_TIMESTAMP');
@@ -154,10 +168,22 @@ export const update = async (event) => {
         `;
 
         const result = await db.query(query, params);
+        const updatedTrack = result.rows[0];
+
+        // Send audit event for track update
+        await audit.update(
+            event,
+            'track',
+            id,
+            updatedTrack.name,
+            existing,
+            updatedTrack,
+            SERVICE_NAME
+        );
 
         log.info('Track updated', { id });
 
-        return success(result.rows[0]);
+        return success(updatedTrack);
 
     } catch (err) {
         log.error('Failed to update track', { id, error: err.message });

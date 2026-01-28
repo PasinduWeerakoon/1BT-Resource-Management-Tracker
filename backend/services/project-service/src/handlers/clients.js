@@ -7,6 +7,9 @@ import * as db from '/opt/nodejs/database/index.js';
 import logger from '/opt/nodejs/logger/index.js';
 import { success, error, notFound, validationError, conflict } from '/opt/nodejs/utils/response.js';
 import { validate, clientSchemas } from '/opt/nodejs/validation/index.js';
+import audit from '/opt/nodejs/lib/audit/index.js';
+
+const SERVICE_NAME = 'project-service';
 
 /**
  * List clients with pagination and filters
@@ -128,10 +131,21 @@ export const create = async (event) => {
         ];
 
         const result = await db.query(query, params);
+        const newClient = result.rows[0];
 
-        log.info('Client created', { id: result.rows[0].id });
+        // Send audit event for client creation
+        await audit.create(
+            event,
+            'client',
+            newClient.id,
+            newClient.client_name,
+            newClient,
+            SERVICE_NAME
+        );
 
-        return success(result.rows[0], 201);
+        log.info('Client created', { id: newClient.id });
+
+        return success(newClient, 201);
 
     } catch (err) {
         log.error('Failed to create client', { error: err.message });
@@ -162,15 +176,17 @@ export const update = async (event) => {
 
         log.info('Updating client', { id, userId });
 
-        // Check if client exists
-        const existing = await db.query(
-            'SELECT id FROM clients WHERE id = $1 AND deleted_at IS NULL',
+        // Check if client exists and get current data for audit
+        const existingResult = await db.query(
+            'SELECT * FROM clients WHERE id = $1 AND deleted_at IS NULL',
             [id]
         );
 
-        if (existing.rows.length === 0) {
+        if (existingResult.rows.length === 0) {
             return notFound('Client not found');
         }
+
+        const existing = existingResult.rows[0];
 
         // Build dynamic update query
         const updates = [];
@@ -186,8 +202,7 @@ export const update = async (event) => {
         }
 
         if (updates.length === 0) {
-            const current = await db.query('SELECT * FROM clients WHERE id = $1', [id]);
-            return success(current.rows[0]);
+            return success(existing);
         }
 
         // Add audit fields
@@ -203,10 +218,22 @@ export const update = async (event) => {
         `;
 
         const result = await db.query(query, params);
+        const updatedClient = result.rows[0];
+
+        // Send audit event for client update
+        await audit.update(
+            event,
+            'client',
+            id,
+            updatedClient.client_name,
+            existing,
+            updatedClient,
+            SERVICE_NAME
+        );
 
         log.info('Client updated', { id });
 
-        return success(result.rows[0]);
+        return success(updatedClient);
 
     } catch (err) {
         log.error('Failed to update client', { id, error: err.message });
@@ -234,17 +261,34 @@ export const remove = async (event) => {
     try {
         log.info('Deleting client', { id, userId });
 
-        const result = await db.query(
+        // Get client data for audit before deletion
+        const existingResult = await db.query(
+            'SELECT * FROM clients WHERE id = $1 AND deleted_at IS NULL',
+            [id]
+        );
+
+        if (existingResult.rows.length === 0) {
+            return notFound('Client not found');
+        }
+
+        const existing = existingResult.rows[0];
+
+        await db.query(
             `UPDATE clients 
              SET deleted_at = CURRENT_TIMESTAMP, updated_by = $2 
-             WHERE id = $1 AND deleted_at IS NULL
-             RETURNING id`,
+             WHERE id = $1 AND deleted_at IS NULL`,
             [id, userId]
         );
 
-        if (result.rows.length === 0) {
-            return notFound('Client not found');
-        }
+        // Send audit event for client deletion
+        await audit.delete(
+            event,
+            'client',
+            id,
+            existing.client_name,
+            existing,
+            SERVICE_NAME
+        );
 
         log.info('Client deleted', { id });
 
@@ -254,6 +298,14 @@ export const remove = async (event) => {
         log.error('Failed to delete client', { id, error: err.message });
         return error('Failed to delete client', err);
     }
+};
+
+return success({ message: 'Client deleted successfully' });
+
+    } catch (err) {
+    log.error('Failed to delete client', { id, error: err.message });
+    return error('Failed to delete client', err);
+}
 };
 
 /**

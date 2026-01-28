@@ -196,4 +196,7 @@ const close = async () => {
     }
 };
 
+// Drizzle ORM exports
+export { getDrizzle, withTransaction, withTransactionOptions, schema } from './drizzle.js';
+
 export { query, getClient, transaction, close, getPool };

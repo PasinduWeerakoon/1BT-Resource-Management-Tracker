@@ -1,10 +1,8 @@
 service: onebt-migration-service
 
-frameworkVersion: "3"
-
 provider:
   name: aws
-  runtime: nodejs20.x
+  runtime: nodejs22.x
   stage: ${opt:stage, 'dev'}
   region: ${opt:region, 'ap-southeast-1'}
   memorySize: 512

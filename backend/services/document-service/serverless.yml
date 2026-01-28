@@ -1,10 +1,8 @@
 service: onebt-document-service
 
-frameworkVersion: "3"
-
 provider:
   name: aws
-  runtime: python3.11
+  runtime: python3.12
   stage: ${opt:stage, 'dev'}
   region: ${opt:region, 'ap-southeast-1'}
   memorySize: 512 # Document generation needs more memory

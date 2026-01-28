@@ -82,6 +82,19 @@ const logger = {
             durationMs: duration,
         });
     },
+
+    /**
+     * Create a child logger with additional context
+     */
+    child: (context = {}) => {
+        return {
+            error: (message, meta = {}) => logger.error(message, { ...context, ...meta }),
+            warn: (message, meta = {}) => logger.warn(message, { ...context, ...meta }),
+            info: (message, meta = {}) => logger.info(message, { ...context, ...meta }),
+            debug: (message, meta = {}) => logger.debug(message, { ...context, ...meta }),
+            child: (additionalContext = {}) => logger.child({ ...context, ...additionalContext }),
+        };
+    },
 };
 
 export default logger;
