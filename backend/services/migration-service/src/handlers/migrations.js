@@ -638,6 +638,88 @@ const migrations = [
 
             logger.info('Migration 009 completed: Tiers table created');
         }
+    },
+    {
+        id: '010_bench_project',
+        name: 'Create Bench project and internal projects for auto-allocation',
+        up: async (client) => {
+            // Add is_bench_project column to projects table
+            await client.query(`
+                ALTER TABLE projects 
+                ADD COLUMN IF NOT EXISTS is_bench_project BOOLEAN NOT NULL DEFAULT false;
+            `);
+
+            // Get super admin user ID for created_by
+            const userResult = await client.query(
+                "SELECT id FROM users WHERE email = 'hirun.dealwis@1billiontech.com' LIMIT 1"
+            );
+            const userId = userResult.rows.length > 0 ? userResult.rows[0].id : '00000000-0000-0000-0000-000000000000';
+
+            // Check if Bench project exists by code
+            const benchExists = await client.query("SELECT id FROM projects WHERE project_code = 'BENCH'");
+
+            if (benchExists.rows.length > 0) {
+                // Update existing Bench project
+                await client.query(`
+                    UPDATE projects SET is_bench_project = true WHERE project_code = 'BENCH'
+                `);
+                logger.info('Updated existing Bench project with is_bench_project flag');
+            } else {
+                // Insert new Bench project
+                await client.query(`
+                    INSERT INTO projects (
+                        project_name, project_code, project_type, billing_status,
+                        status, description, is_bench_project, created_by
+                    ) VALUES (
+                        'Bench', 'BENCH', 'Bench', 'Non-Billing',
+                        'Active',
+                        'Default bench allocation for unassigned resources. Resources are automatically allocated 100% to Bench when created.',
+                        true, $1
+                    )
+                `, [userId]);
+                logger.info('Created new Bench project');
+            }
+
+            // Check and insert Pre-Sales project
+            const presalesExists = await client.query("SELECT id FROM projects WHERE project_code = 'PRESALES'");
+            if (presalesExists.rows.length === 0) {
+                await client.query(`
+                    INSERT INTO projects (
+                        project_name, project_code, project_type, billing_status,
+                        status, description, created_by
+                    ) VALUES (
+                        'Pre-Sales', 'PRESALES', 'Presale', 'Non-Billing',
+                        'Active',
+                        'Pre-sales activities including demos, proposals, and client presentations',
+                        $1
+                    )
+                `, [userId]);
+            }
+
+            // Check and insert Training project
+            const trainingExists = await client.query("SELECT id FROM projects WHERE project_code = 'TRAINING'");
+            if (trainingExists.rows.length === 0) {
+                await client.query(`
+                    INSERT INTO projects (
+                        project_name, project_code, project_type, billing_status,
+                        status, description, created_by
+                    ) VALUES (
+                        'Training', 'TRAINING', 'Training', 'Non-Billing',
+                        'Active',
+                        'Training and skill development activities',
+                        $1
+                    )
+                `, [userId]);
+            }
+
+            // Create index on is_bench_project
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS idx_projects_bench 
+                ON projects(is_bench_project) WHERE is_bench_project = true;
+            `);
+
+            logger.info('Migration 010 completed: Bench and internal projects created');
+        }
     }
 ];
 

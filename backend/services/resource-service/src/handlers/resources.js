@@ -2,6 +2,9 @@
  * Resources Handler
  * Lambda handlers for resource (employee) management
  * Uses shared layer for database, logger, and utilities
+ * 
+ * Bench Auto-Allocation:
+ * - New resources are automatically allocated 100% to Bench project
  */
 
 // Import from Lambda Layer (mounted at /opt/nodejs)
@@ -9,6 +12,74 @@ import * as db from '/opt/nodejs/database/index.js';
 import logger from '/opt/nodejs/logger/index.js';
 import { success, error, notFound, validationError, conflict } from '/opt/nodejs/utils/response.js';
 import { validate, resourceSchemas } from '/opt/nodejs/validation/index.js';
+
+// Fixed Bench project ID - will be looked up by is_bench_project flag
+let BENCH_PROJECT_ID = null;
+
+/**
+ * Get the Bench project ID (from database by is_bench_project flag)
+ */
+const getBenchProjectId = async () => {
+    // Return cached value if available
+    if (BENCH_PROJECT_ID) {
+        return BENCH_PROJECT_ID;
+    }
+
+    try {
+        const result = await db.query(
+            "SELECT id FROM projects WHERE is_bench_project = true AND deleted_at IS NULL LIMIT 1"
+        );
+        if (result.rows.length > 0) {
+            BENCH_PROJECT_ID = result.rows[0].id;
+            return BENCH_PROJECT_ID;
+        }
+
+        // Fallback: try to find by project code
+        const codeResult = await db.query(
+            "SELECT id FROM projects WHERE project_code = 'BENCH' AND deleted_at IS NULL LIMIT 1"
+        );
+        if (codeResult.rows.length > 0) {
+            BENCH_PROJECT_ID = codeResult.rows[0].id;
+            return BENCH_PROJECT_ID;
+        }
+
+        return null;
+    } catch {
+        return null;
+    }
+};
+
+/**
+ * Create initial bench allocation for a new resource at 100%
+ */
+const createInitialBenchAllocation = async (resourceId, userId, log) => {
+    try {
+        const benchProjectId = await getBenchProjectId();
+
+        // Check if Bench project exists
+        const benchExists = await db.query('SELECT id FROM projects WHERE id = $1', [benchProjectId]);
+        if (benchExists.rows.length === 0) {
+            log.warn('Bench project not found, skipping auto-allocation', { benchProjectId });
+            return null;
+        }
+
+        const result = await db.query(`
+            INSERT INTO allocations (
+                resource_id, project_id, allocation_percentage, start_date, 
+                is_active, notes, created_by
+            )
+            VALUES ($1, $2, 100, CURRENT_DATE, true, 'Auto-created bench allocation for new resource', $3)
+            RETURNING *
+        `, [resourceId, benchProjectId, userId]);
+
+        log.info('Initial bench allocation created', { resourceId, allocationId: result.rows[0].id });
+        return result.rows[0];
+    } catch (err) {
+        log.error('Failed to create initial bench allocation', { resourceId, error: err.message });
+        // Don't fail resource creation if bench allocation fails
+        return null;
+    }
+};
 
 /**
  * List resources with pagination and filters
@@ -147,6 +218,7 @@ export const getById = async (event) => {
 
 /**
  * Create a new resource
+ * Automatically assigns 100% to Bench project
  */
 export const create = async (event) => {
     const log = logger.child({ handler: 'resources.create' });
@@ -230,10 +302,24 @@ export const create = async (event) => {
         ];
 
         const result = await db.query(query, params);
+        const newResource = result.rows[0];
 
-        log.info('Resource created', { id: result.rows[0].id });
+        log.info('Resource created', { id: newResource.id });
 
-        return success(result.rows[0], 201);
+        // Auto-assign 100% to Bench project
+        const benchAllocation = await createInitialBenchAllocation(newResource.id, userId, log);
+
+        // Include bench allocation info in response
+        const response = {
+            ...newResource,
+            benchAllocation: benchAllocation ? {
+                id: benchAllocation.id,
+                percentage: benchAllocation.allocation_percentage,
+                message: 'Automatically allocated 100% to Bench'
+            } : null
+        };
+
+        return success(response, 201);
 
     } catch (err) {
         log.error('Failed to create resource', { error: err.message });
@@ -280,8 +366,10 @@ export const update = async (event) => {
         const params = [id];
         let paramIndex = 2;
 
-        // Get user info for updated_by
-        const userId = event.requestContext?.authorizer?.claims?.sub || 'system';
+        // Get user info for updated_by - use system UUID as fallback
+        const userId = event.requestContext?.authorizer?.jwt?.claims?.sub
+            || event.requestContext?.authorizer?.claims?.sub
+            || '00000000-0000-0000-0000-000000000000';
 
         for (const [key, value] of Object.entries(updateData)) {
             if (value !== undefined) {
@@ -385,7 +473,7 @@ export const getAllocations = async (event) => {
 
         let whereClause = 'WHERE a.resource_id = $1';
         if (!includeHistory) {
-            whereClause += " AND a.status = 'ACTIVE'";
+            whereClause += " AND a.is_active = true";
         }
 
         const query = `
