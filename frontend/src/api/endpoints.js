@@ -30,6 +30,14 @@ export const ENDPOINTS = {
     DELETE: (id) => `${BASE_URL}/resources/${id}`,
     ALLOCATIONS: (id) => `${BASE_URL}/resources/${id}/allocations`,
     DESIGNATION_HISTORY: (id) => `${BASE_URL}/resources/${id}/designation-history`,
+    ACCOUNT_MANAGER: (id) => `${BASE_URL}/resources/${id}/account-manager`,
+    TIER: (id) => `${BASE_URL}/resources/${id}/tier`,
+    TECH_STACK: (id) => `${BASE_URL}/resources/${id}/tech-stack`,
+  },
+
+  // Account Managers
+  ACCOUNT_MANAGERS: {
+    LIST: `${BASE_URL}/account-managers`,
   },
 
   // Tracks
@@ -95,6 +103,17 @@ export const ENDPOINTS = {
     EXCEPTION: `${BASE_URL}/reports/exception`,
     NON_BILLING: `${BASE_URL}/reports/non-billing`,
     PRE_SALE: `${BASE_URL}/reports/pre-sale`,
+  },
+
+  // Audit Logs
+  AUDIT_LOGS: {
+    BASE: `${BASE_URL}/audit-logs`,
+    GET_BY_ID: (id) => `${BASE_URL}/audit-logs/${id}`,
+    GET_BY_ENTITY: (entityType, entityId) => `${BASE_URL}/audit-logs/entity/${entityType}/${entityId}`,
+    GET_BY_USER: (userId) => `${BASE_URL}/audit-logs/user/${userId}`,
+    STATS: `${BASE_URL}/audit-logs/stats`,
+    DLQ: `${BASE_URL}/audit-logs/dlq`,
+    REPROCESS_DLQ: (messageId) => `${BASE_URL}/audit-logs/dlq/${messageId}/reprocess`,
   },
 };
 

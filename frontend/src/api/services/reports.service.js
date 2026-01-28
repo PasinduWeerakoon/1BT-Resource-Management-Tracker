@@ -22,11 +22,23 @@ export const reportsService = {
   },
 
   /**
-   * Get account manager report
-   * Projects grouped by account manager
+   * Get comprehensive account manager report with charts and tables
    * @param {Object} params - Query parameters
    * @param {string} params.account_manager_id - Filter by account manager ID (optional)
-   * @returns {Promise<{success: boolean, data: Array<{project_name: string, client_name: string, resources: Array}>, total: number, generatedAt: string}>}
+   * @param {string} params.project_id - Filter by project ID (optional)
+   * @param {string} params.project_status - Filter by project status (optional)
+   * @param {string} params.allocation_status - Filter by allocation status (optional)
+   * @param {string} params.client_id - Filter by client ID (optional)
+   * @param {string} params.billing_status - Filter by billing status (optional)
+   * @param {number} params.year - Filter by year (optional)
+   * @param {number} params.month - Filter by month 1-12 (optional)
+   * @param {string} params.employee_status - Filter by employee status (optional)
+   * @param {string} params.start_date - Filter by start date YYYY-MM-DD (optional)
+   * @param {string} params.end_date - Filter by end date YYYY-MM-DD (optional)
+   * @param {string} params.track_id - Filter by track ID (optional)
+   * @param {number} params.page - Page number for pagination (optional)
+   * @param {number} params.limit - Items per page (optional)
+   * @returns {Promise<{success: boolean, summary: {billableResources: number, allocatedCount: number, billableCount: number, averageProjectAllocation: number, averageBillingPercentage: number}, charts: {allocationsByBillingStatus: Object, employeesByTier: Object, employeesByTrack: Object, employeesByTechStack: Object}, projects: {data: Array, pagination: Object}, allocations: {data: Array, pagination: Object}, designations: {data: Array}, generatedAt: string}>}
    */
   getAccountManager: async (params = {}) => {
     const response = await apiClient.get(ENDPOINTS.REPORTS.ACCOUNT_MANAGER, {

@@ -66,6 +66,8 @@ export { default as clientsService } from './services/clients.service';
 export { default as projectsService } from './services/projects.service';
 export { default as allocationsService } from './services/allocations.service';
 export { default as reportsService } from './services/reports.service';
+export { default as auditLogsService } from './services/auditLogs.service';
+export { default as accountManagersService } from './services/accountManagers.service';
 
 // Utilities
 export * from './utils';

@@ -20,7 +20,7 @@ import { Doughnut, Bar } from 'react-chartjs-2';
 import { commonOptions, colors } from '@utils/chartConfig';
 import CustomTable from '@components/Table';
 import CustomModal from '@components/Modal';
-import { projectsService, clientsService, allocationsService, resourcesService } from '@api';
+import { projectsService, clientsService, allocationsService, resourcesService, accountManagersService, reportsService } from '@api';
 import { showErrorToast, showSuccessToast, showWarningToast } from '@utils/toast.utils';
 import '@styles/pages/AccountManagerReport.scss';
 
@@ -76,15 +76,42 @@ const AccountManagerReport = () => {
     const [loadingResourceAllocations, setLoadingResourceAllocations] = useState(false);
     const [selectedResourceId, setSelectedResourceId] = useState(null);
     const [selectedResourceName, setSelectedResourceName] = useState('');
+    const [accountManagersList, setAccountManagersList] = useState([]);
+    const [loadingAccountManagers, setLoadingAccountManagers] = useState(false);
+    const [projectsForFilter, setProjectsForFilter] = useState([]);
+    const [loadingProjectsForFilter, setLoadingProjectsForFilter] = useState(false);
+    const [reportData, setReportData] = useState({
+        summary: {
+            billableResources: 0,
+            allocatedCount: 0,
+            billableCount: 0,
+            averageProjectAllocation: 0,
+            averageBillingPercentage: 0,
+        },
+        charts: {
+            allocationsByBillingStatus: {},
+            employeesByTier: {},
+            employeesByTrack: {},
+            employeesByTechStack: {},
+        },
+        projects: { data: [], pagination: {} },
+        allocations: { data: [], pagination: {} },
+        designations: { data: [] },
+    });
+    const [loadingReport, setLoadingReport] = useState(false);
+    const [dateRange, setDateRange] = useState(null);
 
     // Refs to prevent duplicate API calls
     const fetchProjectsInProgressRef = useRef(false);
     const fetchClientsInProgressRef = useRef(false);
     const fetchResourcesInProgressRef = useRef(false);
     const fetchAllocationsInProgressRef = useRef(false);
+    const fetchAccountManagersInProgressRef = useRef(false);
+    const fetchProjectsForFilterInProgressRef = useRef(false);
+    const fetchReportInProgressRef = useRef(false);
 
     const [filters, setFilters] = useState({
-        accountManager: 'Randika Swaris',
+        accountManager: 'All',
         projectName: 'All',
         projectStatus: 'Active',
         allocationStatus: 'Active',
@@ -97,7 +124,7 @@ const AccountManagerReport = () => {
 
     // Default filter values for comparison
     const defaultFilters = {
-        accountManager: 'Randika Swaris',
+        accountManager: 'All',
         projectName: 'All',
         projectStatus: 'Active',
         allocationStatus: 'Active',
@@ -119,11 +146,17 @@ const AccountManagerReport = () => {
         return count;
     }, [filters]);
 
-    // Fetch clients list for client lookup
+    // Fetch clients list for client lookup and filters
     useEffect(() => {
         const fetchClients = async () => {
+            // Prevent duplicate calls
+            if (fetchClientsInProgressRef.current) {
+                return;
+            }
+
             try {
-                const response = await clientsService.getAll({ limit: 10 });
+                fetchClientsInProgressRef.current = true;
+                const response = await clientsService.getAll({ limit: 100 });
                 let clientsData = [];
 
                 if (response) {
@@ -139,11 +172,330 @@ const AccountManagerReport = () => {
                 setClientsList(clientsData);
             } catch (error) {
                 console.error('Failed to fetch clients:', error);
+            } finally {
+                fetchClientsInProgressRef.current = false;
             }
         };
 
         fetchClients();
     }, []);
+
+    // Fetch account managers from dedicated API
+    useEffect(() => {
+        const fetchAccountManagers = async () => {
+            // Prevent duplicate calls
+            if (fetchAccountManagersInProgressRef.current) {
+                return;
+            }
+
+            try {
+                fetchAccountManagersInProgressRef.current = true;
+                setLoadingAccountManagers(true);
+                const response = await accountManagersService.getAll();
+                let accountManagersData = [];
+
+                if (response) {
+                    // Handle different response structures
+                    if (Array.isArray(response.data)) {
+                        accountManagersData = response.data;
+                    } else if (response.data && Array.isArray(response.data)) {
+                        accountManagersData = response.data;
+                    } else if (Array.isArray(response)) {
+                        accountManagersData = response;
+                    }
+                }
+
+                // Transform to simple list for filter dropdown
+                // API returns: {id, employee_id, name, email, designation, track, tier, project_count, resource_count}
+                const accountManagers = accountManagersData
+                    .map(am => ({
+                        id: am.id,
+                        name: am.name,
+                        email: am.email,
+                        employee_id: am.employee_id,
+                        designation: am.designation,
+                        track: am.track,
+                        tier: am.tier,
+                        project_count: am.project_count,
+                        resource_count: am.resource_count,
+                    }))
+                    .filter(am => am.id && am.name); // Filter out invalid entries
+
+                setAccountManagersList(accountManagers);
+            } catch (error) {
+                console.error('Failed to fetch account managers:', error);
+                showErrorToast('Failed to load account managers');
+            } finally {
+                setLoadingAccountManagers(false);
+                fetchAccountManagersInProgressRef.current = false;
+            }
+        };
+
+        fetchAccountManagers();
+    }, []);
+
+    // Fetch projects for filter dropdown
+    useEffect(() => {
+        const fetchProjectsForFilter = async () => {
+            // Prevent duplicate calls
+            if (fetchProjectsForFilterInProgressRef.current) {
+                return;
+            }
+
+            try {
+                fetchProjectsForFilterInProgressRef.current = true;
+                setLoadingProjectsForFilter(true);
+                const response = await projectsService.getAll({ limit: 100 });
+                let projectsData = [];
+
+                if (response) {
+                    // Handle different response structures
+                    if (Array.isArray(response.data)) {
+                        projectsData = response.data;
+                    } else if (response.data && response.data.data && Array.isArray(response.data.data)) {
+                        projectsData = response.data.data;
+                    } else if (response.data && Array.isArray(response.data)) {
+                        projectsData = response.data;
+                    } else if (Array.isArray(response)) {
+                        projectsData = response;
+                    }
+                }
+
+                // Transform to simple list for filter dropdown
+                const projectsList = projectsData
+                    .map(project => ({
+                        id: project.id,
+                        name: project.project_name || project.name,
+                    }))
+                    .filter(project => project.id && project.name); // Filter out invalid entries
+
+                setProjectsForFilter(projectsList);
+            } catch (error) {
+                console.error('Failed to fetch projects for filter:', error);
+                showErrorToast('Failed to load projects');
+            } finally {
+                setLoadingProjectsForFilter(false);
+                fetchProjectsForFilterInProgressRef.current = false;
+            }
+        };
+
+        fetchProjectsForFilter();
+    }, []);
+
+    // Fetch comprehensive account manager report
+    const fetchAccountManagerReport = async () => {
+        // Prevent duplicate calls
+        if (fetchReportInProgressRef.current) {
+            return;
+        }
+
+        try {
+            fetchReportInProgressRef.current = true;
+            setLoadingReport(true);
+            setLoadingProjects(true);
+            setLoadingAllocations(true);
+
+            // Build query parameters from filters
+            const queryParams = {};
+
+            // Account Manager ID
+            if (filters.accountManager && filters.accountManager !== 'All') {
+                const selectedAM = accountManagersList.find(am => am.name === filters.accountManager);
+                if (selectedAM) {
+                    queryParams.account_manager_id = selectedAM.id;
+                }
+            }
+
+            // Project ID (from filter or selected project)
+            if (selectedProjectId) {
+                queryParams.project_id = selectedProjectId;
+            } else if (filters.projectName && filters.projectName !== 'All') {
+                const selectedProject = projectsForFilter.find(p => p.name === filters.projectName);
+                if (selectedProject) {
+                    queryParams.project_id = selectedProject.id;
+                }
+            }
+
+            // Project Status
+            if (filters.projectStatus && filters.projectStatus !== 'All') {
+                queryParams.project_status = filters.projectStatus;
+            }
+
+            // Allocation Status
+            if (filters.allocationStatus && filters.allocationStatus !== 'All') {
+                queryParams.allocation_status = filters.allocationStatus;
+            }
+
+            // Client ID
+            if (filters.clientName && filters.clientName !== 'All') {
+                const selectedClient = clientsList.find(c => c.client_name === filters.clientName);
+                if (selectedClient) {
+                    queryParams.client_id = selectedClient.id;
+                }
+            }
+
+            // Billing Status
+            if (filters.billingStatus && filters.billingStatus !== 'All') {
+                queryParams.billing_status = filters.billingStatus;
+            }
+
+            // Year
+            if (filters.year && filters.year !== 'All') {
+                queryParams.year = parseInt(filters.year);
+            }
+
+            // Month
+            if (filters.month && filters.month !== 'All') {
+                const monthMap = {
+                    'January': 1, 'February': 2, 'March': 3, 'April': 4,
+                    'May': 5, 'June': 6, 'July': 7, 'August': 8,
+                    'September': 9, 'October': 10, 'November': 11, 'December': 12
+                };
+                queryParams.month = monthMap[filters.month] || parseInt(filters.month);
+            }
+
+            // Employee Status
+            if (filters.employeeStatus && filters.employeeStatus !== 'All') {
+                queryParams.employee_status = filters.employeeStatus;
+            }
+
+            // Date Range
+            if (dateRange && dateRange.length === 2) {
+                queryParams.start_date = dateRange[0].format('YYYY-MM-DD');
+                queryParams.end_date = dateRange[1].format('YYYY-MM-DD');
+            }
+
+            // Pagination (use allocation pagination if project is selected, otherwise project pagination)
+            if (selectedProjectId) {
+                queryParams.page = allocationPagination.current;
+                queryParams.limit = allocationPagination.pageSize;
+            } else {
+                queryParams.page = projectPagination.current;
+                queryParams.limit = projectPagination.pageSize;
+            }
+
+            const response = await reportsService.getAccountManager(queryParams);
+
+            if (response) {
+                // Handle response structure
+                const data = response.data || response;
+
+                setReportData({
+                    summary: data.summary || {
+                        billableResources: 0,
+                        allocatedCount: 0,
+                        billableCount: 0,
+                        averageProjectAllocation: 0,
+                        averageBillingPercentage: 0,
+                    },
+                    charts: data.charts || {
+                        allocationsByBillingStatus: {},
+                        employeesByTier: {},
+                        employeesByTrack: {},
+                        employeesByTechStack: {},
+                    },
+                    projects: data.projects || { data: [], pagination: {} },
+                    allocations: data.allocations || { data: [], pagination: {} },
+                    designations: data.designations || { data: [] },
+                });
+
+                // Update project data and pagination
+                if (data.projects && data.projects.data) {
+                    const transformedProjects = data.projects.data.map((project) => ({
+                        key: project.id,
+                        id: project.id,
+                        project: project.project || project.project_name || project.name || 'N/A',
+                        customer: project.customer || project.client_name || 'N/A',
+                        projectType: project.project_type || 'N/A',
+                        teamSize: project.team_size ? (typeof project.team_size === 'string' ? parseInt(project.team_size, 10) : project.team_size) : 0,
+                        status: project.status || 'N/A',
+                        billingStatus: project.billing_status || 'N/A',
+                        accountManagerId: project.account_manager_id,
+                        accountManagerName: project.account_manager_name || 'N/A',
+                        // Keep additional fields for edit functionality
+                        project_name: project.project || project.project_name,
+                        project_code: project.project_code,
+                        client_id: project.client_id,
+                        is_billable: project.billing_status === 'Billing',
+                        start_date: project.start_date,
+                        end_date: project.end_date,
+                        description: project.description,
+                        project_type: project.project_type,
+                    }));
+
+                    setProjectData(transformedProjects);
+                    setProjectPagination({
+                        current: data.projects.pagination?.page || projectPagination.current,
+                        pageSize: data.projects.pagination?.limit || projectPagination.pageSize,
+                        total: data.projects.pagination?.total || 0,
+                    });
+                }
+
+                // Update allocation data and pagination
+                if (data.allocations && data.allocations.data) {
+                    const transformedAllocations = data.allocations.data.map((allocation) => {
+                        const allocationPercentage = parseFloat(allocation.allocation_percentage) || 0;
+                        const billingPercentage = parseFloat(allocation.billing_percentage) || 0;
+                        const billingStatus = billingPercentage > 0 ? 'Billing' : 'Non-Billing';
+
+                        return {
+                            key: allocation.id,
+                            id: allocation.id,
+                            resource_id: allocation.resource_id,
+                            resource_name: allocation.resource_name || 'N/A',
+                            project_id: allocation.project_id,
+                            project_name: allocation.project_name || 'N/A',
+                            project: allocation.project_name || 'N/A',
+                            allocatedDate: allocation.start_date ? dayjs(allocation.start_date).format('DD MMM YYYY') : '',
+                            deallocatedDate: allocation.end_date ? dayjs(allocation.end_date).format('DD MMM YYYY') : '',
+                            billingStatus: billingStatus,
+                            billingPercentage: billingPercentage ? `${billingPercentage.toFixed(2)}%` : '0.00%',
+                            projectAllocation: allocationPercentage ? `${allocationPercentage.toFixed(2)}%` : '0.00%',
+                            duration: allocation.duration || 0,
+                            status: allocation.is_active ? 'Active' : 'Inactive',
+                        };
+                    });
+
+                    setAllocationData(transformedAllocations);
+                    setAllocationPagination({
+                        current: data.allocations.pagination?.page || allocationPagination.current,
+                        pageSize: data.allocations.pagination?.limit || allocationPagination.pageSize,
+                        total: data.allocations.pagination?.total || 0,
+                    });
+                }
+            }
+        } catch (error) {
+            console.error('Failed to fetch account manager report:', error);
+            showErrorToast('Failed to load account manager report');
+        } finally {
+            setLoadingReport(false);
+            setLoadingProjects(false);
+            setLoadingAllocations(false);
+            fetchReportInProgressRef.current = false;
+        }
+    };
+
+    // Fetch report when filters change
+    useEffect(() => {
+        fetchAccountManagerReport();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [
+        filters.accountManager,
+        filters.projectName,
+        filters.projectStatus,
+        filters.allocationStatus,
+        filters.clientName,
+        filters.billingStatus,
+        filters.year,
+        filters.month,
+        filters.employeeStatus,
+        dateRange,
+        // Removed selectedProjectId - don't refetch report when project is selected
+        // Allocations are fetched separately via fetchProjectAllocations when clicking a project row
+        projectPagination.current,
+        projectPagination.pageSize,
+        // Removed allocationPagination - allocations pagination is handled separately
+    ]);
 
     // Fetch projects from API
     const fetchProjects = async (page = 1, limit = 10) => {
@@ -253,11 +605,7 @@ const AccountManagerReport = () => {
         }
     };
 
-    // Fetch projects on component mount and when filters change
-    useEffect(() => {
-        fetchProjects(projectPagination.current, projectPagination.pageSize);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [filters.projectName, filters.projectStatus]);
+    // Note: Projects are now fetched via fetchAccountManagerReport which is called when filters change
 
     // Reset filters to default values
     const handleResetFilters = (e) => {
@@ -366,38 +714,142 @@ const AccountManagerReport = () => {
     };
 
     // Handle add team members
-    const handleAddTeamMembers = (project) => {
+    const handleAddTeamMembers = async (project) => {
         setSelectedProjectForTeam(project);
-
-        // Load existing team members for this project
-        // TODO: Replace with actual API call
-        const existingMembers = allocationData.filter(item => item.project === project.project);
-        setTeamMembersList(existingMembers.length > 0 ? existingMembers.map((member, index) => {
-            // Parse date strings like "13 Oct 2025" to dayjs
-            let allocatedDate = undefined;
-            let deallocatedDate = undefined;
-            if (member.allocatedDate) {
-                allocatedDate = dayjs(member.allocatedDate, 'DD MMM YYYY');
-            }
-            if (member.deallocatedDate) {
-                deallocatedDate = dayjs(member.deallocatedDate, 'DD MMM YYYY');
-            }
-
-            return {
-                key: `existing-${index}`,
-                employeeName: member.employeeName,
-                projectName: project.project,
-                allocatedDate: allocatedDate,
-                deallocatedDate: deallocatedDate,
-                billingStatus: member.billingStatus,
-                billingPercentage: parseFloat(member.billingPercentage.replace('%', '')) || 0,
-                projectAllocation: parseFloat(member.projectAllocation.replace('%', '')) || 0,
-                duration: member.duration || 0,
-                status: member.status,
-            };
-        }) : []);
-
         setIsAddTeamMembersModalVisible(true);
+
+        // Show loading state
+        setTeamMembersList([]);
+
+        try {
+            // Call the allocations API with project_id
+            const response = await allocationsService.getAll({
+                project_id: project.id,
+                page: 1,
+                limit: 100, // Get all allocations for this project
+            });
+
+            console.log('Allocations API response for project:', response);
+
+            // Handle response structure after interceptor transformation
+            let allocationsData = [];
+
+            if (response) {
+                // Check if response.data has data array (pagination format)
+                if (response.data && Array.isArray(response.data)) {
+                    allocationsData = response.data;
+                }
+                // Check if response.data has nested data structure
+                else if (response.data && response.data.data && Array.isArray(response.data.data)) {
+                    allocationsData = response.data.data;
+                }
+                // Check if response is directly an array
+                else if (Array.isArray(response)) {
+                    allocationsData = response;
+                }
+                // Check if response.data is a single object (wrap it in array)
+                else if (response.data && typeof response.data === 'object' && !Array.isArray(response.data) && response.data.id) {
+                    allocationsData = [response.data];
+                }
+            }
+
+            console.log('Parsed allocations data:', allocationsData);
+
+            // Transform allocations data to match modal format
+            // First, fetch resource names if missing
+            const transformedMembers = await Promise.all(allocationsData.map(async (allocation, index) => {
+                // Parse dates
+                let allocatedDate = undefined;
+                let deallocatedDate = undefined;
+                if (allocation.start_date) {
+                    allocatedDate = dayjs(allocation.start_date);
+                }
+                if (allocation.end_date) {
+                    deallocatedDate = dayjs(allocation.end_date);
+                }
+
+                // Handle allocation_percentage and billing_percentage as strings or numbers
+                const allocationPercentage = typeof allocation.allocation_percentage === 'string'
+                    ? parseFloat(allocation.allocation_percentage)
+                    : (allocation.allocation_percentage || 0);
+                const billingPercentage = typeof allocation.billing_percentage === 'string'
+                    ? parseFloat(allocation.billing_percentage)
+                    : (allocation.billing_percentage || 0);
+
+                // Determine billing status based on project_type
+                let billingStatus = 'Non-Billing';
+                if (allocation.project_type === 'Client' || allocation.project_is_billable) {
+                    billingStatus = 'Billing';
+                } else if (allocation.project_type === 'Bench') {
+                    billingStatus = 'Bench';
+                } else if (allocation.project_type === 'Pre-Sales' || allocation.project_type === 'Presale' || allocation.project_type === 'Pre-Sale') {
+                    billingStatus = 'Presale';
+                } else if (allocation.project_type === 'Training') {
+                    billingStatus = 'Training';
+                }
+
+                // Calculate duration in days
+                let duration = 0;
+                if (allocation.start_date) {
+                    const startDate = dayjs(allocation.start_date);
+                    const endDate = allocation.end_date ? dayjs(allocation.end_date) : dayjs();
+                    duration = endDate.diff(startDate, 'day');
+                }
+
+                // Get resource name - try multiple sources, or fetch if missing
+                let resourceName = allocation.resource_name ||
+                    allocation.employeeName ||
+                    allocation.name;
+
+                // If resource name is missing and we have resource_id, try to fetch it
+                if (!resourceName && allocation.resource_id) {
+                    // First check if it's in the resourcesList
+                    const resource = resourcesList.find(r => r.id === allocation.resource_id);
+                    if (resource) {
+                        resourceName = resource.name;
+                    } else {
+                        // Try to fetch from API
+                        try {
+                            const resourceResponse = await resourcesService.getById(allocation.resource_id);
+                            if (resourceResponse && resourceResponse.data) {
+                                resourceName = resourceResponse.data.name || 'N/A';
+                            }
+                        } catch (error) {
+                            console.error('Failed to fetch resource:', error);
+                        }
+                    }
+                }
+
+                resourceName = resourceName || 'N/A';
+
+                return {
+                    key: `existing-${allocation.id || index}`,
+                    id: allocation.id,
+                    resource_id: allocation.resource_id,
+                    employeeName: resourceName,
+                    employeeId: allocation.resource_id, // Store resource ID for Select value
+                    projectName: allocation.project_name || project.project,
+                    allocatedDate: allocatedDate,
+                    deallocatedDate: deallocatedDate,
+                    billingStatus: billingStatus,
+                    billingPercentage: billingPercentage,
+                    projectAllocation: allocationPercentage,
+                    duration: duration,
+                    status: allocation.is_active !== undefined ? (allocation.is_active ? 'Active' : 'Inactive') : (allocation.status || 'Active'),
+                    isExisting: true, // Mark as existing allocation
+                };
+            }));
+
+            setTeamMembersList(transformedMembers);
+
+            if (transformedMembers.length === 0) {
+                showWarningToast('No allocations found for this project');
+            }
+        } catch (error) {
+            console.error('Failed to fetch project allocations:', error);
+            showErrorToast(error?.response?.data?.message || error?.message || 'Failed to load project allocations');
+            setTeamMembersList([]);
+        }
     };
 
     const handleAddTeamMembersCancel = () => {
@@ -417,23 +869,51 @@ const AccountManagerReport = () => {
 
         const newMember = {
             key: `new-${Date.now()}`,
+            id: undefined,
+            resource_id: undefined,
+            employeeId: undefined, // For Select value
             employeeName: undefined,
             projectName: selectedProjectForTeam?.project || '',
             allocatedDate: undefined,
             deallocatedDate: undefined,
-            billingStatus: selectedProjectForTeam?.billingType || 'Billing',
+            billingStatus: 'Billing',
             billingPercentage: 0,
             projectAllocation: 0,
             duration: 0,
-            status: selectedProjectForTeam?.status || 'Active',
+            status: 'Active',
+            isExisting: false, // Mark as new member
         };
         setTeamMembersList([...teamMembersList, newMember]);
     };
 
     const handleMemberFieldChange = (memberKey, field, value) => {
-        setTeamMembersList(teamMembersList.map(member =>
-            member.key === memberKey ? { ...member, [field]: value } : member
-        ));
+        setTeamMembersList(teamMembersList.map(member => {
+            if (member.key === memberKey) {
+                const updatedMember = { ...member, [field]: value };
+
+                // If employeeName is changed (value is resource_id), also update resource_id and employeeName
+                if (field === 'employeeName' && value) {
+                    const selectedResource = resourcesList.find(r => r.id === value);
+                    if (selectedResource) {
+                        updatedMember.resource_id = selectedResource.id;
+                        updatedMember.employeeId = selectedResource.id;
+                        updatedMember.employeeName = selectedResource.name;
+                    }
+                }
+
+                // Recalculate duration if dates change
+                if (field === 'allocatedDate' || field === 'deallocatedDate') {
+                    if (updatedMember.allocatedDate) {
+                        const startDate = dayjs(updatedMember.allocatedDate);
+                        const endDate = updatedMember.deallocatedDate ? dayjs(updatedMember.deallocatedDate) : dayjs();
+                        updatedMember.duration = endDate.diff(startDate, 'day');
+                    }
+                }
+
+                return updatedMember;
+            }
+            return member;
+        }));
     };
 
     const handleRemoveTeamMemberRow = (key) => {
@@ -629,72 +1109,110 @@ const AccountManagerReport = () => {
         try {
             setIsSubmittingProject(true);
 
-            // Map project type from form to API format
+            // Validate required fields
+            if (!values.projectName) {
+                showErrorToast('Project name is required');
+                setIsSubmittingProject(false);
+                return;
+            }
+
+            if (!values.accountManager) {
+                showErrorToast('Account manager is required');
+                setIsSubmittingProject(false);
+                return;
+            }
+
+            // Handle client_id - required only for External projects
+            let client_id = null;
+            if (values.accountType === 'External') {
+                if (values.clientName) {
+                    // clientName is now the client ID from the dropdown
+                    client_id = values.clientName;
+
+                    // Verify client exists in the list
+                    const selectedClient = clientsList.find(client => client.id === client_id);
+                    if (!selectedClient) {
+                        showErrorToast('Selected client not found');
+                        setIsSubmittingProject(false);
+                        return;
+                    }
+                } else {
+                    showErrorToast('Client is required for External projects');
+                    setIsSubmittingProject(false);
+                    return;
+                }
+            }
+
+            // Map project type - API expects: Client|Bench|Training|POC|Presale|Research
             const projectTypeMap = {
                 'Client': 'Client',
                 'Bench': 'Bench',
                 'Training': 'Training',
-                'POC': 'Client', // POC maps to Client
-                'Presale': 'Pre-Sales',
+                'POC': 'POC',
+                'Presale': 'Presale',
             };
 
-            // Determine project_type based on accountType
-            let project_type;
-            if (values.accountType === 'Internal') {
-                project_type = 'Internal';
-            } else {
-                project_type = projectTypeMap[values.projectType] || 'Client';
-            }
+            const project_type = projectTypeMap[values.projectType] || 'Client';
 
-            // Handle client_id - if External and clientName provided, try to find or create client
-            let client_id = null;
-            if (values.accountType === 'External' && values.clientName) {
-                // Try to find existing client by name
-                const existingClient = clientsList.find(
-                    client => client.client_name?.toLowerCase() === values.clientName?.toLowerCase()
-                );
+            // Map status - API expects: Active|On Hold|Completed|Cancelled
+            const statusMap = {
+                'Active': 'Active',
+                'Inactive': 'On Hold',
+                'On Hold': 'On Hold',
+                'Completed': 'Completed',
+                'Cancelled': 'Cancelled',
+            };
+            const status = statusMap[values.status] || 'Active';
 
-                if (existingClient) {
-                    client_id = existingClient.id;
-                } else {
-                    // Create new client if not found
-                    try {
-                        const newClientResponse = await clientsService.create({
-                            client_name: values.clientName,
-                            contact_person: values.clientContact || '',
-                            contact_email: values.clientEmail || '',
-                            contact_phone: values.clientPhone || '',
-                            address: values.clientAddress || '',
-                            is_active: true,
-                        });
-
-                        if (newClientResponse && newClientResponse.data) {
-                            client_id = newClientResponse.data.id;
-                            // Update clients list
-                            setClientsList(prev => [...prev, newClientResponse.data]);
-                        }
-                    } catch (clientError) {
-                        console.error('Failed to create client:', clientError);
-                        // Continue without client_id if client creation fails
-                    }
-                }
-            }
-
-            // Map billing type to is_billable
-            const is_billable = values.billingType === 'Billing';
-
-            // Prepare API payload
+            // Prepare API payload according to API specification
             const projectPayload = {
                 project_name: values.projectName,
-                project_code: '', // Optional, can be generated by backend
-                client_id: client_id,
-                project_type: project_type,
-                is_billable: is_billable,
-                status: values.status === 'Active' ? 'Active' : 'On Hold', // Map status
+                project_code: values.projectCode || '', // Optional
+                client_id: client_id, // Required only for External projects
+                project_type: project_type, // Client|Bench|Training|POC|Presale|Research
+                account_type: values.accountType || 'External', // Internal|External
+                account_manager: values.accountManager, // Required string
+                account_reg_sales_owner: values.accountRegSalesOwner || '', // Optional string
+                team_size: values.teamSize || 1, // Number, default 1
+                billing_type: values.billingType || 'Billing', // Billing|Non-Billing
+                budget: values.budget || 0, // Number, default 0
+                status: status, // Active|On Hold|Completed|Cancelled
                 start_date: values.projectStartDate ? values.projectStartDate.format('YYYY-MM-DD') : null,
                 end_date: values.projectEndDate ? values.projectEndDate.format('YYYY-MM-DD') : null,
                 description: values.description || '',
             };
+
+            // Clean up payload: remove empty optional fields, but keep required fields
+            // Required: project_name, account_manager
+            // client_id is required only for External projects (already validated above)
+            const cleanedPayload = { ...projectPayload };
+
+            // Remove empty optional string fields
+            if (!cleanedPayload.project_code || cleanedPayload.project_code === '') {
+                delete cleanedPayload.project_code;
+            }
+            if (!cleanedPayload.account_reg_sales_owner || cleanedPayload.account_reg_sales_owner === '') {
+                delete cleanedPayload.account_reg_sales_owner;
+            }
+            if (!cleanedPayload.description || cleanedPayload.description === '') {
+                delete cleanedPayload.description;
+            }
+
+            // Remove null dates
+            if (!cleanedPayload.start_date) {
+                delete cleanedPayload.start_date;
+            }
+            if (!cleanedPayload.end_date) {
+                delete cleanedPayload.end_date;
+            }
+
+            // Remove client_id if Internal project
+            if (cleanedPayload.account_type === 'Internal') {
+                delete cleanedPayload.client_id;
+            }
+
+            // Use cleaned payload
+            const finalPayload = cleanedPayload;
 
             if (isEditMode && selectedProject) {
                 // Update existing project
@@ -716,14 +1234,14 @@ const AccountManagerReport = () => {
                     form.resetFields();
                     setBillingType(null);
                     setAccountType('External');
-                    // Refresh project list
-                    await fetchProjects();
+                    // Refresh comprehensive report
+                    await fetchAccountManagerReport();
                 } else {
                     showErrorToast(response?.message || 'Failed to update project');
                 }
             } else {
                 // Create new project
-                const response = await projectsService.create(projectPayload);
+                const response = await projectsService.create(finalPayload);
 
                 if (response && (response.success !== false || response.data)) {
                     showSuccessToast('Project created successfully');
@@ -734,8 +1252,8 @@ const AccountManagerReport = () => {
                     form.resetFields();
                     setBillingType(null);
                     setAccountType('External');
-                    // Refresh project list
-                    await fetchProjects();
+                    // Refresh comprehensive report
+                    await fetchAccountManagerReport();
                 } else {
                     showErrorToast(response?.message || 'Failed to create project');
                 }
@@ -748,27 +1266,44 @@ const AccountManagerReport = () => {
         }
     };
 
-    // KPI Data
-    const kpiData = {
-        billableResources: 52,
-        allocatedCount: 48.2,
-        billableCount: 5.0,
-        avgProjectAllocation: 92.6,
-        avgBillingPercentage: 29.2,
-    };
+    // KPI Data from API
+    const kpiData = useMemo(() => ({
+        billableResources: reportData.summary.billableResources || 0,
+        allocatedCount: reportData.summary.allocatedCount || 0,
+        billableCount: reportData.summary.billableCount || 0,
+        avgProjectAllocation: reportData.summary.averageProjectAllocation || 0,
+        avgBillingPercentage: reportData.summary.averageBillingPercentage || 0,
+    }), [reportData.summary]);
 
-    // Chart.js data for billing status donut chart
-    const billingStatusDonutData = {
-        labels: ['Bench', 'Non-Billing', 'Training', 'Presale', 'Billing'],
-        datasets: [
-            {
-                data: [19, 15, 14, 6, 6],
-                backgroundColor: [colors.error, colors.warning, colors.success, colors.info, colors.purple],
-                borderWidth: 2,
-                borderColor: '#fff',
-            },
-        ],
-    };
+    // Chart.js data for billing status donut chart from API
+    const billingStatusDonutData = useMemo(() => {
+        const allocationsByBillingStatus = reportData.charts.allocationsByBillingStatus || {};
+        const labels = Object.keys(allocationsByBillingStatus);
+        const data = Object.values(allocationsByBillingStatus);
+
+        // Default color mapping for billing statuses
+        const colorMap = {
+            'Bench': colors.error,
+            'Non-Billing': colors.warning,
+            'Training': colors.success,
+            'Presale': colors.info,
+            'Billing': colors.purple,
+        };
+
+        const backgroundColors = labels.map(label => colorMap[label] || colors.primary);
+
+        return {
+            labels: labels.length > 0 ? labels : ['No Data'],
+            datasets: [
+                {
+                    data: data.length > 0 ? data : [0],
+                    backgroundColor: backgroundColors.length > 0 ? backgroundColors : [colors.gray],
+                    borderWidth: 2,
+                    borderColor: '#fff',
+                },
+            ],
+        };
+    }, [reportData.charts.allocationsByBillingStatus]);
 
     const billingStatusDonutOptions = {
         ...commonOptions,
@@ -793,18 +1328,24 @@ const AccountManagerReport = () => {
         },
     };
 
-    // Chart.js data for employees by tier bar chart
-    const employeesByTierBarData = {
-        labels: ['Synergy', 'Tier - 1', 'Tier - 2', 'Tier - 3', 'Tier - 4', 'Intern'],
-        datasets: [
-            {
-                label: 'Number of Employees',
-                data: [4, 2, 11, 4, 14, 16],
-                backgroundColor: colors.primary,
-                borderRadius: 4,
-            },
-        ],
-    };
+    // Chart.js data for employees by tier bar chart from API
+    const employeesByTierBarData = useMemo(() => {
+        const employeesByTier = reportData.charts.employeesByTier || {};
+        const labels = Object.keys(employeesByTier);
+        const data = Object.values(employeesByTier);
+
+        return {
+            labels: labels.length > 0 ? labels : ['No Data'],
+            datasets: [
+                {
+                    label: 'Number of Employees',
+                    data: data.length > 0 ? data : [0],
+                    backgroundColor: colors.primary,
+                    borderRadius: 4,
+                },
+            ],
+        };
+    }, [reportData.charts.employeesByTier]);
 
     const employeesByTierBarOptions = {
         ...commonOptions,
@@ -830,26 +1371,36 @@ const AccountManagerReport = () => {
         },
     };
 
-    // Chart.js data for track donut chart
-    const trackDonutData = {
-        labels: ['Dev', 'QA', 'Delivery', 'PM', 'BA', 'UX', 'UI'],
-        datasets: [
-            {
-                data: [29, 7, 4, 4, 3, 3, 2],
-                backgroundColor: [
-                    colors.primary,
-                    colors.error,
-                    colors.warning,
-                    colors.success,
-                    colors.info,
-                    colors.purple,
-                    colors.cyan,
-                ],
-                borderWidth: 2,
-                borderColor: '#fff',
-            },
-        ],
-    };
+    // Chart.js data for track donut chart from API
+    const trackDonutData = useMemo(() => {
+        const employeesByTrack = reportData.charts.employeesByTrack || {};
+        const labels = Object.keys(employeesByTrack);
+        const data = Object.values(employeesByTrack);
+
+        const colorPalette = [
+            colors.primary,
+            colors.error,
+            colors.warning,
+            colors.success,
+            colors.info,
+            colors.purple,
+            colors.cyan,
+        ];
+
+        const backgroundColors = labels.map((_, index) => colorPalette[index % colorPalette.length]);
+
+        return {
+            labels: labels.length > 0 ? labels : ['No Data'],
+            datasets: [
+                {
+                    data: data.length > 0 ? data : [0],
+                    backgroundColor: backgroundColors.length > 0 ? backgroundColors : [colors.gray],
+                    borderWidth: 2,
+                    borderColor: '#fff',
+                },
+            ],
+        };
+    }, [reportData.charts.employeesByTrack]);
 
     const trackDonutOptions = {
         ...commonOptions,
@@ -874,18 +1425,24 @@ const AccountManagerReport = () => {
         },
     };
 
-    // Chart.js data for tech stack bar chart
-    const techStackBarData = {
-        labels: ['.NET', 'Full Stack', 'QA', 'BA/PM', 'Data Science'],
-        datasets: [
-            {
-                label: 'Number of Employees',
-                data: [13, 10, 8, 5, 3],
-                backgroundColor: colors.primary,
-                borderRadius: 4,
-            },
-        ],
-    };
+    // Chart.js data for tech stack bar chart from API
+    const techStackBarData = useMemo(() => {
+        const employeesByTechStack = reportData.charts.employeesByTechStack || {};
+        const labels = Object.keys(employeesByTechStack);
+        const data = Object.values(employeesByTechStack);
+
+        return {
+            labels: labels.length > 0 ? labels : ['No Data'],
+            datasets: [
+                {
+                    label: 'Number of Employees',
+                    data: data.length > 0 ? data : [0],
+                    backgroundColor: colors.primary,
+                    borderRadius: 4,
+                },
+            ],
+        };
+    }, [reportData.charts.employeesByTechStack]);
 
     const techStackBarOptions = {
         ...commonOptions,
@@ -1007,7 +1564,7 @@ const AccountManagerReport = () => {
                     if (response && (response.success !== false || response.message)) {
                         showSuccessToast('Allocation deleted successfully');
                         // Refresh allocations for the selected project
-                        await fetchProjectAllocations(selectedProjectId, allocationPagination.current, allocationPagination.pageSize);
+                        await fetchAccountManagerReport();
                     } else {
                         showErrorToast(response?.message || 'Failed to delete allocation');
                     }
@@ -1058,7 +1615,7 @@ const AccountManagerReport = () => {
                     setSelectedAllocation(null);
                     setIsEditAllocationMode(false);
                     // Refresh allocations
-                    await fetchProjectAllocations(selectedProjectId, allocationPagination.current, allocationPagination.pageSize);
+                    await fetchAccountManagerReport();
                 } else {
                     showErrorToast(response?.message || 'Failed to update allocation');
                 }
@@ -1073,7 +1630,7 @@ const AccountManagerReport = () => {
                     setSelectedAllocation(null);
                     setIsEditAllocationMode(false);
                     // Refresh allocations
-                    await fetchProjectAllocations(selectedProjectId, allocationPagination.current, allocationPagination.pageSize);
+                    await fetchAccountManagerReport();
                 } else {
                     showErrorToast(response?.message || 'Failed to create allocation');
                 }
@@ -1110,22 +1667,58 @@ const AccountManagerReport = () => {
             console.log('Resource allocations API response:', response);
 
             // Handle response structure after interceptor transformation
+            // API returns: {success: true, data: {resource_id: "...", allocations: [...], total: 1}}
+            // After interceptor: response.data = {resource_id: "...", allocations: [...], total: 1}
+            // Service returns: response.data (which is the transformed object)
+            // So in component: response = {resource_id: "...", allocations: [...], total: 1}
             let allocationsData = [];
 
             if (response) {
-                // Check if response is an array directly
-                if (Array.isArray(response)) {
-                    allocationsData = response;
+                console.log('Full response object:', response);
+
+                // Check if response has allocations array directly (after service returns response.data)
+                if (response.allocations && Array.isArray(response.allocations)) {
+                    allocationsData = response.allocations;
+                    console.log('Found allocations in response.allocations:', allocationsData.length);
                 }
-                // Check if response has data array
+                // Check if response.data has allocations array (if service returns full response object)
+                else if (response.data && response.data.allocations && Array.isArray(response.data.allocations)) {
+                    allocationsData = response.data.allocations;
+                    console.log('Found allocations in response.data.allocations:', allocationsData.length);
+                }
+                // Check if response.data is directly an array (after interceptor transformation)
                 else if (Array.isArray(response.data)) {
                     allocationsData = response.data;
+                    console.log('Found allocations as direct array:', allocationsData.length);
                 }
-                // Check if response.data is a single object (wrap it in array)
-                else if (response.data && typeof response.data === 'object' && !Array.isArray(response.data) && response.data.id) {
-                    allocationsData = [response.data];
+                // Check if response is an array directly
+                else if (Array.isArray(response)) {
+                    allocationsData = response;
+                    console.log('Found allocations as root array:', allocationsData.length);
                 }
+                // Check if response.data is a single object with allocations property (nested)
+                else if (response.data && typeof response.data === 'object' && !Array.isArray(response.data)) {
+                    // If it has allocations property, use it
+                    if (response.data.allocations && Array.isArray(response.data.allocations)) {
+                        allocationsData = response.data.allocations;
+                        console.log('Found allocations in nested object:', allocationsData.length);
+                    }
+                    // Otherwise, if it has id (single allocation), wrap it in array
+                    else if (response.data.id) {
+                        allocationsData = [response.data];
+                        console.log('Found single allocation, wrapped in array');
+                    } else {
+                        console.warn('Unexpected response.data structure:', response.data);
+                    }
+                } else {
+                    console.warn('Could not parse response structure:', response);
+                }
+            } else {
+                console.warn('Response is null or undefined');
             }
+
+            console.log('Final parsed allocations data:', allocationsData);
+            console.log('Allocations count:', allocationsData.length);
 
             // Transform allocations data to match table format
             const transformedAllocations = allocationsData.map((allocation, index) => {
@@ -1145,13 +1738,14 @@ const AccountManagerReport = () => {
                     ? parseFloat(allocation.billing_percentage)
                     : (allocation.billing_percentage || 0);
 
-                // Determine billing status
+                // Determine billing status based on project_type
+                // API provides: project_type (e.g., "Client", "Bench", "Pre-Sales", "Training")
                 let billingStatus = 'Non-Billing';
-                if (allocation.project_is_billable) {
+                if (allocation.project_type === 'Client' || allocation.project_is_billable) {
                     billingStatus = 'Billing';
                 } else if (allocation.project_type === 'Bench') {
                     billingStatus = 'Bench';
-                } else if (allocation.project_type === 'Pre-Sales' || allocation.project_type === 'Presale') {
+                } else if (allocation.project_type === 'Pre-Sales' || allocation.project_type === 'Presale' || allocation.project_type === 'Pre-Sale') {
                     billingStatus = 'Presale';
                 } else if (allocation.project_type === 'Training') {
                     billingStatus = 'Training';
@@ -1173,8 +1767,21 @@ const AccountManagerReport = () => {
             });
 
             setResourceAllocationsData(transformedAllocations);
+
+            // Only show warning if we actually parsed data but got empty array
+            // Don't show warning if there was a parsing error (that's handled in catch)
+            if (transformedAllocations.length === 0 && allocationsData.length === 0) {
+                // This means the response structure wasn't recognized
+                console.warn('No allocations found - response structure may be unexpected');
+                showWarningToast('No allocations found for this resource');
+            } else if (transformedAllocations.length === 0 && allocationsData.length > 0) {
+                // This means parsing worked but transformation failed
+                console.warn('Allocations parsed but transformation failed');
+                showWarningToast('Failed to process allocation data');
+            }
         } catch (error) {
             console.error('Failed to fetch resource allocations:', error);
+            showErrorToast(error?.response?.data?.message || error?.message || 'Failed to load resource allocations');
             setResourceAllocationsData([]);
         } finally {
             setLoadingResourceAllocations(false);
@@ -1325,71 +1932,19 @@ const AccountManagerReport = () => {
         },
     ];
 
-    const designationData = [
-        {
-            key: '1',
-            employeeName: 'Akeel Aliyar',
-            track: 'Dev',
-            techStack: 'Full Stack',
-            tier: 'Tier - 4',
-            designation: 'ASE',
-            allocationCount: 1,
-        },
-        {
-            key: '2',
-            employeeName: 'Amaniya Faizal',
-            track: 'UI',
-            techStack: 'UI',
-            tier: 'Tier - 4',
-            designation: 'SE - UI',
-            allocationCount: 1,
-        },
-        {
-            key: '3',
-            employeeName: 'Anushka Wickramaratne',
-            track: 'Delivery',
-            techStack: 'QA',
-            tier: 'Synergy',
-            designation: 'Senior Manager - QA',
-            allocationCount: 1,
-        },
-        {
-            key: '4',
-            employeeName: 'Avanthi Amunugama',
-            track: 'Delivery',
-            techStack: 'BA/PM',
-            tier: 'Synergy',
-            designation: 'Associate Director - Project Management and Business Consulting',
-            allocationCount: 2,
-        },
-        {
-            key: '5',
-            employeeName: 'Chaminda Pragnarathne',
-            track: 'Dev',
-            techStack: '.NET',
-            tier: 'Tier - 2',
-            designation: 'STL',
-            allocationCount: 1,
-        },
-        {
-            key: '6',
-            employeeName: 'Chanka Sonnadara',
-            track: 'Dev',
-            techStack: 'Full Stack',
-            tier: 'Tier - 4',
-            designation: 'ASE',
-            allocationCount: 1,
-        },
-        {
-            key: '7',
-            employeeName: 'Charith Bandara',
-            track: 'QA',
-            techStack: 'QA',
-            tier: 'Tier - 4',
-            designation: 'QAE',
-            allocationCount: 2,
-        },
-    ];
+    // Designation data from API
+    const designationData = useMemo(() => {
+        const designations = reportData.designations.data || [];
+        return designations.map((item, index) => ({
+            key: item.id || `designation-${index}`,
+            employeeName: item.employee_name || item.name || 'N/A',
+            track: item.track || 'N/A',
+            techStack: item.tech_stack || 'N/A',
+            tier: item.tier || 'N/A',
+            designation: item.designation || 'N/A',
+            allocationCount: item.allocation_count || 0,
+        }));
+    }, [reportData.designations.data]);
 
     // Fetch allocations for a project
     const fetchProjectAllocations = async (projectId, page = 1, limit = 10) => {
@@ -1418,20 +1973,21 @@ const AccountManagerReport = () => {
             let paginationData = {};
 
             if (response) {
-                // Check if response itself is an array (after interceptor transformation)
-                if (Array.isArray(response)) {
-                    allocationsData = response;
-                    paginationData = {};
+                // Check if response has nested data structure with data array (most common format)
+                // API returns: {success: true, data: {data: [], pagination: {...}}}
+                if (response.data && response.data.data && Array.isArray(response.data.data)) {
+                    allocationsData = response.data.data;
+                    paginationData = response.data.pagination || {};
                 }
-                // Check if response has data array directly (after interceptor transformation)
+                // Check if response.data is directly an array (after interceptor transformation)
                 else if (Array.isArray(response.data)) {
                     allocationsData = response.data;
                     paginationData = response.pagination || {};
                 }
-                // Check if response has nested data structure with data array
-                else if (response.data && response.data.data && Array.isArray(response.data.data)) {
-                    allocationsData = response.data.data;
-                    paginationData = response.data.pagination || {};
+                // Check if response itself is an array (after interceptor transformation)
+                else if (Array.isArray(response)) {
+                    allocationsData = response;
+                    paginationData = {};
                 }
                 // Check if response.data is a single object (wrap it in array)
                 else if (response.data && typeof response.data === 'object' && !Array.isArray(response.data) && response.data.id) {
@@ -1445,12 +2001,10 @@ const AccountManagerReport = () => {
                     allocationsData = [response];
                     paginationData = { total: 1, page: 1, limit: 10 };
                 }
-                // Check if response is the data object directly with array
-                else if (response.data && Array.isArray(response.data)) {
-                    allocationsData = response.data;
-                    paginationData = response.pagination || {};
-                }
             }
+
+            console.log('Parsed allocations data:', allocationsData);
+            console.log('Pagination data:', paginationData);
 
             // Transform allocations data to match table format
             const transformedAllocations = await Promise.all(allocationsData.map(async (allocation, index) => {
@@ -1555,9 +2109,17 @@ const AccountManagerReport = () => {
         }
     };
 
-    // Handle project row click
+    // Handle project row click - fetch allocations for the selected project
     const handleProjectClick = (project) => {
+        // If clicking the same project, don't do anything (prevent duplicate API calls)
+        if (selectedProjectId === project.id) {
+            return;
+        }
+
         setSelectedProjectId(project.id);
+        // Reset allocation pagination to first page when selecting a new project
+        setAllocationPagination(prev => ({ ...prev, current: 1 }));
+        // Fetch allocations for the selected project using allocations API
         fetchProjectAllocations(project.id, 1, allocationPagination.pageSize);
     };
 
@@ -1674,9 +2236,19 @@ const AccountManagerReport = () => {
                                         value={filters.accountManager}
                                         onChange={(value) => setFilters({ ...filters, accountManager: value })}
                                         style={{ width: '100%' }}
+                                        loading={loadingAccountManagers}
+                                        showSearch
+                                        filterOption={(input, option) =>
+                                            (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                                        }
+                                        placeholder="Select Account Manager"
                                     >
-                                        <Option value="Randika Swaris">Randika Swaris</Option>
                                         <Option value="All">All</Option>
+                                        {accountManagersList.map((am) => (
+                                            <Option key={am.id} value={am.name} label={am.name}>
+                                                {am.name}
+                                            </Option>
+                                        ))}
                                     </Select>
                                 </div>
                             </Col>
@@ -1687,10 +2259,19 @@ const AccountManagerReport = () => {
                                         value={filters.projectName}
                                         onChange={(value) => setFilters({ ...filters, projectName: value })}
                                         style={{ width: '100%' }}
+                                        loading={loadingProjectsForFilter}
+                                        showSearch
+                                        filterOption={(input, option) =>
+                                            (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                                        }
+                                        placeholder="Select Project"
                                     >
                                         <Option value="All">All</Option>
-                                        <Option value="Healthfinder">Healthfinder</Option>
-                                        <Option value="MillionSpaces">MillionSpaces</Option>
+                                        {projectsForFilter.map((project) => (
+                                            <Option key={project.id} value={project.name} label={project.name}>
+                                                {project.name}
+                                            </Option>
+                                        ))}
                                     </Select>
                                 </div>
                             </Col>
@@ -1727,10 +2308,18 @@ const AccountManagerReport = () => {
                                         value={filters.clientName}
                                         onChange={(value) => setFilters({ ...filters, clientName: value })}
                                         style={{ width: '100%' }}
+                                        showSearch
+                                        filterOption={(input, option) =>
+                                            (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                                        }
+                                        placeholder="Select Client"
                                     >
                                         <Option value="All">All</Option>
-                                        <Option value="Healthfinder">Healthfinder</Option>
-                                        <Option value="DXC">DXC</Option>
+                                        {clientsList.map((client) => (
+                                            <Option key={client.id} value={client.client_name} label={client.client_name}>
+                                                {client.client_name}
+                                            </Option>
+                                        ))}
                                     </Select>
                                 </div>
                             </Col>
@@ -1794,7 +2383,12 @@ const AccountManagerReport = () => {
                             <Col xs={24} sm={12} md={8} lg={6}>
                                 <div className="filter-item">
                                     <label>Duration</label>
-                                    <RangePicker style={{ width: '100%' }} />
+                                    <RangePicker
+                                        style={{ width: '100%' }}
+                                        value={dateRange}
+                                        onChange={(dates) => setDateRange(dates)}
+                                        allowClear
+                                    />
                                 </div>
                             </Col>
                         </Row>
@@ -1914,11 +2508,11 @@ const AccountManagerReport = () => {
                             showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} projects`,
                             onChange: (page, pageSize) => {
                                 setProjectPagination(prev => ({ ...prev, current: page, pageSize }));
-                                fetchProjects(page, pageSize);
+                                // Report will be refetched via useEffect when pagination changes
                             },
                             onShowSizeChange: (current, size) => {
                                 setProjectPagination(prev => ({ ...prev, current: 1, pageSize: size }));
-                                fetchProjects(1, size);
+                                // Report will be refetched via useEffect when pagination changes
                             },
                         }}
                         size="small"
@@ -1975,12 +2569,14 @@ const AccountManagerReport = () => {
                             showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} allocations`,
                             onChange: (page, pageSize) => {
                                 setAllocationPagination(prev => ({ ...prev, current: page, pageSize }));
+                                // Fetch allocations directly when pagination changes
                                 if (selectedProjectId) {
                                     fetchProjectAllocations(selectedProjectId, page, pageSize);
                                 }
                             },
                             onShowSizeChange: (current, size) => {
                                 setAllocationPagination(prev => ({ ...prev, current: 1, pageSize: size }));
+                                // Fetch allocations directly when page size changes
                                 if (selectedProjectId) {
                                     fetchProjectAllocations(selectedProjectId, 1, size);
                                 }
@@ -2084,7 +2680,9 @@ const AccountManagerReport = () => {
                             >
                                 <Select placeholder="Select status">
                                     <Option value="Active">Active</Option>
-                                    <Option value="Inactive">Inactive</Option>
+                                    <Option value="On Hold">On Hold</Option>
+                                    <Option value="Completed">Completed</Option>
+                                    <Option value="Cancelled">Cancelled</Option>
                                 </Select>
                             </Form.Item>
                         </Col>
@@ -2103,6 +2701,7 @@ const AccountManagerReport = () => {
                                     <Option value="Training">Training</Option>
                                     <Option value="POC">POC</Option>
                                     <Option value="Presale">Presale</Option>
+                                    <Option value="Research">Research</Option>
                                 </Select>
                             </Form.Item>
                         </Col>
@@ -2126,14 +2725,54 @@ const AccountManagerReport = () => {
                     <Row gutter={16}>
                         <Col xs={24} sm={12}>
                             <Form.Item
+                                label="Project Code"
+                                name="projectCode"
+                            >
+                                <Input placeholder="Enter project code (optional)" />
+                            </Form.Item>
+                        </Col>
+                        <Col xs={24} sm={12}>
+                            <Form.Item
                                 label="Client Name"
                                 name="clientName"
                                 rules={[
-                                    { min: 2, message: 'Client name must be at least 2 characters' },
-                                    { max: 100, message: 'Client name must not exceed 100 characters' },
+                                    ({ getFieldValue }) => ({
+                                        validator(_, value) {
+                                            const accountType = getFieldValue('accountType');
+                                            if (accountType === 'External' && !value) {
+                                                return Promise.reject(new Error('Client is required for External projects'));
+                                            }
+                                            return Promise.resolve();
+                                        },
+                                    }),
                                 ]}
                             >
-                                <Input placeholder="Enter client name" />
+                                <Select
+                                    placeholder="Select client"
+                                    showSearch
+                                    allowClear
+                                    disabled={accountType === 'Internal'}
+                                    filterOption={(input, option) =>
+                                        (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                                    }
+                                >
+                                    {clientsList.map((client) => (
+                                        <Option key={client.id} value={client.id} label={client.client_name}>
+                                            {client.client_name}
+                                        </Option>
+                                    ))}
+                                </Select>
+                            </Form.Item>
+                        </Col>
+                    </Row>
+
+                    <Row gutter={16}>
+                        <Col xs={24} sm={12}>
+                            <Form.Item
+                                label="Project Start Date"
+                                name="projectStartDate"
+                            >
+                                <DatePicker style={{ width: '100%' }} placeholder="Select start date" />
                             </Form.Item>
                         </Col>
                         <Col xs={24} sm={12}>
@@ -2191,9 +2830,20 @@ const AccountManagerReport = () => {
                                 name="accountManager"
                                 rules={[{ required: true, message: 'Account manager is required' }]}
                             >
-                                <Select placeholder="Select account manager" showSearch allowClear>
-                                    <Option value="Randika Swaris">Randika Swaris</Option>
-                                    {/* Add more account managers as needed */}
+                                <Select
+                                    placeholder="Select account manager"
+                                    showSearch
+                                    allowClear
+                                    loading={loadingAccountManagers}
+                                    filterOption={(input, option) =>
+                                        (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                                    }
+                                >
+                                    {accountManagersList.map((am) => (
+                                        <Option key={am.id} value={am.name} label={am.name}>
+                                            {am.name}
+                                        </Option>
+                                    ))}
                                 </Select>
                             </Form.Item>
                         </Col>
@@ -2214,6 +2864,34 @@ const AccountManagerReport = () => {
                                     placeholder="Enter team size"
                                     min={1}
                                 />
+                            </Form.Item>
+                        </Col>
+                        <Col xs={24} sm={12}>
+                            <Form.Item
+                                label="Budget"
+                                name="budget"
+                                rules={[
+                                    { type: 'number', min: 0, message: 'Budget must be 0 or greater' },
+                                ]}
+                            >
+                                <InputNumber
+                                    style={{ width: '100%' }}
+                                    placeholder="Enter budget (optional)"
+                                    min={0}
+                                    formatter={value => `$ ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                                    parser={value => value.replace(/\$\s?|(,*)/g, '')}
+                                />
+                            </Form.Item>
+                        </Col>
+                    </Row>
+
+                    <Row gutter={16}>
+                        <Col xs={24} sm={12}>
+                            <Form.Item
+                                label="Account Reg/Sales Owner"
+                                name="accountRegSalesOwner"
+                            >
+                                <Input placeholder="Enter account reg/sales owner (optional)" />
                             </Form.Item>
                         </Col>
                     </Row>
@@ -2336,20 +3014,18 @@ const AccountManagerReport = () => {
                                         <Select
                                             placeholder="Select employee"
                                             showSearch
-                                            value={member.employeeName}
+                                            disabled={member.isExisting} // Disable for existing allocations
+                                            value={member.resource_id || member.employeeId}
                                             onChange={(value) => handleMemberFieldChange(member.key, 'employeeName', value)}
                                             filterOption={(input, option) =>
                                                 (option?.children ?? '').toLowerCase().includes(input.toLowerCase())
                                             }
                                         >
-                                            {/* TODO: Replace with actual employee list from API */}
-                                            <Option value="Akeel Aliyar">Akeel Aliyar</Option>
-                                            <Option value="Amaniya Faizal">Amaniya Faizal</Option>
-                                            <Option value="Anushka Wickramaratne">Anushka Wickramaratne</Option>
-                                            <Option value="Avanthi Amunugama">Avanthi Amunugama</Option>
-                                            <Option value="Chaminda Pragnarathne">Chaminda Pragnarathne</Option>
-                                            <Option value="Chanka Sonnadara">Chanka Sonnadara</Option>
-                                            <Option value="Charith Bandara">Charith Bandara</Option>
+                                            {resourcesList.map(resource => (
+                                                <Option key={resource.id} value={resource.id}>
+                                                    {resource.name}
+                                                </Option>
+                                            ))}
                                         </Select>
                                     </Form.Item>
                                 </Col>
