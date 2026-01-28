@@ -1,6 +1,6 @@
 {
     "name": "onebt-report-service",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "description": "Reports microservice - handles dashboard and analytics reports",
     "type": "module",
     "scripts": {

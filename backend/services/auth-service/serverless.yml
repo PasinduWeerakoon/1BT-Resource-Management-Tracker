@@ -17,6 +17,7 @@ provider:
     NODE_ENV: ${self:provider.stage}
     COGNITO_USER_POOL_ID: !ImportValue onebt-${self:provider.stage}-CognitoUserPoolId
     COGNITO_CLIENT_ID: !ImportValue onebt-${self:provider.stage}-CognitoClientId
+    AUDIT_QUEUE_URL: !ImportValue onebt-${self:provider.stage}-AuditQueueUrl
 
   iam:
     role:
@@ -33,6 +34,10 @@ provider:
             - cognito-idp:ForgotPassword
             - cognito-idp:ConfirmForgotPassword
           Resource: !ImportValue onebt-${self:provider.stage}-CognitoUserPoolArn
+        - Effect: Allow
+          Action:
+            - sqs:SendMessage
+          Resource: !ImportValue onebt-${self:provider.stage}-AuditQueueArn
 
   # NO VPC - Auth service uses Cognito only, no database access needed
   # This gives faster cold starts
@@ -135,3 +140,17 @@ functions:
       - httpApi:
           path: /api/v1/auth/complete-invite
           method: POST
+
+  # ============================================
+  # GET CURRENT USER - Protected endpoint
+  # ============================================
+  getCurrentUser:
+    handler: src/handlers/auth.getCurrentUser
+    description: Get current authenticated user info
+    events:
+      - httpApi:
+          path: /api/v1/auth/me
+          method: GET
+          authorizer:
+            type: jwt
+            id: !ImportValue onebt-${self:provider.stage}-CognitoAuthorizerId

@@ -1,94 +1,173 @@
 # 🛡️ Bastion Host Usage Guide
 
-This guide explains how to securely access your private RDS database using the deployed Bastion Host and AWS Systems Manager (SSM) Session Manager.
-
-**Note:** No SSH keys are required. Access is managed via IAM permissions.
+This guide explains how to securely access your private RDS database using the Bastion Host with SSH.
 
 ## ✅ Prerequisites
 
-1.  **AWS CLI installed and configured**
-    *   Run `aws configure` with your credentials.
-2.  **Session Manager Plugin installed**
-    *   [Install Guide for Windows/Mac/Linux](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html)
+1. **AWS CLI installed and configured**
+   - Run `aws configure` with your credentials.
+2. **PEM Key File**
+   - The key file `onebt-bastion-dev.pem` is located in `backend/infrastructure/`
+   - **IMPORTANT:** Keep this file secure and never commit to version control
 
 ---
 
-## 🚀 1. Connect to Bastion Shell
+## 🔑 Connection Details
 
-To get a shell access to the bastion instance (e.g., to run CLI tools inside the VPC):
-
-1.  **Get the Instance ID:**
-    ```powershell
-    # PowerShell
-    $InstanceId = aws cloudformation describe-stacks --stack-name onebt-rm-dev-bastion --region ap-southeast-1 --query "Stacks[0].Outputs[?OutputKey=='BastionInstanceId'].OutputValue" --output text
-    Write-Host "Bastion Instance ID: $InstanceId"
-    ```
-
-    ```bash
-    # Bash
-    INSTANCE_ID=$(aws cloudformation describe-stacks --stack-name onebt-rm-dev-bastion --region ap-southeast-1 --query "Stacks[0].Outputs[?OutputKey=='BastionInstanceId'].OutputValue" --output text)
-    echo "Bastion Instance ID: $INSTANCE_ID"
-    ```
-
-2.  **Start Session:**
-    ```bash
-    aws ssm start-session --target $INSTANCE_ID --region ap-southeast-1
-    ```
+| Property                | Value                                                        |
+| ----------------------- | ------------------------------------------------------------ |
+| **Bastion IP**          | `122.248.226.217`                                            |
+| **Bastion Instance ID** | `i-058ec151b188554e3`                                        |
+| **RDS Endpoint**        | `onebt-db-dev.cpg2g0wb7axs.ap-southeast-1.rds.amazonaws.com` |
+| **Database Name**       | `resource_management_dev`                                    |
+| **Database User**       | `dbadmin`                                                    |
 
 ---
 
-## 🔌 2. Port Forwarding (Connect with pgAdmin/TablePlus)
+## 🚀 1. SSH to Bastion (Direct Shell Access)
 
-To access the private RDS database from your local machine (e.g., using pgAdmin, DBeaver, or TablePlus), you need to create a secure tunnel.
+To get shell access to the bastion instance:
 
-1.  **Get RDS Endpoint:**
-    ```bash
-    aws cloudformation describe-stacks --stack-name onebt-rm-dev-rds --region ap-southeast-1 --query "Stacks[0].Outputs[?OutputKey=='RDSEndpoint'].OutputValue" --output text
-    ```
-    *(Let's assume the output is `onebt-db-dev.xyz.ap-southeast-1.rds.amazonaws.com`)*
+```bash
+# From the infrastructure directory
+ssh -i onebt-bastion-dev.pem ec2-user@122.248.226.217
+```
 
-2.  **Start Port Forwarding Session:**
-    This command forwards your local port `54320` (arbitrary) to the remote RDS port `5432` via the bastion.
+**First time connection?** You'll be asked to accept the host key - type `yes`.
 
-    ```bash
-    aws ssm start-session \
-        --target i-04f6374dc7c76d13d \
-        --region ap-southeast-1 \
-        --document-name AWS-StartPortForwardingSessionToRemoteHost \
-        --parameters '{"host":["onebt-db-dev.cpg2g0wb7axs.ap-southeast-1.rds.amazonaws.com"],"portNumber":["5432"],"localPortNumber":["54320"]}'
-    ```
+Once connected, you can use `psql` to connect to RDS directly:
 
-    *Replace `<BASTION_INSTANCE_ID>` and `<RDS_ENDPOINT>` with actual values.*
+```bash
+# Get the password from AWS Secrets Manager first (from your local machine)
+aws secretsmanager get-secret-value \
+    --secret-id "rds!db-83479c20-33e3-4a5e-aa06-3f2e2e73e749" \
+    --query "SecretString" \
+    --output text \
+    --region ap-southeast-1 | jq -r '.password'
 
-3.  **Connect Your Database Client:**
-    Now connect using your preferred tool:
-    *   **Host:** `localhost`
-    *   **Port:** `54320`
-    *   **Database:** `resource_management_dev`
-    *   **User:** `dbadmin`
-    *   **Password:** *(Retrieve from SSM if needed)*
-        ```bash
-        aws ssm get-parameter --name "/1bt/dev/db-password" --with-decryption --query "Parameter.Value" --output text --region ap-southeast-1
-        ```
+# Then on the bastion, connect to PostgreSQL
+psql -h onebt-db-dev.cpg2g0wb7axs.ap-southeast-1.rds.amazonaws.com \
+     -U dbadmin \
+     -d resource_management_dev
+```
+
+---
+
+## 🔌 2. SSH Tunnel (Connect with pgAdmin/TablePlus/DBeaver)
+
+To access the private RDS database from your local machine using a GUI tool:
+
+### PowerShell (Windows)
+
+```powershell
+# Navigate to the infrastructure directory first
+cd C:\Users\HIRUN\Documents\1BT\1BT-Resource-Management-Tracker\backend\infrastructure
+
+# Start SSH tunnel - forwards local port 5433 to RDS port 5432
+ssh -i onebt-bastion-dev.pem -L 5433:onebt-db-dev.cpg2g0wb7axs.ap-southeast-1.rds.amazonaws.com:5432 -N ec2-user@122.248.226.217
+```
+
+### Bash (Mac/Linux)
+
+```bash
+# Navigate to the infrastructure directory first
+cd ~/Documents/1BT/1BT-Resource-Management-Tracker/backend/infrastructure
+
+# Make sure the key has correct permissions
+chmod 400 onebt-bastion-dev.pem
+
+# Start SSH tunnel
+ssh -i onebt-bastion-dev.pem -L 5433:onebt-db-dev.cpg2g0wb7axs.ap-southeast-1.rds.amazonaws.com:5432 -N ec2-user@122.248.226.217
+```
+
+### Connect Your Database Client
+
+While the SSH tunnel is running, connect using:
+
+| Setting      | Value                     |
+| ------------ | ------------------------- |
+| **Host**     | `localhost`               |
+| **Port**     | `5433`                    |
+| **Database** | `resource_management_dev` |
+| **User**     | `dbadmin`                 |
+| **Password** | _(See below)_             |
+
+**Get the password:**
+
+```powershell
+# PowerShell
+$secret = aws secretsmanager get-secret-value --secret-id "rds!db-83479c20-33e3-4a5e-aa06-3f2e2e73e749" --query "SecretString" --output text --region ap-southeast-1 | ConvertFrom-Json
+$secret.password
+```
+
+```bash
+# Bash
+aws secretsmanager get-secret-value \
+    --secret-id "rds!db-83479c20-33e3-4a5e-aa06-3f2e2e73e749" \
+    --query "SecretString" \
+    --output text \
+    --region ap-southeast-1 | jq -r '.password'
+```
 
 ---
 
 ## 🛠️ Troubleshooting
 
-**"SessionManagerPlugin is not found"**
-*   You must install the Session Manager Plugin (see Prerequisites). It is separate from the main AWS CLI.
+### "Permission denied (publickey)"
 
-**"Target not connected or not online"**
-*   The bastion instance might be stopped to save costs.
-*   Start it up:
-    ```bash
-    aws ec2 start-instances --instance-ids <BASTION_INSTANCE_ID> --region ap-southeast-1
-    ```
-*   Wait 1-2 minutes for it to come online.
+- Make sure you're using the correct `.pem` file
+- On Mac/Linux, ensure correct permissions: `chmod 400 onebt-bastion-dev.pem`
 
+### "Connection refused" or "Connection timed out"
 
-Bastion Instance ID: i-04f6374dc7c76d13d
-RDS Endpoint: onebt-db-dev.cpg2g0wb7axs.ap-southeast-1.rds.amazonaws.com
-DB Password: U2qSm0YId9BZXWRP6EnJ
+- The bastion instance might be stopped. Start it:
+  ```bash
+  aws ec2 start-instances --instance-ids i-058ec151b188554e3 --region ap-southeast-1
+  ```
+- Wait 1-2 minutes for it to boot up
 
-aws ssm start-session --target i-04f6374dc7c76d13d --region ap-southeast-1 --document-name AWS-StartPortForwardingSessionToRemoteHost --parameters "{\"host\":[\"onebt-db-dev.cpg2g0wb7axs.ap-southeast-1.rds.amazonaws.com\"],\"portNumber\":[\"5432\"],\"localPortNumber\":[\"54320\"]}"
+### Check Bastion Status
+
+```bash
+aws ec2 describe-instances --instance-ids i-058ec151b188554e3 --region ap-southeast-1 --query "Reservations[0].Instances[0].{State:State.Name,PublicIp:PublicIpAddress}" --output table
+```
+
+### Bastion IP Changed?
+
+If you stop/start the bastion, the public IP may change. Get the new IP:
+
+```bash
+aws cloudformation describe-stacks --stack-name onebt-infrastructure-dev --region ap-southeast-1 --query "Stacks[0].Outputs[?OutputKey=='BastionPublicIp'].OutputValue" --output text
+```
+
+---
+
+## 🔒 Security Notes
+
+1. **Never commit the `.pem` file** to version control
+2. The bastion security group allows SSH (port 22) from anywhere - in production, restrict to your IP
+3. Consider stopping the bastion instance when not in use to save costs:
+   ```bash
+   aws ec2 stop-instances --instance-ids i-058ec151b188554e3 --region ap-southeast-1
+   ```
+
+---
+
+## 📋 Quick Reference Commands
+
+```bash
+# SSH to bastion
+ssh -i onebt-bastion-dev.pem ec2-user@122.248.226.217
+
+# SSH tunnel for local DB access
+ssh -i onebt-bastion-dev.pem -L 5433:onebt-db-dev.cpg2g0wb7axs.ap-southeast-1.rds.amazonaws.com:5432 -N ec2-user@122.248.226.217
+
+# Get DB password
+aws secretsmanager get-secret-value --secret-id "rds!db-83479c20-33e3-4a5e-aa06-3f2e2e73e749" --query "SecretString" --output text --region ap-southeast-1 | jq -r '.password'
+
+# Start bastion if stopped
+aws ec2 start-instances --instance-ids i-058ec151b188554e3 --region ap-southeast-1
+
+# Stop bastion to save costs
+aws ec2 stop-instances --instance-ids i-058ec151b188554e3 --region ap-southeast-1
+```

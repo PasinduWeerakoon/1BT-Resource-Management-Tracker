@@ -49,6 +49,12 @@ apiGateway:
   throttlingRateLimit: 250
   corsMaxAge: 86400
 
+# Bastion Host Configuration
+bastion:
+  enabled: true
+  instanceType: t3.micro
+  keyPairName: onebt-bastion-dev # Create this key pair in AWS Console first
+
 # Feature Flags
 features:
   vpcEndpoints: true # Enable VPC endpoints for Secrets Manager access

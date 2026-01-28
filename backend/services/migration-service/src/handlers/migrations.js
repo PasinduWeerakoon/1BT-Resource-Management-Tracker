@@ -294,6 +294,7 @@ const migrations = [
                 { name: 'Data', description: 'Data Science and Analytics track' },
             ];
 
+
             for (const track of tracks) {
                 await client.query(`
                     INSERT INTO tracks (name, description, created_by)
@@ -332,6 +333,166 @@ const migrations = [
             `, [systemUserId]);
 
             logger.info('Migration 003 completed: Default data seeded');
+        }
+    },
+    {
+        id: '004_fix_schema_columns',
+        name: 'Fix schema column names to match handlers',
+        up: async (client) => {
+            // Rename clients.name to clients.client_name to match handler expectations
+            await client.query(`
+                DO $$ BEGIN
+                    ALTER TABLE clients RENAME COLUMN name TO client_name;
+                EXCEPTION WHEN undefined_column THEN
+                    NULL; -- Column doesn't exist or already renamed
+                END $$;
+            `);
+
+            // Add missing columns to clients table
+            await client.query(`
+                DO $$ BEGIN
+                    ALTER TABLE clients ADD COLUMN contact_phone VARCHAR(50);
+                EXCEPTION WHEN duplicate_column THEN NULL;
+                END $$;
+            `);
+            await client.query(`
+                DO $$ BEGIN
+                    ALTER TABLE clients ADD COLUMN address TEXT;
+                EXCEPTION WHEN duplicate_column THEN NULL;
+                END $$;
+            `);
+
+            // Add updated_at trigger to clients
+            await client.query(`
+                DROP TRIGGER IF EXISTS update_clients_updated_at ON clients;
+                CREATE TRIGGER update_clients_updated_at
+                    BEFORE UPDATE ON clients
+                    FOR EACH ROW
+                    EXECUTE FUNCTION update_updated_at_column();
+            `);
+
+            // Add updated_at trigger to projects
+            await client.query(`
+                DROP TRIGGER IF EXISTS update_projects_updated_at ON projects;
+                CREATE TRIGGER update_projects_updated_at
+                    BEFORE UPDATE ON projects
+                    FOR EACH ROW
+                    EXECUTE FUNCTION update_updated_at_column();
+            `);
+
+            // Add updated_at trigger to allocations
+            await client.query(`
+                DROP TRIGGER IF EXISTS update_allocations_updated_at ON allocations;
+                CREATE TRIGGER update_allocations_updated_at
+                    BEFORE UPDATE ON allocations
+                    FOR EACH ROW
+                    EXECUTE FUNCTION update_updated_at_column();
+            `);
+
+            logger.info('Migration 004 completed: Schema columns fixed');
+        }
+    },
+    {
+        id: '005_fix_projects_schema',
+        name: 'Fix projects table schema to match handlers',
+        up: async (client) => {
+            // Rename projects.name to projects.project_name
+            await client.query(`
+                DO $$ BEGIN
+                    ALTER TABLE projects RENAME COLUMN name TO project_name;
+                EXCEPTION WHEN undefined_column THEN NULL;
+                END $$;
+            `);
+
+            // Rename projects.type to projects.project_type
+            await client.query(`
+                DO $$ BEGIN
+                    ALTER TABLE projects RENAME COLUMN type TO project_type;
+                EXCEPTION WHEN undefined_column THEN NULL;
+                END $$;
+            `);
+
+            // Rename projects.code to projects.project_code
+            await client.query(`
+                DO $$ BEGIN
+                    ALTER TABLE projects RENAME COLUMN code TO project_code;
+                EXCEPTION WHEN undefined_column THEN NULL;
+                END $$;
+            `);
+
+            // Add is_billable column (derived from billing_status)
+            await client.query(`
+                DO $$ BEGIN
+                    ALTER TABLE projects ADD COLUMN is_billable BOOLEAN DEFAULT true;
+                EXCEPTION WHEN duplicate_column THEN NULL;
+                END $$;
+            `);
+
+            // Update is_billable based on billing_status
+            await client.query(`
+                UPDATE projects SET is_billable = (billing_status = 'Billing');
+            `);
+
+            logger.info('Migration 005 completed: Projects schema fixed');
+        }
+    },
+    {
+        id: '006_audit_logs',
+        name: 'Audit Logs Table - Industry-grade audit trail',
+        up: async (client) => {
+            // Create audit_action enum type
+            await client.query(`
+                DO $$ BEGIN
+                    CREATE TYPE audit_action AS ENUM (
+                        'CREATE', 'READ', 'UPDATE', 'DELETE',
+                        'LOGIN', 'LOGOUT', 'LOGIN_FAILED',
+                        'PASSWORD_CHANGE', 'EXPORT', 'BULK_UPDATE', 'RESTORE'
+                    );
+                EXCEPTION WHEN duplicate_object THEN NULL;
+                END $$;
+            `);
+
+            // Create audit_logs table
+            await client.query(`
+                CREATE TABLE IF NOT EXISTS audit_logs (
+                    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                    timestamp TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    user_id UUID,
+                    user_email VARCHAR(255),
+                    user_name VARCHAR(255),
+                    action audit_action NOT NULL,
+                    entity_type VARCHAR(100) NOT NULL,
+                    entity_id VARCHAR(255),
+                    entity_name VARCHAR(500),
+                    old_values JSONB,
+                    new_values JSONB,
+                    changed_fields TEXT[],
+                    ip_address INET,
+                    user_agent TEXT,
+                    request_id VARCHAR(100),
+                    service_name VARCHAR(50),
+                    api_endpoint VARCHAR(500),
+                    metadata JSONB,
+                    message_id VARCHAR(100) UNIQUE,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            `);
+
+            // Create indexes for common queries
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS idx_audit_logs_timestamp ON audit_logs(timestamp DESC);
+                CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id);
+                CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs(entity_type, entity_id);
+                CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON audit_logs(action);
+                CREATE INDEX IF NOT EXISTS idx_audit_logs_dashboard ON audit_logs(timestamp DESC, action, entity_type);
+            `);
+
+            // Create GIN index on metadata for JSONB queries
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS idx_audit_logs_metadata ON audit_logs USING GIN (metadata);
+            `);
+
+            logger.info('Migration 006 completed: Audit logs table created');
         }
     }
 ];

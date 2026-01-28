@@ -27,6 +27,7 @@ provider:
     DB_PORT: !ImportValue onebt-${self:provider.stage}-RdsPort
     DB_NAME: !ImportValue onebt-${self:provider.stage}-DbName
     DB_SECRET_ARN: !ImportValue onebt-${self:provider.stage}-RdsSecretArn
+    AUDIT_QUEUE_URL: !ImportValue onebt-${self:provider.stage}-AuditQueueUrl
 
   iam:
     role:
@@ -35,6 +36,10 @@ provider:
           Action:
             - secretsmanager:GetSecretValue
           Resource: !ImportValue onebt-${self:provider.stage}-RdsSecretArn
+        - Effect: Allow
+          Action:
+            - sqs:SendMessage
+          Resource: !ImportValue onebt-${self:provider.stage}-AuditQueueArn
 
   layers:
     - !ImportValue onebt-shared-layer-${self:provider.stage}-arn

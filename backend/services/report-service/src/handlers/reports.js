@@ -50,7 +50,7 @@ export const getDashboard = async (event) => {
                     COUNT(*) as total_allocations,
                     AVG(allocation_percentage) as avg_allocation
                 FROM allocations
-                WHERE status = 'ACTIVE'
+                WHERE is_active = true
                 AND (end_date IS NULL OR end_date >= CURRENT_DATE)
             `),
 
@@ -59,13 +59,13 @@ export const getDashboard = async (event) => {
                 WITH resource_allocations AS (
                     SELECT resource_id, SUM(allocation_percentage) as total
                     FROM allocations
-                    WHERE status = 'ACTIVE' AND (end_date IS NULL OR end_date >= CURRENT_DATE)
+                    WHERE is_active = true AND (end_date IS NULL OR end_date >= CURRENT_DATE)
                     GROUP BY resource_id
                 )
                 SELECT COUNT(*) as count
                 FROM resources r
                 LEFT JOIN resource_allocations ra ON r.id = ra.resource_id
-                WHERE r.status = 'ACTIVE' AND r.deleted_at IS NULL
+                WHERE r.status = 'Active' AND r.deleted_at IS NULL
                 AND (ra.total IS NULL OR ra.total < 100)
             `)
         ]);
@@ -198,7 +198,7 @@ export const getBenchReport = async (event) => {
                     resource_id,
                     SUM(allocation_percentage) as total_allocation
                 FROM allocations
-                WHERE status = 'ACTIVE' 
+                WHERE is_active = true 
                 AND (end_date IS NULL OR end_date >= CURRENT_DATE)
                 GROUP BY resource_id
             )
@@ -210,17 +210,19 @@ export const getBenchReport = async (event) => {
                 t.name as track,
                 COALESCE(ra.total_allocation, 0) as current_allocation,
                 (100 - COALESCE(ra.total_allocation, 0)) as available_capacity,
-                r.join_date,
-                r.is_intern,
-                EXTRACT(DAY FROM (CURRENT_DATE - r.join_date)) as days_in_company
+                r.date_of_joining,
+                r.intern_classification,
+                CASE WHEN r.date_of_joining IS NOT NULL 
+                     THEN (CURRENT_DATE - r.date_of_joining::DATE)
+                     ELSE NULL END as days_in_company
             FROM resources r
             LEFT JOIN resource_allocations ra ON r.id = ra.resource_id
             LEFT JOIN designations d ON r.designation_id = d.id
             LEFT JOIN tracks t ON r.track_id = t.id
-            WHERE r.status = 'ACTIVE'
+            WHERE r.status = 'Active'
             AND (ra.total_allocation IS NULL OR ra.total_allocation < 100)
             AND r.deleted_at IS NULL
-            ORDER BY available_capacity DESC, r.join_date DESC
+            ORDER BY available_capacity DESC, r.date_of_joining DESC
         `;
 
         const result = await db.query(query);
@@ -267,10 +269,10 @@ export const getUtilizationReport = async (event) => {
             FROM resources r
             LEFT JOIN tracks t ON r.track_id = t.id
             LEFT JOIN allocations a ON r.id = a.resource_id 
-                AND a.status = 'ACTIVE' 
+                AND a.is_active = true 
                 AND (a.end_date IS NULL OR a.end_date >= CURRENT_DATE)
             LEFT JOIN projects p ON a.project_id = p.id
-            WHERE r.status = 'ACTIVE' AND r.deleted_at IS NULL
+            WHERE r.status = 'Active' AND r.deleted_at IS NULL
             GROUP BY t.name
             ORDER BY t.name
         `;
@@ -333,23 +335,25 @@ export const getInternReport = async (event) => {
                 r.email,
                 d.name as designation,
                 t.name as track,
-                r.join_date,
-                EXTRACT(MONTH FROM AGE(CURRENT_DATE, r.join_date)) as months_in_company,
+                r.date_of_joining,
+                CASE WHEN r.date_of_joining IS NOT NULL 
+                     THEN EXTRACT(MONTH FROM AGE(CURRENT_DATE, r.date_of_joining::DATE)) 
+                     ELSE NULL END as months_in_company,
                 COALESCE(
                     (SELECT SUM(allocation_percentage) 
                      FROM allocations 
                      WHERE resource_id = r.id 
-                     AND status = 'ACTIVE' 
+                     AND is_active = true 
                      AND (end_date IS NULL OR end_date >= CURRENT_DATE)),
                     0
                 ) as current_allocation
             FROM resources r
             LEFT JOIN designations d ON r.designation_id = d.id
             LEFT JOIN tracks t ON r.track_id = t.id
-            WHERE r.is_intern = true
-            AND r.status = 'ACTIVE'
+            WHERE r.intern_classification IS NOT NULL
+            AND r.status = 'Active'
             AND r.deleted_at IS NULL
-            ORDER BY r.join_date DESC
+            ORDER BY r.date_of_joining DESC
         `;
 
         const result = await db.query(query);
@@ -377,16 +381,16 @@ export const getAccountManagerReport = async (event) => {
 
         const query = `
             SELECT 
-                p.account_manager,
+                p.account_manager_id,
                 COUNT(DISTINCT p.id) as project_count,
                 COUNT(DISTINCT a.resource_id) as resource_count,
-                SUM(CASE WHEN p.status = 'ACTIVE' THEN 1 ELSE 0 END) as active_projects,
+                SUM(CASE WHEN p.status = 'Active' THEN 1 ELSE 0 END) as active_projects,
                 SUM(CASE WHEN p.is_billable = true THEN 1 ELSE 0 END) as billable_projects
             FROM projects p
-            LEFT JOIN allocations a ON p.id = a.project_id AND a.status = 'ACTIVE'
+            LEFT JOIN allocations a ON p.id = a.project_id AND a.is_active = true
             WHERE p.deleted_at IS NULL
-            AND p.account_manager IS NOT NULL
-            GROUP BY p.account_manager
+            AND p.account_manager_id IS NOT NULL
+            GROUP BY p.account_manager_id
             ORDER BY project_count DESC
         `;
 
@@ -462,5 +466,253 @@ export const getMonthlyAllocationReport = async (event) => {
     } catch (err) {
         log.error('Failed to get monthly allocation report', { error: err.message });
         return error('Failed to get monthly allocation report', err);
+    }
+};
+
+/**
+ * Get employee allocation report
+ */
+export const getEmployeeReport = async (event) => {
+    const log = logger.child({ handler: 'reports.getEmployeeReport' });
+
+    try {
+        log.info('Getting employee report');
+
+        const query = `
+            SELECT 
+                r.id,
+                r.employee_id,
+                r.name,
+                r.email,
+                d.name as designation,
+                t.name as track,
+                r.status,
+                r.date_of_joining,
+                COALESCE(
+                    (SELECT SUM(allocation_percentage) 
+                     FROM allocations 
+                     WHERE resource_id = r.id 
+                     AND is_active = true 
+                     AND (end_date IS NULL OR end_date >= CURRENT_DATE)),
+                    0
+                ) as total_allocation,
+                COALESCE(
+                    (SELECT string_agg(p.project_name, ', ')
+                     FROM allocations a
+                     JOIN projects p ON a.project_id = p.id
+                     WHERE a.resource_id = r.id 
+                     AND a.is_active = true 
+                     AND (a.end_date IS NULL OR a.end_date >= CURRENT_DATE)),
+                    'None'
+                ) as current_projects
+            FROM resources r
+            LEFT JOIN designations d ON r.designation_id = d.id
+            LEFT JOIN tracks t ON r.track_id = t.id
+            WHERE r.deleted_at IS NULL
+            ORDER BY r.name ASC
+        `;
+
+        const result = await db.query(query);
+
+        return success({
+            data: result.rows,
+            total: result.rows.length,
+            generatedAt: new Date().toISOString()
+        });
+
+    } catch (err) {
+        log.error('Failed to get employee report', { error: err.message });
+        return error('Failed to get employee report', err);
+    }
+};
+
+/**
+ * Get exception allocation report (over-allocated or under-allocated resources)
+ */
+export const getExceptionReport = async (event) => {
+    const log = logger.child({ handler: 'reports.getExceptionReport' });
+
+    try {
+        log.info('Getting exception report');
+
+        const query = `
+            WITH resource_allocations AS (
+                SELECT 
+                    resource_id,
+                    SUM(allocation_percentage) as total_allocation
+                FROM allocations
+                WHERE is_active = true 
+                AND (end_date IS NULL OR end_date >= CURRENT_DATE)
+                GROUP BY resource_id
+            )
+            SELECT 
+                r.id,
+                r.employee_id,
+                r.name,
+                r.email,
+                d.name as designation,
+                t.name as track,
+                COALESCE(ra.total_allocation, 0) as total_allocation,
+                CASE 
+                    WHEN COALESCE(ra.total_allocation, 0) > 100 THEN 'Over-allocated'
+                    WHEN COALESCE(ra.total_allocation, 0) < 100 AND COALESCE(ra.total_allocation, 0) > 0 THEN 'Under-allocated'
+                    WHEN COALESCE(ra.total_allocation, 0) = 0 THEN 'Unallocated'
+                    ELSE 'Normal'
+                END as exception_type
+            FROM resources r
+            LEFT JOIN resource_allocations ra ON r.id = ra.resource_id
+            LEFT JOIN designations d ON r.designation_id = d.id
+            LEFT JOIN tracks t ON r.track_id = t.id
+            WHERE r.status = 'Active'
+            AND r.deleted_at IS NULL
+            AND (COALESCE(ra.total_allocation, 0) > 100 OR COALESCE(ra.total_allocation, 0) < 100)
+            ORDER BY ra.total_allocation DESC NULLS LAST
+        `;
+
+        const result = await db.query(query);
+
+        // Categorize exceptions
+        const overAllocated = result.rows.filter(r => parseFloat(r.total_allocation) > 100);
+        const underAllocated = result.rows.filter(r => parseFloat(r.total_allocation) < 100 && parseFloat(r.total_allocation) > 0);
+        const unallocated = result.rows.filter(r => parseFloat(r.total_allocation) === 0);
+
+        return success({
+            data: result.rows,
+            summary: {
+                total: result.rows.length,
+                overAllocated: overAllocated.length,
+                underAllocated: underAllocated.length,
+                unallocated: unallocated.length
+            },
+            generatedAt: new Date().toISOString()
+        });
+
+    } catch (err) {
+        log.error('Failed to get exception report', { error: err.message });
+        return error('Failed to get exception report', err);
+    }
+};
+
+/**
+ * Get non-billing resources report
+ */
+export const getNonBillingReport = async (event) => {
+    const log = logger.child({ handler: 'reports.getNonBillingReport' });
+
+    try {
+        log.info('Getting non-billing report');
+
+        // Non-billing resources are those allocated to non-billable projects
+        const query = `
+            SELECT 
+                r.id,
+                r.employee_id,
+                r.name,
+                r.email,
+                d.name as designation,
+                t.name as track,
+                p.project_name,
+                a.allocation_percentage,
+                a.billing_percentage,
+                a.start_date,
+                a.end_date
+            FROM allocations a
+            JOIN resources r ON a.resource_id = r.id
+            JOIN projects p ON a.project_id = p.id
+            LEFT JOIN designations d ON r.designation_id = d.id
+            LEFT JOIN tracks t ON r.track_id = t.id
+            WHERE a.is_active = true
+            AND (a.end_date IS NULL OR a.end_date >= CURRENT_DATE)
+            AND p.is_billable = false
+            AND r.deleted_at IS NULL
+            ORDER BY r.name ASC
+        `;
+
+        const result = await db.query(query);
+
+        return success({
+            data: result.rows,
+            total: result.rows.length,
+            generatedAt: new Date().toISOString()
+        });
+
+    } catch (err) {
+        log.error('Failed to get non-billing report', { error: err.message });
+        return error('Failed to get non-billing report', err);
+    }
+};
+
+/**
+ * Get pre-sale activities report
+ */
+export const getPreSaleReport = async (event) => {
+    const log = logger.child({ handler: 'reports.getPreSaleReport' });
+
+    try {
+        log.info('Getting pre-sale report');
+
+        const query = `
+            SELECT 
+                r.id,
+                r.employee_id,
+                r.name,
+                r.email,
+                d.name as designation,
+                t.name as track,
+                p.project_name,
+                p.project_code,
+                c.client_name,
+                a.allocation_percentage,
+                a.start_date,
+                a.end_date,
+                a.notes
+            FROM allocations a
+            JOIN resources r ON a.resource_id = r.id
+            JOIN projects p ON a.project_id = p.id
+            LEFT JOIN clients c ON p.client_id = c.id
+            LEFT JOIN designations d ON r.designation_id = d.id
+            LEFT JOIN tracks t ON r.track_id = t.id
+            WHERE a.is_active = true
+            AND (a.end_date IS NULL OR a.end_date >= CURRENT_DATE)
+            AND p.project_type = 'Presale'
+            AND r.deleted_at IS NULL
+            ORDER BY p.project_name, r.name ASC
+        `;
+
+        const result = await db.query(query);
+
+        // Group by project
+        const projectGroups = {};
+        result.rows.forEach(row => {
+            if (!projectGroups[row.project_name]) {
+                projectGroups[row.project_name] = {
+                    project_name: row.project_name,
+                    project_code: row.project_code,
+                    client_name: row.client_name,
+                    resources: []
+                };
+            }
+            projectGroups[row.project_name].resources.push({
+                id: row.id,
+                employee_id: row.employee_id,
+                name: row.name,
+                designation: row.designation,
+                track: row.track,
+                allocation_percentage: row.allocation_percentage,
+                start_date: row.start_date,
+                end_date: row.end_date
+            });
+        });
+
+        return success({
+            data: result.rows,
+            groupedByProject: Object.values(projectGroups),
+            total: result.rows.length,
+            generatedAt: new Date().toISOString()
+        });
+
+    } catch (err) {
+        log.error('Failed to get pre-sale report', { error: err.message });
+        return error('Failed to get pre-sale report', err);
     }
 };

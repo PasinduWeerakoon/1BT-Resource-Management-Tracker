@@ -1,0 +1,155 @@
+service: onebt-audit-service
+
+frameworkVersion: "3"
+
+provider:
+  name: aws
+  runtime: nodejs20.x
+  stage: ${opt:stage, 'dev'}
+  region: ${opt:region, 'ap-southeast-1'}
+  memorySize: 256
+  timeout: 10 # SQS visibility timeout is 6x this (60s)
+  tags:
+    Service: audit
+    Project: 1BT-Resource-Management
+
+  # VPC Configuration - Required for RDS access
+  vpc:
+    securityGroupIds:
+      - !ImportValue onebt-${self:provider.stage}-LambdaSecurityGroupId
+    subnetIds: !Split
+      - ","
+      - !ImportValue onebt-${self:provider.stage}-PrivateSubnetIds
+
+  environment:
+    NODE_ENV: ${self:provider.stage}
+    DB_HOST: !ImportValue onebt-${self:provider.stage}-RdsEndpoint
+    DB_PORT: !ImportValue onebt-${self:provider.stage}-RdsPort
+    DB_NAME: !ImportValue onebt-${self:provider.stage}-DbName
+    DB_SECRET_ARN: !ImportValue onebt-${self:provider.stage}-RdsSecretArn
+    AUDIT_QUEUE_URL: !ImportValue onebt-${self:provider.stage}-AuditQueueUrl
+    AUDIT_DLQ_URL: !ImportValue onebt-${self:provider.stage}-AuditDlqUrl
+
+  iam:
+    role:
+      statements:
+        # Database access
+        - Effect: Allow
+          Action:
+            - secretsmanager:GetSecretValue
+          Resource: !ImportValue onebt-${self:provider.stage}-RdsSecretArn
+        # SQS - Receive and Delete messages
+        - Effect: Allow
+          Action:
+            - sqs:ReceiveMessage
+            - sqs:DeleteMessage
+            - sqs:GetQueueAttributes
+          Resource: !ImportValue onebt-${self:provider.stage}-AuditQueueArn
+        # DLQ - Read for monitoring
+        - Effect: Allow
+          Action:
+            - sqs:ReceiveMessage
+            - sqs:GetQueueAttributes
+            - sqs:GetQueueUrl
+          Resource: !ImportValue onebt-${self:provider.stage}-AuditDlqArn
+
+  httpApi:
+    id: !ImportValue onebt-${self:provider.stage}-HttpApiId
+
+  layers:
+    - !ImportValue onebt-shared-layer-${self:provider.stage}-arn
+
+plugins:
+  - serverless-offline
+
+package:
+  individually: true
+  patterns:
+    - "!.git/**"
+    - "!.gitignore"
+    - "!*.md"
+    - "!tests/**"
+    - "src/**"
+
+custom:
+  authorizer:
+    type: jwt
+    id: !ImportValue onebt-${self:provider.stage}-CognitoAuthorizerId
+
+functions:
+  # ==================== SQS CONSUMER ====================
+  processAuditEvent:
+    handler: src/handlers/consumer.processAuditEvent
+    description: Process audit events from SQS queue
+    reservedConcurrency: 5 # Limit concurrent executions
+    events:
+      - sqs:
+          arn: !ImportValue onebt-${self:provider.stage}-AuditQueueArn
+          batchSize: 10 # Process up to 10 messages at once
+          maximumBatchingWindow: 5 # Wait up to 5 seconds to batch
+          functionResponseType: ReportBatchItemFailures # Partial batch failure handling
+
+  # ==================== API ENDPOINTS ====================
+  listAuditLogs:
+    handler: src/handlers/audit.list
+    description: List audit logs with pagination and filters
+    events:
+      - httpApi:
+          path: /api/v1/audit-logs
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  getAuditLog:
+    handler: src/handlers/audit.getById
+    description: Get a single audit log entry
+    events:
+      - httpApi:
+          path: /api/v1/audit-logs/{id}
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  getEntityHistory:
+    handler: src/handlers/audit.getEntityHistory
+    description: Get audit history for a specific entity
+    events:
+      - httpApi:
+          path: /api/v1/audit-logs/entity/{entityType}/{entityId}
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  getUserActivity:
+    handler: src/handlers/audit.getUserActivity
+    description: Get activity for a specific user
+    events:
+      - httpApi:
+          path: /api/v1/audit-logs/user/{userId}
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  getAuditStats:
+    handler: src/handlers/audit.getStats
+    description: Get audit statistics for dashboard
+    events:
+      - httpApi:
+          path: /api/v1/audit-logs/stats
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  # ==================== DLQ MONITORING ====================
+  getDlqMessages:
+    handler: src/handlers/dlq.getMessages
+    description: Get failed messages from DLQ for review
+    events:
+      - httpApi:
+          path: /api/v1/audit-logs/dlq
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  reprocessDlqMessage:
+    handler: src/handlers/dlq.reprocess
+    description: Reprocess a failed message from DLQ
+    events:
+      - httpApi:
+          path: /api/v1/audit-logs/dlq/{messageId}/reprocess
+          method: POST
+          authorizer: ${self:custom.authorizer}

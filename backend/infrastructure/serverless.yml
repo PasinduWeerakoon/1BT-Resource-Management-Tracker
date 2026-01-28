@@ -26,6 +26,7 @@ custom:
   cognito: ${self:custom.params.cognito}
   apiGateway: ${self:custom.params.apiGateway}
   features: ${self:custom.params.features}
+  bastion: ${self:custom.params.bastion}
 
 resources:
   Description: |
@@ -56,6 +57,12 @@ resources:
     CreateVpcEndpoints:
       Fn::Equals:
         - ${self:custom.features.vpcEndpoints}
+        - true
+
+    # Bastion Host condition
+    CreateBastion:
+      Fn::Equals:
+        - ${self:custom.bastion.enabled}
         - true
 
     # Environment conditions
@@ -438,6 +445,80 @@ resources:
         Description: PostgreSQL to RDS
 
     # ================================================================
+    # BASTION HOST (SSH Access to RDS)
+    # ================================================================
+
+    # Bastion Security Group
+    BastionSecurityGroup:
+      Type: AWS::EC2::SecurityGroup
+      Condition: CreateBastion
+      Properties:
+        GroupDescription: Security group for Bastion Host - SSH access
+        GroupName: onebt-bastion-sg-${self:provider.stage}
+        VpcId: !Ref VPC
+        SecurityGroupIngress:
+          - IpProtocol: tcp
+            FromPort: 22
+            ToPort: 22
+            CidrIp: 0.0.0.0/0
+            Description: SSH from anywhere (use key pair authentication)
+        SecurityGroupEgress:
+          - IpProtocol: tcp
+            FromPort: 5432
+            ToPort: 5432
+            DestinationSecurityGroupId: !Ref RdsSecurityGroup
+            Description: PostgreSQL to RDS
+          - IpProtocol: tcp
+            FromPort: 443
+            ToPort: 443
+            CidrIp: 0.0.0.0/0
+            Description: HTTPS for package updates
+          - IpProtocol: tcp
+            FromPort: 80
+            ToPort: 80
+            CidrIp: 0.0.0.0/0
+            Description: HTTP for package updates
+        Tags:
+          - Key: Name
+            Value: onebt-bastion-sg-${self:provider.stage}
+
+    # Allow Bastion to access RDS
+    BastionToRdsIngress:
+      Type: AWS::EC2::SecurityGroupIngress
+      Condition: CreateBastion
+      Properties:
+        GroupId: !Ref RdsSecurityGroup
+        IpProtocol: tcp
+        FromPort: 5432
+        ToPort: 5432
+        SourceSecurityGroupId: !Ref BastionSecurityGroup
+        Description: PostgreSQL from Bastion Host
+
+    # Bastion EC2 Instance
+    BastionInstance:
+      Type: AWS::EC2::Instance
+      Condition: CreateBastion
+      Properties:
+        InstanceType: ${self:custom.bastion.instanceType}
+        KeyName: ${self:custom.bastion.keyPairName}
+        ImageId: !Sub "{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64}}"
+        SubnetId: !Ref PublicSubnet1
+        SecurityGroupIds:
+          - !Ref BastionSecurityGroup
+        Tags:
+          - Key: Name
+            Value: onebt-bastion-${self:provider.stage}
+          - Key: Environment
+            Value: ${self:provider.stage}
+          - Key: Purpose
+            Value: RDS Access via SSH
+        UserData:
+          Fn::Base64: |
+            #!/bin/bash
+            yum update -y
+            yum install -y postgresql16
+
+    # ================================================================
     # RDS DATABASE
     # ================================================================
 
@@ -641,6 +722,39 @@ resources:
             - !Ref CognitoUserPoolClient
           Issuer: !Sub "https://cognito-idp.${AWS::Region}.amazonaws.com/${CognitoUserPool}"
 
+    # ================================================================
+    # AUDIT TRAIL - SQS QUEUES
+    # ================================================================
+
+    # Dead Letter Queue for failed audit messages
+    AuditDeadLetterQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: onebt-audit-dlq-${self:provider.stage}
+        MessageRetentionPeriod: 1209600 # 14 days
+        Tags:
+          - Key: Name
+            Value: onebt-audit-dlq-${self:provider.stage}
+          - Key: Environment
+            Value: ${self:provider.stage}
+
+    # Main Audit Queue
+    AuditQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: onebt-audit-queue-${self:provider.stage}
+        VisibilityTimeout: 60 # 6x Lambda timeout (10s)
+        MessageRetentionPeriod: 345600 # 4 days
+        ReceiveMessageWaitTimeSeconds: 20 # Long polling
+        RedrivePolicy:
+          deadLetterTargetArn: !GetAtt AuditDeadLetterQueue.Arn
+          maxReceiveCount: 3 # Retry 3 times before DLQ
+        Tags:
+          - Key: Name
+            Value: onebt-audit-queue-${self:provider.stage}
+          - Key: Environment
+            Value: ${self:provider.stage}
+
   # ================================================================
   # OUTPUTS (Exported for microservices to import)
   # ================================================================
@@ -744,6 +858,51 @@ resources:
       Value: !Ref CognitoAuthorizer
       Export:
         Name: onebt-${self:provider.stage}-CognitoAuthorizerId
+
+    # Audit Queue Outputs
+    AuditQueueUrl:
+      Description: Audit Queue URL for sending audit events
+      Value: !Ref AuditQueue
+      Export:
+        Name: onebt-${self:provider.stage}-AuditQueueUrl
+
+    AuditQueueArn:
+      Description: Audit Queue ARN for Lambda triggers and IAM
+      Value: !GetAtt AuditQueue.Arn
+      Export:
+        Name: onebt-${self:provider.stage}-AuditQueueArn
+
+    AuditDlqUrl:
+      Description: Audit Dead Letter Queue URL for failed messages
+      Value: !Ref AuditDeadLetterQueue
+      Export:
+        Name: onebt-${self:provider.stage}-AuditDlqUrl
+
+    AuditDlqArn:
+      Description: Audit Dead Letter Queue ARN
+      Value: !GetAtt AuditDeadLetterQueue.Arn
+      Export:
+        Name: onebt-${self:provider.stage}-AuditDlqArn
+
+    # Bastion Outputs (conditional)
+    BastionInstanceId:
+      Description: Bastion Host Instance ID
+      Condition: CreateBastion
+      Value: !Ref BastionInstance
+      Export:
+        Name: onebt-${self:provider.stage}-BastionInstanceId
+
+    BastionPublicIp:
+      Description: Bastion Host Public IP for SSH access
+      Condition: CreateBastion
+      Value: !GetAtt BastionInstance.PublicIp
+      Export:
+        Name: onebt-${self:provider.stage}-BastionPublicIp
+
+    BastionSshCommand:
+      Description: SSH command to connect to Bastion
+      Condition: CreateBastion
+      Value: !Sub "ssh -i ${self:custom.bastion.keyPairName}.pem ec2-user@${BastionInstance.PublicIp}"
 
     # Cost Summary
     MonthlyCostEstimate:
