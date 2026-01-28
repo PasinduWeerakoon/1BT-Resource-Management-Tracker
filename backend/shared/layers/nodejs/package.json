@@ -1,0 +1,33 @@
+{
+  "name": "onebt-shared-layer",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Shared libraries for 1BT Resource Management",
+  "exports": {
+    ".": "./index.js",
+    "./database": "./database/index.js",
+    "./database/*": "./database/*.js",
+    "./logger": "./logger/index.js",
+    "./logger/*": "./logger/*.js",
+    "./utils/*": "./utils/*.js",
+    "./validation": "./validation/index.js",
+    "./validation/*": "./validation/*.js",
+    "./middleware": "./middleware/index.js",
+    "./middleware/*": "./middleware/*.js",
+    "./config": "./config/index.js",
+    "./config/*": "./config/*.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-cognito-identity-provider": "^3.750.0",
+    "@aws-sdk/client-secrets-manager": "^3.750.0",
+    "@aws-sdk/client-sqs": "^3.750.0",
+    "@middy/core": "^7.0.2",
+    "@middy/http-cors": "^7.0.2",
+    "@middy/http-error-handler": "^7.0.2",
+    "@middy/http-json-body-parser": "^7.0.2",
+    "http-errors": "^2.0.1",
+    "joi": "^17.13.3",
+    "pg": "^8.14.0",
+    "pino": "^9.6.0"
+  }
+}

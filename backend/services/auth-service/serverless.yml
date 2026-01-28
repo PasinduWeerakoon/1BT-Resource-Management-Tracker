@@ -1,10 +1,8 @@
 service: onebt-auth-service
 
-frameworkVersion: "3"
-
 provider:
   name: aws
-  runtime: nodejs20.x
+  runtime: nodejs22.x
   stage: ${opt:stage, 'dev'}
   region: ${opt:region, 'ap-southeast-1'}
   memorySize: 256
@@ -46,7 +44,7 @@ provider:
     id: !ImportValue onebt-${self:provider.stage}-HttpApiId
 
   layers:
-    - !ImportValue onebt-shared-layer-${self:provider.stage}-arn
+    - arn:aws:lambda:${self:provider.region}:550586832874:layer:onebt-shared-libs-${self:provider.stage}:31
 
 plugins:
   - serverless-offline

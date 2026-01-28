@@ -1,7 +1,5 @@
 service: onebt-infrastructure
 
-frameworkVersion: "3"
-
 provider:
   name: aws
   region: ${opt:region, 'ap-southeast-1'}
