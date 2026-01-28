@@ -5,10 +5,15 @@
  * 
  * Bench Auto-Allocation:
  * - New resources are automatically allocated 100% to Bench project
+ * 
+ * Uses Drizzle ORM with transaction support for data integrity
  */
 
 // Import from Lambda Layer (mounted at /opt/nodejs)
 import * as db from '/opt/nodejs/database/index.js';
+import { getDrizzle, withTransaction } from '/opt/nodejs/database/drizzle.js';
+import { resources, allocations, projects, designations, tracks, users, clients } from '/opt/nodejs/database/schema.js';
+import { eq, and, isNull, ilike, or, sql, desc } from 'drizzle-orm';
 import logger from '/opt/nodejs/logger/index.js';
 import { success, error, notFound, validationError, conflict } from '/opt/nodejs/utils/response.js';
 import { validate, resourceSchemas } from '/opt/nodejs/validation/index.js';
@@ -21,6 +26,7 @@ let BENCH_PROJECT_ID = null;
 
 /**
  * Get the Bench project ID (from database by is_bench_project flag)
+ * Uses Drizzle ORM for type-safe queries
  */
 const getBenchProjectId = async () => {
     // Return cached value if available
@@ -29,20 +35,35 @@ const getBenchProjectId = async () => {
     }
 
     try {
-        const result = await db.query(
-            "SELECT id FROM projects WHERE is_bench_project = true AND deleted_at IS NULL LIMIT 1"
-        );
-        if (result.rows.length > 0) {
-            BENCH_PROJECT_ID = result.rows[0].id;
+        const drizzle = await getDrizzle();
+
+        // First try by is_bench_project flag
+        const result = await drizzle
+            .select({ id: projects.id })
+            .from(projects)
+            .where(and(
+                eq(projects.isBenchProject, true),
+                isNull(projects.deletedAt)
+            ))
+            .limit(1);
+
+        if (result.length > 0) {
+            BENCH_PROJECT_ID = result[0].id;
             return BENCH_PROJECT_ID;
         }
 
         // Fallback: try to find by project code
-        const codeResult = await db.query(
-            "SELECT id FROM projects WHERE project_code = 'BENCH' AND deleted_at IS NULL LIMIT 1"
-        );
-        if (codeResult.rows.length > 0) {
-            BENCH_PROJECT_ID = codeResult.rows[0].id;
+        const codeResult = await drizzle
+            .select({ id: projects.id })
+            .from(projects)
+            .where(and(
+                eq(projects.projectCode, 'BENCH'),
+                isNull(projects.deletedAt)
+            ))
+            .limit(1);
+
+        if (codeResult.length > 0) {
+            BENCH_PROJECT_ID = codeResult[0].id;
             return BENCH_PROJECT_ID;
         }
 
@@ -54,33 +75,52 @@ const getBenchProjectId = async () => {
 
 /**
  * Create initial bench allocation for a new resource at 100%
+ * Uses Drizzle ORM - can accept transaction context (tx) for atomic operations
+ * @param {object} tx - Drizzle transaction context (or regular drizzle instance)
+ * @param {string} resourceId - The resource ID to allocate
+ * @param {string} userId - The user creating the allocation
+ * @param {object} log - Logger instance
  */
-const createInitialBenchAllocation = async (resourceId, userId, log) => {
+const createInitialBenchAllocation = async (tx, resourceId, userId, log) => {
     try {
         const benchProjectId = await getBenchProjectId();
 
+        if (!benchProjectId) {
+            log.warn('Bench project not found, skipping auto-allocation');
+            return null;
+        }
+
         // Check if Bench project exists
-        const benchExists = await db.query('SELECT id FROM projects WHERE id = $1', [benchProjectId]);
-        if (benchExists.rows.length === 0) {
+        const benchExists = await tx
+            .select({ id: projects.id })
+            .from(projects)
+            .where(eq(projects.id, benchProjectId));
+
+        if (benchExists.length === 0) {
             log.warn('Bench project not found, skipping auto-allocation', { benchProjectId });
             return null;
         }
 
-        const result = await db.query(`
-            INSERT INTO allocations (
-                resource_id, project_id, allocation_percentage, start_date, 
-                is_active, notes, created_by
-            )
-            VALUES ($1, $2, 100, CURRENT_DATE, true, 'Auto-created bench allocation for new resource', $3)
-            RETURNING *
-        `, [resourceId, benchProjectId, userId]);
+        // Insert bench allocation using Drizzle (use camelCase properties from schema)
+        const result = await tx
+            .insert(allocations)
+            .values({
+                resourceId: resourceId,
+                projectId: benchProjectId,
+                allocationPercentage: '100',
+                startDate: new Date().toISOString().split('T')[0], // YYYY-MM-DD format
+                isActive: true,
+                notes: 'Auto-created bench allocation for new resource',
+                createdBy: userId
+            })
+            .returning();
 
-        log.info('Initial bench allocation created', { resourceId, allocationId: result.rows[0].id });
-        return result.rows[0];
+        log.info('Initial bench allocation created', { resourceId, allocationId: result[0].id });
+        return result[0];
     } catch (err) {
         log.error('Failed to create initial bench allocation', { resourceId, error: err.message });
-        // Don't fail resource creation if bench allocation fails
-        return null;
+        // Re-throw to trigger transaction rollback
+        throw err;
     }
 };
 
@@ -185,6 +225,7 @@ export const list = async (event) => {
 
 /**
  * Get a single resource by ID
+ * Uses Drizzle ORM for type-safe queries
  */
 export const getById = async (event) => {
     const log = logger.child({ handler: 'resources.getById' });
@@ -193,25 +234,56 @@ export const getById = async (event) => {
     try {
         log.info('Getting resource', { id });
 
-        const query = `
-            SELECT 
-                r.*,
-                d.name as designation_name,
-                d.level as designation_level,
-                t.name as track_name
-            FROM resources r
-            LEFT JOIN designations d ON r.designation_id = d.id
-            LEFT JOIN tracks t ON r.track_id = t.id
-            WHERE r.id = $1 AND r.deleted_at IS NULL
-        `;
+        const drizzle = await getDrizzle();
 
-        const result = await db.query(query, [id]);
+        // Using Drizzle with leftJoin for related data
+        // Map to snake_case for API response consistency
+        const result = await drizzle
+            .select({
+                // Resource fields (map schema camelCase to API snake_case)
+                id: resources.id,
+                employee_id: resources.employeeId,
+                employee_number: resources.employeeNumber,
+                name: resources.name,
+                phone_number: resources.phoneNumber,
+                email: resources.email,
+                address: resources.address,
+                designation_id: resources.designationId,
+                track_id: resources.trackId,
+                intern_classification: resources.internClassification,
+                skills: resources.skills,
+                date_of_joining: resources.dateOfJoining,
+                date_of_birth: resources.dateOfBirth,
+                nic_passport: resources.nicPassport,
+                is_intern: resources.isIntern,
+                tier: resources.tier,
+                tech_stack: resources.techStack,
+                photo_url: resources.photoUrl,
+                status: resources.status,
+                version: resources.version,
+                created_at: resources.createdAt,
+                updated_at: resources.updatedAt,
+                created_by: resources.createdBy,
+                updated_by: resources.updatedBy,
+                deleted_at: resources.deletedAt,
+                // Joined fields
+                designation_name: designations.name,
+                designation_level: designations.level,
+                track_name: tracks.name
+            })
+            .from(resources)
+            .leftJoin(designations, eq(resources.designationId, designations.id))
+            .leftJoin(tracks, eq(resources.trackId, tracks.id))
+            .where(and(
+                eq(resources.id, id),
+                isNull(resources.deletedAt)
+            ));
 
-        if (result.rows.length === 0) {
+        if (result.length === 0) {
             return notFound('Resource not found');
         }
 
-        return success(result.rows[0]);
+        return success(result[0]);
 
     } catch (err) {
         log.error('Failed to get resource', { id, error: err.message });
@@ -222,6 +294,7 @@ export const getById = async (event) => {
 /**
  * Create a new resource
  * Automatically assigns 100% to Bench project
+ * Uses Drizzle ORM with transaction - if bench allocation fails, resource creation is rolled back
  */
 export const create = async (event) => {
     const log = logger.child({ handler: 'resources.create' });
@@ -232,87 +305,94 @@ export const create = async (event) => {
 
         log.info('Creating resource', { email: validated.email, employee_id: validated.employee_id });
 
-        // Check for duplicate employee_id
-        const existingEmployeeId = await db.query(
-            'SELECT id FROM resources WHERE employee_id = $1 AND deleted_at IS NULL',
-            [validated.employee_id]
-        );
+        const drizzle = await getDrizzle();
 
-        if (existingEmployeeId.rows.length > 0) {
+        // Check for duplicate employee_id using Drizzle
+        const existingEmployeeId = await drizzle
+            .select({ id: resources.id })
+            .from(resources)
+            .where(and(
+                eq(resources.employeeId, validated.employee_id),
+                isNull(resources.deletedAt)
+            ));
+
+        if (existingEmployeeId.length > 0) {
             return conflict('A resource with this employee_id already exists');
         }
 
-        // Check for duplicate employee_number
-        const existingEmployeeNumber = await db.query(
-            'SELECT id FROM resources WHERE employee_number = $1 AND deleted_at IS NULL',
-            [validated.employee_number]
-        );
+        // Check for duplicate employee_number using Drizzle
+        const existingEmployeeNumber = await drizzle
+            .select({ id: resources.id })
+            .from(resources)
+            .where(and(
+                eq(resources.employeeNumber, validated.employee_number),
+                isNull(resources.deletedAt)
+            ));
 
-        if (existingEmployeeNumber.rows.length > 0) {
+        if (existingEmployeeNumber.length > 0) {
             return conflict('A resource with this employee_number already exists');
         }
 
         // Get user info from auth context for created_by
-        // JWT claims from Cognito authorizer
         const cognitoSub = event.requestContext?.authorizer?.jwt?.claims?.sub
             || event.requestContext?.authorizer?.claims?.sub;
-        // For user ID, we need to look up the user by cognito_user_id or use a default UUID
+
         let userId = null;
         if (cognitoSub) {
-            const userResult = await db.query(
-                'SELECT id FROM users WHERE cognito_user_id = $1',
-                [cognitoSub]
-            );
-            if (userResult.rows.length > 0) {
-                userId = userResult.rows[0].id;
+            const userResult = await drizzle
+                .select({ id: users.id })
+                .from(users)
+                .where(eq(users.cognitoUserId, cognitoSub));
+
+            if (userResult.length > 0) {
+                userId = userResult[0].id;
             }
         }
-        // Use a system UUID if no user found (00000000-0000-0000-0000-000000000000)
+        // Use a system UUID if no user found
         if (!userId) {
             userId = '00000000-0000-0000-0000-000000000000';
         }
 
-        const query = `
-            INSERT INTO resources (
-                employee_id, employee_number, name, phone_number, email, address,
-                designation_id, track_id, intern_classification, skills,
-                date_of_joining, date_of_birth, nic_passport, is_intern,
-                tier, tech_stack, photo_url, status, created_by
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
-            RETURNING *
-        `;
+        // Use transaction to ensure resource creation and bench allocation are atomic
+        // If either fails, both are rolled back
+        const result = await withTransaction(async (tx) => {
+            // Insert resource using Drizzle (use camelCase properties from schema)
+            const [newResource] = await tx
+                .insert(resources)
+                .values({
+                    employeeId: validated.employee_id,
+                    employeeNumber: validated.employee_number,
+                    name: validated.name,
+                    phoneNumber: validated.phone_number,
+                    email: validated.email || null,
+                    address: validated.address || null,
+                    designationId: validated.designation_id,
+                    trackId: validated.track_id,
+                    internClassification: validated.intern_classification || null,
+                    skills: validated.skills || [],
+                    dateOfJoining: validated.date_of_joining || null,
+                    dateOfBirth: validated.date_of_birth || null,
+                    nicPassport: validated.nic_passport || null,
+                    isIntern: validated.is_intern || false,
+                    tier: validated.tier || null,
+                    techStack: validated.tech_stack || null,
+                    photoUrl: validated.photo_url || null,
+                    status: validated.status || 'Active',
+                    createdBy: userId
+                })
+                .returning();
 
-        const params = [
-            validated.employee_id,
-            validated.employee_number,
-            validated.name,
-            validated.phone_number,
-            validated.email || null,
-            validated.address || null,
-            validated.designation_id,
-            validated.track_id,
-            validated.intern_classification || null,
-            validated.skills || [],
-            validated.date_of_joining || null,
-            validated.date_of_birth || null,
-            validated.nic_passport || null,
-            validated.is_intern || false,
-            validated.tier || null,
-            validated.tech_stack || null,
-            validated.photo_url || null,
-            validated.status || 'Active',
-            userId
-        ];
+            log.info('Resource created in transaction', { id: newResource.id });
 
-        const result = await db.query(query, params);
-        const newResource = result.rows[0];
+            // Auto-assign 100% to Bench project (within same transaction)
+            const benchAllocation = await createInitialBenchAllocation(tx, newResource.id, userId, log);
 
-        log.info('Resource created', { id: newResource.id });
+            return { newResource, benchAllocation };
+        });
 
-        // Auto-assign 100% to Bench project
-        const benchAllocation = await createInitialBenchAllocation(newResource.id, userId, log);
+        const { newResource, benchAllocation } = result;
 
-        // Send audit event for resource creation
+        // Send audit event for resource creation (outside transaction - audit is non-critical)
         await audit.create(
             event,
             'resource',
@@ -348,6 +428,7 @@ export const create = async (event) => {
 
 /**
  * Update an existing resource
+ * Uses Drizzle ORM with transaction for atomic updates
  */
 export const update = async (event) => {
     const log = logger.child({ handler: 'resources.update' });
@@ -359,63 +440,104 @@ export const update = async (event) => {
 
         log.info('Updating resource', { id });
 
-        // Check if resource exists and get current data for audit
-        const existingResult = await db.query(
-            'SELECT * FROM resources WHERE id = $1 AND deleted_at IS NULL',
-            [id]
-        );
+        const drizzle = await getDrizzle();
 
-        if (existingResult.rows.length === 0) {
+        // Check if resource exists and get current data for audit
+        const existingResult = await drizzle
+            .select()
+            .from(resources)
+            .where(and(
+                eq(resources.id, id),
+                isNull(resources.deletedAt)
+            ));
+
+        if (existingResult.length === 0) {
             return notFound('Resource not found');
         }
 
-        const existing = existingResult.rows[0];
+        const existing = existingResult[0];
 
         // Optimistic locking check (only if version is provided)
         if (validated.version !== undefined && existing.version !== validated.version) {
             return conflict('Resource has been modified by another user. Please refresh and try again.');
         }
 
-        // Build dynamic update query
-        const { version, ...updateData } = validated;
-        const updates = [];
-        const params = [id];
-        let paramIndex = 2;
-
         // Get user info for updated_by - use system UUID as fallback
-        const userId = event.requestContext?.authorizer?.jwt?.claims?.sub
-            || event.requestContext?.authorizer?.claims?.sub
-            || '00000000-0000-0000-0000-000000000000';
+        const cognitoSub = event.requestContext?.authorizer?.jwt?.claims?.sub
+            || event.requestContext?.authorizer?.claims?.sub;
 
+        let userId = null;
+        if (cognitoSub) {
+            const userResult = await drizzle
+                .select({ id: users.id })
+                .from(users)
+                .where(eq(users.cognitoUserId, cognitoSub));
+
+            if (userResult.length > 0) {
+                userId = userResult[0].id;
+            }
+        }
+        if (!userId) {
+            userId = '00000000-0000-0000-0000-000000000000';
+        }
+
+        // Map API snake_case to Drizzle schema camelCase
+        const fieldMapping = {
+            employee_id: 'employeeId',
+            employee_number: 'employeeNumber',
+            phone_number: 'phoneNumber',
+            designation_id: 'designationId',
+            track_id: 'trackId',
+            intern_classification: 'internClassification',
+            date_of_joining: 'dateOfJoining',
+            date_of_birth: 'dateOfBirth',
+            nic_passport: 'nicPassport',
+            is_intern: 'isIntern',
+            tech_stack: 'techStack',
+            photo_url: 'photoUrl',
+            // Direct mappings (same name)
+            name: 'name',
+            email: 'email',
+            address: 'address',
+            skills: 'skills',
+            tier: 'tier',
+            status: 'status'
+        };
+
+        // Build update object for Drizzle (exclude version from update)
+        const { version, ...updateData } = validated;
+
+        // Filter out undefined values and map to camelCase
+        const updateValues = {};
         for (const [key, value] of Object.entries(updateData)) {
             if (value !== undefined) {
-                updates.push(`${key} = $${paramIndex}`);
-                params.push(value);
-                paramIndex++;
+                const drizzleKey = fieldMapping[key] || key;
+                updateValues[drizzleKey] = value;
             }
         }
 
-        if (updates.length === 0) {
+        if (Object.keys(updateValues).length === 0) {
             return success(existing);
         }
 
-        // Increment version and set updated_by
-        updates.push(`version = version + 1`);
-        updates.push(`updated_at = CURRENT_TIMESTAMP`);
-        updates.push(`updated_by = $${paramIndex}`);
-        params.push(userId);
+        // Add version increment and updated_by
+        updateValues.version = sql`${resources.version} + 1`;
+        updateValues.updatedAt = new Date();
+        updateValues.updatedBy = userId;
 
-        const query = `
-            UPDATE resources 
-            SET ${updates.join(', ')}
-            WHERE id = $1 AND deleted_at IS NULL
-            RETURNING *
-        `;
+        // Perform update using transaction for atomicity
+        const [updatedResource] = await withTransaction(async (tx) => {
+            return tx
+                .update(resources)
+                .set(updateValues)
+                .where(and(
+                    eq(resources.id, id),
+                    isNull(resources.deletedAt)
+                ))
+                .returning();
+        });
 
-        const result = await db.query(query, params);
-        const updatedResource = result.rows[0];
-
-        // Send audit event for resource update
+        // Send audit event for resource update (outside transaction)
         await audit.update(
             event,
             'resource',
@@ -443,6 +565,7 @@ export const update = async (event) => {
 
 /**
  * Soft delete a resource
+ * Uses Drizzle ORM with transaction for atomic deletion
  */
 export const remove = async (event) => {
     const log = logger.child({ handler: 'resources.remove' });
@@ -451,25 +574,32 @@ export const remove = async (event) => {
     try {
         log.info('Deleting resource', { id });
 
-        // Check if resource exists and get data for audit
-        const existingResult = await db.query(
-            'SELECT * FROM resources WHERE id = $1 AND deleted_at IS NULL',
-            [id]
-        );
+        const drizzle = await getDrizzle();
 
-        if (existingResult.rows.length === 0) {
+        // Check if resource exists and get data for audit
+        const existingResult = await drizzle
+            .select()
+            .from(resources)
+            .where(and(
+                eq(resources.id, id),
+                isNull(resources.deletedAt)
+            ));
+
+        if (existingResult.length === 0) {
             return notFound('Resource not found');
         }
 
-        const existing = existingResult.rows[0];
+        const existing = existingResult[0];
 
-        // Soft delete
-        await db.query(
-            'UPDATE resources SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1',
-            [id]
-        );
+        // Soft delete using transaction
+        await withTransaction(async (tx) => {
+            await tx
+                .update(resources)
+                .set({ deletedAt: new Date() })
+                .where(eq(resources.id, id));
+        });
 
-        // Send audit event for resource deletion
+        // Send audit event for resource deletion (outside transaction)
         await audit.delete(
             event,
             'resource',
@@ -491,6 +621,7 @@ export const remove = async (event) => {
 
 /**
  * Get allocations for a resource
+ * Uses Drizzle ORM for type-safe queries
  */
 export const getAllocations = async (event) => {
     const log = logger.child({ handler: 'resources.getAllocations' });
@@ -501,41 +632,58 @@ export const getAllocations = async (event) => {
     try {
         log.info('Getting resource allocations', { id, includeHistory });
 
-        // Check if resource exists
-        const resourceCheck = await db.query(
-            'SELECT id FROM resources WHERE id = $1 AND deleted_at IS NULL',
-            [id]
-        );
+        const drizzle = await getDrizzle();
 
-        if (resourceCheck.rows.length === 0) {
+        // Check if resource exists using Drizzle
+        const resourceCheck = await drizzle
+            .select({ id: resources.id })
+            .from(resources)
+            .where(and(
+                eq(resources.id, id),
+                isNull(resources.deletedAt)
+            ));
+
+        if (resourceCheck.length === 0) {
             return notFound('Resource not found');
         }
 
-        let whereClause = 'WHERE a.resource_id = $1';
+        // Build where conditions
+        const conditions = [eq(allocations.resourceId, id)];
         if (!includeHistory) {
-            whereClause += " AND a.is_active = true";
+            conditions.push(eq(allocations.isActive, true));
         }
 
-        const query = `
-            SELECT 
-                a.*,
-                p.project_name,
-                p.project_code,
-                p.project_type,
-                c.client_name
-            FROM allocations a
-            LEFT JOIN projects p ON a.project_id = p.id
-            LEFT JOIN clients c ON p.client_id = c.id
-            ${whereClause}
-            ORDER BY a.start_date DESC
-        `;
-
-        const result = await db.query(query, [id]);
+        // Get allocations with joins using Drizzle (map to snake_case for API)
+        const result = await drizzle
+            .select({
+                id: allocations.id,
+                resource_id: allocations.resourceId,
+                project_id: allocations.projectId,
+                allocation_percentage: allocations.allocationPercentage,
+                start_date: allocations.startDate,
+                end_date: allocations.endDate,
+                is_active: allocations.isActive,
+                notes: allocations.notes,
+                created_at: allocations.createdAt,
+                updated_at: allocations.updatedAt,
+                created_by: allocations.createdBy,
+                // Joined fields from projects
+                project_name: projects.projectName,
+                project_code: projects.projectCode,
+                project_type: projects.projectType,
+                // Joined field from clients
+                client_name: clients.clientName
+            })
+            .from(allocations)
+            .leftJoin(projects, eq(allocations.projectId, projects.id))
+            .leftJoin(clients, eq(projects.clientId, clients.id))
+            .where(and(...conditions))
+            .orderBy(desc(allocations.startDate));
 
         return success({
             resource_id: id,
-            allocations: result.rows,
-            total: result.rows.length
+            allocations: result,
+            total: result.length
         });
 
     } catch (err) {

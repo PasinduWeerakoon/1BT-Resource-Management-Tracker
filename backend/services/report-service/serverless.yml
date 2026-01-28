@@ -43,7 +43,7 @@ provider:
     id: !ImportValue onebt-${self:provider.stage}-HttpApiId
 
   layers:
-    - arn:aws:lambda:${self:provider.region}:550586832874:layer:onebt-shared-libs-${self:provider.stage}:33
+    - !ImportValue onebt-shared-layer-${self:provider.stage}-arn
 
 plugins:
   - serverless-offline
