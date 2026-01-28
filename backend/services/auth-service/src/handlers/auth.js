@@ -16,6 +16,9 @@ import {
 } from '@aws-sdk/client-cognito-identity-provider';
 import createError from 'http-errors';
 import { withMiddleware, success } from '/opt/nodejs/index.js';
+import audit from '/opt/nodejs/lib/audit/index.js';
+
+const SERVICE_NAME = 'auth-service';
 
 const cognito = new CognitoIdentityProviderClient({ region: process.env.AWS_REGION });
 const USER_POOL_ID = process.env.COGNITO_USER_POOL_ID;
@@ -49,6 +52,11 @@ const loginHandler = async (event) => {
             });
         }
 
+        // Send audit event for successful login
+        await audit.login(event, response.AuthenticationResult.AccessToken, email, SERVICE_NAME, {
+            method: 'ADMIN_USER_PASSWORD_AUTH'
+        });
+
         return success({
             accessToken: response.AuthenticationResult.AccessToken,
             idToken: response.AuthenticationResult.IdToken,
@@ -57,6 +65,8 @@ const loginHandler = async (event) => {
         });
     } catch (error) {
         console.error('Login Error:', error.message);
+        // Send audit event for failed login
+        await audit.loginFailed(event, email, SERVICE_NAME, { reason: error.message });
         throw createError(401, 'Invalid credentials');
     }
 };
@@ -73,9 +83,15 @@ const logoutHandler = async (event) => {
 
     try {
         await cognito.send(new GlobalSignOutCommand({ AccessToken: accessToken }));
+
+        // Send audit event for logout
+        await audit.logout(event, null, null, SERVICE_NAME);
+
         return success({ message: 'Logged out successfully' });
     } catch (error) {
         console.error('Logout error:', error);
+        // Still send audit event even if signout partially fails
+        await audit.logout(event, null, null, SERVICE_NAME, { partial: true });
         return success({ message: 'Logged out' });
     }
 };

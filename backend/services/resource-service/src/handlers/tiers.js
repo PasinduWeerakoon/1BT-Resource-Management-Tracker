@@ -7,6 +7,9 @@ import * as db from '/opt/nodejs/database/index.js';
 import logger from '/opt/nodejs/logger/index.js';
 import { success, error, notFound, validationError } from '/opt/nodejs/utils/response.js';
 import { validate, tierSchemas } from '/opt/nodejs/validation/index.js';
+import audit from '/opt/nodejs/lib/audit/index.js';
+
+const SERVICE_NAME = 'resource-service';
 
 /**
  * List all tiers
@@ -101,10 +104,21 @@ export const create = async (event) => {
         ];
 
         const result = await db.query(query, params);
+        const newTier = result.rows[0];
 
-        log.info('Tier created', { id: result.rows[0].id });
+        // Send audit event for tier creation
+        await audit.create(
+            event,
+            'tier',
+            newTier.id,
+            newTier.name,
+            newTier,
+            SERVICE_NAME
+        );
 
-        return success(result.rows[0], 201);
+        log.info('Tier created', { id: newTier.id });
+
+        return success(newTier, 201);
 
     } catch (err) {
         log.error('Failed to create tier', { error: err.message });
@@ -134,11 +148,12 @@ export const update = async (event) => {
 
         log.info('Updating tier', { id });
 
-        // Check if exists
-        const existing = await db.query('SELECT id FROM tiers WHERE id = $1', [id]);
-        if (existing.rows.length === 0) {
+        // Check if exists and get current data for audit
+        const existingResult = await db.query('SELECT * FROM tiers WHERE id = $1', [id]);
+        if (existingResult.rows.length === 0) {
             return notFound('Tier not found');
         }
+        const existing = existingResult.rows[0];
 
         // Build dynamic update
         const { name, level, description, is_active } = validated;
@@ -164,8 +179,7 @@ export const update = async (event) => {
         }
 
         if (updates.length === 0) {
-            const current = await db.query('SELECT * FROM tiers WHERE id = $1', [id]);
-            return success(current.rows[0]);
+            return success(existing);
         }
 
         updates.push('updated_at = CURRENT_TIMESTAMP');
@@ -178,10 +192,22 @@ export const update = async (event) => {
         `;
 
         const result = await db.query(query, params);
+        const updatedTier = result.rows[0];
+
+        // Send audit event for tier update
+        await audit.update(
+            event,
+            'tier',
+            id,
+            updatedTier.name,
+            existing,
+            updatedTier,
+            SERVICE_NAME
+        );
 
         log.info('Tier updated', { id });
 
-        return success(result.rows[0]);
+        return success(updatedTier);
 
     } catch (err) {
         log.error('Failed to update tier', { id, error: err.message });
@@ -208,16 +234,17 @@ export const remove = async (event) => {
     try {
         log.info('Deleting tier', { id });
 
-        // Check if exists
-        const existing = await db.query('SELECT id, name FROM tiers WHERE id = $1', [id]);
-        if (existing.rows.length === 0) {
+        // Check if exists and get data for audit
+        const existingResult = await db.query('SELECT * FROM tiers WHERE id = $1', [id]);
+        if (existingResult.rows.length === 0) {
             return notFound('Tier not found');
         }
+        const existing = existingResult.rows[0];
 
         // Check if tier is in use by any resources
         const usageCheck = await db.query(
             'SELECT COUNT(*) as count FROM resources WHERE tier = $1 AND deleted_at IS NULL',
-            [existing.rows[0].name]
+            [existing.name]
         );
 
         if (parseInt(usageCheck.rows[0].count) > 0) {
@@ -230,6 +257,16 @@ export const remove = async (event) => {
 
         // Delete the tier
         await db.query('DELETE FROM tiers WHERE id = $1', [id]);
+
+        // Send audit event for tier deletion
+        await audit.delete(
+            event,
+            'tier',
+            id,
+            existing.name,
+            existing,
+            SERVICE_NAME
+        );
 
         log.info('Tier deleted', { id });
 

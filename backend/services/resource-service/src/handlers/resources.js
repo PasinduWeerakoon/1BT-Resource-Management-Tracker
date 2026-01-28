@@ -12,6 +12,9 @@ import * as db from '/opt/nodejs/database/index.js';
 import logger from '/opt/nodejs/logger/index.js';
 import { success, error, notFound, validationError, conflict } from '/opt/nodejs/utils/response.js';
 import { validate, resourceSchemas } from '/opt/nodejs/validation/index.js';
+import audit from '/opt/nodejs/lib/audit/index.js';
+
+const SERVICE_NAME = 'resource-service';
 
 // Fixed Bench project ID - will be looked up by is_bench_project flag
 let BENCH_PROJECT_ID = null;
@@ -309,6 +312,17 @@ export const create = async (event) => {
         // Auto-assign 100% to Bench project
         const benchAllocation = await createInitialBenchAllocation(newResource.id, userId, log);
 
+        // Send audit event for resource creation
+        await audit.create(
+            event,
+            'resource',
+            newResource.id,
+            newResource.name,
+            newResource,
+            SERVICE_NAME,
+            { employee_id: newResource.employee_id, benchAllocation: benchAllocation?.id }
+        );
+
         // Include bench allocation info in response
         const response = {
             ...newResource,
@@ -345,18 +359,20 @@ export const update = async (event) => {
 
         log.info('Updating resource', { id });
 
-        // Check if resource exists and get current version
-        const existing = await db.query(
-            'SELECT id, version FROM resources WHERE id = $1 AND deleted_at IS NULL',
+        // Check if resource exists and get current data for audit
+        const existingResult = await db.query(
+            'SELECT * FROM resources WHERE id = $1 AND deleted_at IS NULL',
             [id]
         );
 
-        if (existing.rows.length === 0) {
+        if (existingResult.rows.length === 0) {
             return notFound('Resource not found');
         }
 
+        const existing = existingResult.rows[0];
+
         // Optimistic locking check (only if version is provided)
-        if (validated.version !== undefined && existing.rows[0].version !== validated.version) {
+        if (validated.version !== undefined && existing.version !== validated.version) {
             return conflict('Resource has been modified by another user. Please refresh and try again.');
         }
 
@@ -380,7 +396,7 @@ export const update = async (event) => {
         }
 
         if (updates.length === 0) {
-            return success(existing.rows[0]);
+            return success(existing);
         }
 
         // Increment version and set updated_by
@@ -397,10 +413,22 @@ export const update = async (event) => {
         `;
 
         const result = await db.query(query, params);
+        const updatedResource = result.rows[0];
+
+        // Send audit event for resource update
+        await audit.update(
+            event,
+            'resource',
+            id,
+            updatedResource.name,
+            existing,
+            updatedResource,
+            SERVICE_NAME
+        );
 
         log.info('Resource updated', { id });
 
-        return success(result.rows[0]);
+        return success(updatedResource);
 
     } catch (err) {
         log.error('Failed to update resource', { id, error: err.message });
@@ -423,20 +451,32 @@ export const remove = async (event) => {
     try {
         log.info('Deleting resource', { id });
 
-        // Check if resource exists
-        const existing = await db.query(
-            'SELECT id FROM resources WHERE id = $1 AND deleted_at IS NULL',
+        // Check if resource exists and get data for audit
+        const existingResult = await db.query(
+            'SELECT * FROM resources WHERE id = $1 AND deleted_at IS NULL',
             [id]
         );
 
-        if (existing.rows.length === 0) {
+        if (existingResult.rows.length === 0) {
             return notFound('Resource not found');
         }
+
+        const existing = existingResult.rows[0];
 
         // Soft delete
         await db.query(
             'UPDATE resources SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1',
             [id]
+        );
+
+        // Send audit event for resource deletion
+        await audit.delete(
+            event,
+            'resource',
+            id,
+            existing.name,
+            existing,
+            SERVICE_NAME
         );
 
         log.info('Resource deleted', { id });

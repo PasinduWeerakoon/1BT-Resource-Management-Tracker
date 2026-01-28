@@ -12,6 +12,9 @@ import * as db from '/opt/nodejs/database/index.js';
 import logger from '/opt/nodejs/logger/index.js';
 import { success, error, notFound, validationError, conflict, badRequest } from '/opt/nodejs/utils/response.js';
 import { validate, allocationSchemas } from '/opt/nodejs/validation/index.js';
+import audit from '/opt/nodejs/lib/audit/index.js';
+
+const SERVICE_NAME = 'allocation-service';
 
 // Fixed Bench project ID - will be looked up by is_bench_project flag
 let BENCH_PROJECT_ID = null;
@@ -392,6 +395,22 @@ export const create = async (event) => {
             };
         }
 
+        // Send audit event for allocation creation
+        await audit.create(
+            event,
+            'allocation',
+            allocation.id,
+            `${validated.resource_id} -> ${validated.project_id}`,
+            allocation,
+            SERVICE_NAME,
+            {
+                resource_id: validated.resource_id,
+                project_id: validated.project_id,
+                percentage: validated.allocation_percentage,
+                benchAdjustment
+            }
+        );
+
         log.info('Allocation created', { id: allocation.id, warning: validationResult.warning });
 
         // Build response with optional warning
@@ -511,6 +530,18 @@ export const update = async (event) => {
             };
         }
 
+        // Send audit event for allocation update
+        await audit.update(
+            event,
+            'allocation',
+            id,
+            `${allocation.resource_id} -> ${allocation.project_id}`,
+            existing,
+            allocation,
+            SERVICE_NAME,
+            { benchAdjustment }
+        );
+
         log.info('Allocation updated', { id, warning: validationResult?.warning });
 
         // Build response with optional warning
@@ -577,6 +608,17 @@ export const remove = async (event) => {
                 message: `Bench allocation adjusted to ${newBenchPercentage}%`
             };
         }
+
+        // Send audit event for allocation deletion
+        await audit.delete(
+            event,
+            'allocation',
+            id,
+            `${existing.resource_id} -> ${existing.project_id}`,
+            existing,
+            SERVICE_NAME,
+            { benchAdjustment }
+        );
 
         log.info('Allocation deleted', { id, benchAdjustment });
 
