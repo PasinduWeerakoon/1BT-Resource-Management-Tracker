@@ -13,6 +13,7 @@ export const ENDPOINTS = {
     LOGIN: `${BASE_URL}/auth/login`,
     LOGOUT: `${BASE_URL}/auth/logout`,
     REFRESH: `${BASE_URL}/auth/refresh`,
+    ME: `${BASE_URL}/auth/me`,
     FORGOT_PASSWORD: `${BASE_URL}/auth/forgot-password`,
     RESET_PASSWORD: `${BASE_URL}/auth/reset-password`,
     INVITE: `${BASE_URL}/auth/invite`,

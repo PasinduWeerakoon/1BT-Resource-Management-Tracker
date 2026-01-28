@@ -51,6 +51,16 @@ export const authService = {
   },
 
   /**
+   * Get current authenticated user info
+   * @returns {Promise<{success: boolean, data: {id: string, email: string, name: string, groups: Array, status: string, enabled: boolean}}>}
+   */
+  getMe: async () => {
+    const response = await apiClient.get(ENDPOINTS.AUTH.ME);
+    // The interceptor transforms the response
+    return response.data || response;
+  },
+
+  /**
    * Request password reset
    * @param {string} email - User email
    * @returns {Promise<{success: boolean, message: string}>}
