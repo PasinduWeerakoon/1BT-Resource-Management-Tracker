@@ -138,21 +138,41 @@ export const create = async (event) => {
 
         log.info('Creating project', { name: validated.project_name, userId });
 
+        // For Internal projects, client_id is optional
+        // For External (Client) projects, client_id is required
+        const accountType = validated.account_type || (validated.client_id ? 'External' : 'Internal');
+        if (accountType === 'External' && !validated.client_id) {
+            return validationError([{ field: 'client_id', message: 'client_id is required for External projects' }]);
+        }
+
+        // Map billing_type to billing_status enum
+        const billingStatus = validated.billing_type === 'Non-Billing' ? 'Non-Billing' : 'Billing';
+        const isBillable = billingStatus === 'Billing';
+
         const query = `
             INSERT INTO projects (
-                project_name, client_id, project_type, is_billable, status,
-                start_date, end_date, description, created_by
+                project_name, project_code, client_id, project_type, account_type,
+                billing_status, is_billable, status, team_size, account_manager,
+                account_reg_sales_owner, budget, start_date, end_date,
+                description, created_by
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
             RETURNING *
         `;
 
         const params = [
             validated.project_name,
+            validated.project_code || null,
             validated.client_id || null,
-            validated.project_type || 'INTERNAL',
-            validated.is_billable ?? true,
-            validated.status || 'ACTIVE',
+            validated.project_type || 'Client',
+            accountType,
+            billingStatus,
+            isBillable,
+            validated.status || 'Active',
+            validated.team_size || 1,
+            validated.account_manager,
+            validated.account_reg_sales_owner || null,
+            validated.budget || null,
             validated.start_date || null,
             validated.end_date || null,
             validated.description || null,
@@ -211,11 +231,22 @@ export const update = async (event) => {
         const params = [id];
         let paramIndex = 2;
 
+        // No field mapping needed - API field names match DB column names
         for (const [key, value] of Object.entries(updateData)) {
             if (value !== undefined) {
-                updates.push(`${key} = $${paramIndex}`);
-                params.push(value);
-                paramIndex++;
+                // Handle billing_type -> also update is_billable
+                if (key === 'billing_type') {
+                    updates.push(`billing_status = $${paramIndex}`);
+                    params.push(value === 'Non-Billing' ? 'Non-Billing' : 'Billing');
+                    paramIndex++;
+                    updates.push(`is_billable = $${paramIndex}`);
+                    params.push(value !== 'Non-Billing');
+                    paramIndex++;
+                } else {
+                    updates.push(`${key} = $${paramIndex}`);
+                    params.push(value);
+                    paramIndex++;
+                }
             }
         }
 

@@ -720,6 +720,73 @@ const migrations = [
 
             logger.info('Migration 010 completed: Bench and internal projects created');
         }
+    },
+    {
+        id: '011_projects_extra_columns',
+        name: 'Add team_size, account_manager and other columns to projects',
+        up: async (client) => {
+            // Add account_type enum if not exists
+            await client.query(`
+                DO $$ BEGIN
+                    CREATE TYPE account_type AS ENUM ('Internal', 'External');
+                EXCEPTION WHEN duplicate_object THEN NULL;
+                END $$;
+            `);
+
+            // Add team_size column
+            await client.query(`
+                ALTER TABLE projects 
+                ADD COLUMN IF NOT EXISTS team_size INTEGER NOT NULL DEFAULT 1;
+            `);
+
+            // Add account_type column
+            await client.query(`
+                ALTER TABLE projects 
+                ADD COLUMN IF NOT EXISTS account_type account_type NOT NULL DEFAULT 'Internal';
+            `);
+
+            // Add account_manager column (string name, separate from account_manager_id)
+            await client.query(`
+                ALTER TABLE projects 
+                ADD COLUMN IF NOT EXISTS account_manager VARCHAR(100);
+            `);
+
+            // Add account_reg_sales_owner column
+            await client.query(`
+                ALTER TABLE projects 
+                ADD COLUMN IF NOT EXISTS account_reg_sales_owner VARCHAR(100);
+            `);
+
+            // Add budget column
+            await client.query(`
+                ALTER TABLE projects 
+                ADD COLUMN IF NOT EXISTS budget DECIMAL(15,2);
+            `);
+
+            // Add version column if not exists
+            await client.query(`
+                ALTER TABLE projects 
+                ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 1;
+            `);
+
+            // Add constraint for positive team_size
+            await client.query(`
+                DO $$ BEGIN
+                    ALTER TABLE projects ADD CONSTRAINT projects_team_size_positive CHECK (team_size >= 1);
+                EXCEPTION WHEN duplicate_object THEN NULL;
+                END $$;
+            `);
+
+            // Add constraint for positive budget
+            await client.query(`
+                DO $$ BEGIN
+                    ALTER TABLE projects ADD CONSTRAINT projects_budget_positive CHECK (budget IS NULL OR budget >= 0);
+                EXCEPTION WHEN duplicate_object THEN NULL;
+                END $$;
+            `);
+
+            logger.info('Migration 011 completed: Added team_size, account_manager, account_type, budget columns to projects');
+        }
     }
 ];
 
