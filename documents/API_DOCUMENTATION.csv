@@ -36,6 +36,13 @@ POST,/api/v1/designations,Yes,Create a new designation,"{""name"": ""string"", "
 PUT,/api/v1/designations/{id},Yes,Update designation,"{""name"": ""string"", ""level"": 1, ""is_active"": true}","{""success"": true, ""data"": {""id"": ""uuid"", ...}}","200 OK, 404 Not Found, 409 Conflict",
 GET,/api/v1/designations/{id}/history,Yes,Get designation history,None,"{""success"": true, ""data"": [{""resource_name"": ""string"", ""effective_date"": ""date"", ""end_date"": ""date""}]}","200 OK, 404 Not Found",Tracks designation changes over time
 ,,,,,,,
+# TIER ENDPOINTS,,,,,,,
+GET,/api/v1/tiers,Yes,List all tiers,"Query: search, is_active","{""success"": true, ""data"": {""data"": [{""id"": ""uuid"", ""name"": ""Synergy"", ""level"": 1, ""description"": ""string"", ""is_active"": true}], ""total"": 6}}",200 OK,"Returns all tiers sorted by level (Synergy, Tier-1, Tier-2, Tier-3, Tier-4, Intern)"
+GET,/api/v1/tiers/{id},Yes,Get tier by ID,None,"{""success"": true, ""data"": {""id"": ""uuid"", ""name"": ""string"", ""level"": 1, ""description"": ""string"", ""is_active"": true}}","200 OK, 404 Not Found",
+POST,/api/v1/tiers,Yes,Create a new tier,"{""name"": ""string"", ""level"": 1, ""description"": ""string"", ""is_active"": true}","{""success"": true, ""data"": {""id"": ""uuid"", ""name"": ""string"", ...}}","201 Created, 409 Conflict",Tier name must be unique
+PUT,/api/v1/tiers/{id},Yes,Update tier,"{""name"": ""string"", ""level"": 1, ""description"": ""string"", ""is_active"": true}","{""success"": true, ""data"": {""id"": ""uuid"", ...}}","200 OK, 404 Not Found, 409 Conflict",
+DELETE,/api/v1/tiers/{id},Yes,Delete a tier,None,"{""success"": true, ""data"": {""message"": ""Tier deleted successfully""}}","200 OK, 404 Not Found, 409 Conflict",Cannot delete tier if it is assigned to resources
+,,,,,,,
 # CLIENT ENDPOINTS,,,,,,,
 GET,/api/v1/clients,Yes,List clients with pagination,"Query: page, limit, search, is_active","{""success"": true, ""data"": {""data"": [], ""pagination"": {""total"": 0, ""page"": 1, ""limit"": 20, ""totalPages"": 0}}}","200 OK, 422 Validation Error",Supports search by name or contact person
 POST,/api/v1/clients,Yes,Create a new client,"{""client_name"": ""string"", ""contact_person"": ""string"", ""contact_email"": ""string"", ""contact_phone"": ""string"", ""address"": ""string"", ""is_active"": true}","{""success"": true, ""data"": {""id"": ""uuid"", ""client_name"": ""string"", ...}}","201 Created, 409 Conflict",client_name must be unique

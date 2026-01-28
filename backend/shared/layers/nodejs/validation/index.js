@@ -137,6 +137,29 @@ export const trackSchemas = {
     }),
 };
 
+// Tier Schemas
+export const tierSchemas = {
+    list: Joi.object({
+        ...paginationSchema,
+        search: Joi.string().allow('').optional(),
+        is_active: Joi.string().valid('true', 'false').optional(),
+    }),
+
+    create: Joi.object({
+        name: Joi.string().max(50).required(),
+        level: Joi.number().integer().min(1).max(100).optional(),
+        description: Joi.string().max(500).optional(),
+        is_active: Joi.boolean().default(true),
+    }),
+
+    update: Joi.object({
+        name: Joi.string().max(50).optional(),
+        level: Joi.number().integer().min(1).max(100).optional(),
+        description: Joi.string().max(500).optional(),
+        is_active: Joi.boolean().optional(),
+    }),
+};
+
 // Client Schemas
 export const clientSchemas = {
     list: Joi.object({
@@ -265,6 +288,7 @@ export default {
     resourceSchemas,
     designationSchemas,
     trackSchemas,
+    tierSchemas,
     clientSchemas,
     projectSchemas,
     allocationSchemas,

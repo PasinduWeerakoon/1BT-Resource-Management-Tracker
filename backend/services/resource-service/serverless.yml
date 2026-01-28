@@ -45,7 +45,7 @@ provider:
     id: !ImportValue onebt-${self:provider.stage}-HttpApiId
 
   layers:
-    - arn:aws:lambda:${self:provider.region}:550586832874:layer:onebt-shared-libs-${self:provider.stage}:24
+    - arn:aws:lambda:${self:provider.region}:550586832874:layer:onebt-shared-libs-${self:provider.stage}:25
 
 plugins:
   - serverless-offline
@@ -228,4 +228,50 @@ functions:
       - httpApi:
           path: /api/v1/tracks/{id}
           method: PUT
+          authorizer: ${self:custom.authorizer}
+
+  # ==================== TIERS ====================
+  listTiers:
+    handler: src/handlers/tiers.list
+    description: List all tiers
+    events:
+      - httpApi:
+          path: /api/v1/tiers
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  getTier:
+    handler: src/handlers/tiers.getById
+    description: Get a tier by ID
+    events:
+      - httpApi:
+          path: /api/v1/tiers/{id}
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  createTier:
+    handler: src/handlers/tiers.create
+    description: Create a new tier
+    events:
+      - httpApi:
+          path: /api/v1/tiers
+          method: POST
+          authorizer: ${self:custom.authorizer}
+
+  updateTier:
+    handler: src/handlers/tiers.update
+    description: Update an existing tier
+    events:
+      - httpApi:
+          path: /api/v1/tiers/{id}
+          method: PUT
+          authorizer: ${self:custom.authorizer}
+
+  deleteTier:
+    handler: src/handlers/tiers.remove
+    description: Delete a tier
+    events:
+      - httpApi:
+          path: /api/v1/tiers/{id}
+          method: DELETE
           authorizer: ${self:custom.authorizer}

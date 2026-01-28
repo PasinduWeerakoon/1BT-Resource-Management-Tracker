@@ -586,6 +586,58 @@ const migrations = [
 
             logger.info('Migration 008 completed: Employee additional fields added');
         }
+    },
+    {
+        id: '009_tiers_table',
+        name: 'Create tiers lookup table',
+        up: async (client) => {
+            // Create tiers table
+            await client.query(`
+                CREATE TABLE IF NOT EXISTS tiers (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    name VARCHAR(50) NOT NULL UNIQUE,
+                    description TEXT,
+                    level INTEGER,
+                    is_active BOOLEAN DEFAULT true,
+                    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                    created_by UUID
+                )
+            `);
+
+            // Create updated_at trigger for tiers
+            await client.query(`
+                DROP TRIGGER IF EXISTS update_tiers_updated_at ON tiers;
+                CREATE TRIGGER update_tiers_updated_at
+                    BEFORE UPDATE ON tiers
+                    FOR EACH ROW
+                    EXECUTE FUNCTION update_updated_at_column();
+            `);
+
+            // Seed default tiers
+            await client.query(`
+                INSERT INTO tiers (name, level, description) VALUES
+                    ('Synergy', 1, 'Synergy tier'),
+                    ('Tier - 1', 2, 'Tier 1'),
+                    ('Tier - 2', 3, 'Tier 2'),
+                    ('Tier - 3', 4, 'Tier 3'),
+                    ('Tier - 4', 5, 'Tier 4'),
+                    ('Intern', 6, 'Intern tier')
+                ON CONFLICT (name) DO NOTHING;
+            `);
+
+            // Create index on level for sorting
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS idx_tiers_level ON tiers(level);
+            `);
+
+            // Create index on is_active for filtering
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS idx_tiers_active ON tiers(is_active);
+            `);
+
+            logger.info('Migration 009 completed: Tiers table created');
+        }
     }
 ];
 
