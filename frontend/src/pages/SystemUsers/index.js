@@ -1,8 +1,10 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Card, Button, Form, Input, Select, Table, Space, Tooltip, Modal, Row, Col } from 'antd';
 import { PlusOutlined, EditOutlined, UserDeleteOutlined, UserAddOutlined } from '@ant-design/icons';
 import CustomModal from '@components/Modal';
 import CustomTable from '@components/Table';
+import { authService, resourcesService } from '@api';
+import { showErrorToast, showSuccessToast } from '@utils/toast.utils';
 import '@styles/pages/SystemUsers.scss';
 
 const { Option } = Select;
@@ -10,12 +12,20 @@ const { Option } = Select;
 const SystemUsers = () => {
   const [grantAccessForm] = Form.useForm();
   const [changeRoleForm] = Form.useForm();
-  
+
   const [isGrantAccessModalVisible, setIsGrantAccessModalVisible] = useState(false);
   const [isChangeRoleModalVisible, setIsChangeRoleModalVisible] = useState(false);
   const [selectedUser, setSelectedUser] = useState(null);
   const [revokeModalVisible, setRevokeModalVisible] = useState(false);
   const [userToRevoke, setUserToRevoke] = useState(null);
+  const [isSubmittingInvite, setIsSubmittingInvite] = useState(false);
+  const [resourcesList, setResourcesList] = useState([]);
+  const [loadingResources, setLoadingResources] = useState(false);
+  const [selectedResourceId, setSelectedResourceId] = useState(null);
+
+  // Refs to prevent duplicate API calls
+  const fetchInProgressRef = useRef(false);
+  const fetchResourcesInProgressRef = useRef(false);
 
   // Mock employees data (from Employee Management)
   const [employees] = useState([
@@ -56,32 +66,163 @@ const SystemUsers = () => {
     return employees.filter(emp => !systemUserEmployeeNumbers.includes(emp.employeeNumber));
   }, [employees, systemUsers]);
 
-  // Handle Grant Access
-  const handleGrantAccess = () => {
+  // Fetch resources from API
+  const fetchResources = async () => {
+    if (fetchResourcesInProgressRef.current) {
+      return;
+    }
+
+    try {
+      fetchResourcesInProgressRef.current = true;
+      setLoadingResources(true);
+
+      const response = await resourcesService.getAll({
+        page: 1,
+        limit: 100, // Fetch all resources for dropdown
+        status: 'Active', // Only show active resources
+      });
+
+      // Handle response structure
+      let resourcesData = [];
+      if (response) {
+        if (response.data && Array.isArray(response.data)) {
+          resourcesData = response.data;
+        } else if (response.data && response.data.data && Array.isArray(response.data.data)) {
+          resourcesData = response.data.data;
+        } else if (Array.isArray(response)) {
+          resourcesData = response;
+        }
+      }
+
+      // Filter out resources without email
+      const resourcesWithEmail = resourcesData.filter(resource => resource.email);
+      setResourcesList(resourcesWithEmail);
+    } catch (error) {
+      console.error('Failed to fetch resources:', error);
+      showErrorToast('Failed to load resources');
+    } finally {
+      setLoadingResources(false);
+      fetchResourcesInProgressRef.current = false;
+    }
+  };
+
+  // Fetch resources on component mount
+  useEffect(() => {
+    fetchResources();
+  }, []);
+
+  // Handle Invite User
+  const handleInviteUser = () => {
     grantAccessForm.resetFields();
+    setSelectedResourceId(null);
     setIsGrantAccessModalVisible(true);
   };
 
-  const handleGrantAccessSubmit = async () => {
+  // Handle resource selection - auto-fill email
+  const handleResourceSelect = (resourceId) => {
+    setSelectedResourceId(resourceId);
+    const selectedResource = resourcesList.find(r => r.id === resourceId);
+    if (selectedResource) {
+      // Store the resource ID in the form field (the Select value is the ID)
+      grantAccessForm.setFieldsValue({
+        name: resourceId, // Store ID, not name
+        email: selectedResource.email || '',
+      });
+    }
+  };
+
+  // Handle resource clear - clear email
+  const handleResourceClear = () => {
+    setSelectedResourceId(null);
+    grantAccessForm.setFieldsValue({
+      name: undefined,
+      email: undefined,
+    });
+  };
+
+  const handleInviteSubmit = async () => {
+    // Prevent duplicate calls
+    if (fetchInProgressRef.current) {
+      return;
+    }
+
     try {
       const values = await grantAccessForm.validateFields();
-      const selectedEmployee = employees.find(emp => emp.employeeNumber === values.employeeNumber);
-      
-      const newSystemUser = {
-        key: String(systemUsers.length + 1),
-        employeeNumber: selectedEmployee.employeeNumber,
-        employeeName: selectedEmployee.name,
-        email: values.email || `${selectedEmployee.employeeNumber.toLowerCase()}@company.com`,
-        userType: values.userType || 'User',
-        status: 'Active',
-        tier: selectedEmployee.tier,
-      };
-      
-      setSystemUsers([...systemUsers, newSystemUser]);
+
+      // Get resource details from selected resource ID
+      // Use selectedResourceId state if available, otherwise fall back to form value
+      const resourceId = selectedResourceId || values.name;
+
+      if (!resourceId) {
+        showErrorToast('Please select a user');
+        return;
+      }
+
+      const selectedResource = resourcesList.find(r => r.id === resourceId);
+
+      if (!selectedResource) {
+        console.error('Resource not found:', { resourceId, resourcesListLength: resourcesList.length });
+        showErrorToast('Selected user not found. Please try selecting again.');
+        return;
+      }
+
+      // Extract name and email from selected resource
+      const userName = selectedResource.name || selectedResource.employee_name || '';
+      const userEmail = selectedResource.email || values.email || '';
+
+      if (!userEmail) {
+        showErrorToast('Selected user does not have an email address');
+        return;
+      }
+
+      fetchInProgressRef.current = true;
+      setIsSubmittingInvite(true);
+
+      // Map role to API format (Admin|User)
+      const apiRole = values.role === 'Admin' ? 'Admin' : 'User';
+
+      // Call invite API - POST /api/v1/auth/invite
+      // Payload: {email: string, name: string, role: "Admin"|"User"}
+      const response = await authService.invite(
+        userEmail,
+        userName,
+        apiRole
+      );
+
+      // API returns: {success: true, message: "Invitation sent to email"}
+      // If we reach here without an error, the API call succeeded
+      // Check for success - handle various response structures
+      const isSuccess = response && (
+        response.success === true ||
+        response.success === 'true' ||
+        (response.data && (response.data.success === true || response.data.success === 'true')) ||
+        // If response exists and has a message (and no explicit error), assume success
+        (response.message && !response.error && !response.message.toLowerCase().includes('error') && !response.message.toLowerCase().includes('fail'))
+      );
+
+      // Since we're in the try block (not catch), the API call succeeded
+      // Show appropriate message and close modal
+      if (isSuccess || response) {
+        const successMessage = response?.message || response?.data?.message || 'Invitation sent successfully';
+        showSuccessToast(successMessage);
+      } else {
+        // This shouldn't happen if API succeeded, but handle it
+        showErrorToast(response?.message || response?.data?.message || 'Failed to send invitation');
+      }
+
+      // Always close modal and reset form after successful API call (no error thrown)
       setIsGrantAccessModalVisible(false);
       grantAccessForm.resetFields();
+      setSelectedResourceId(null);
+
+      // TODO: Refresh system users list if you have an API to fetch them
+      // await fetchSystemUsers();
     } catch (error) {
-      console.error('Validation failed:', error);
+      console.error('Failed to invite user:', error);
+      showErrorToast(error?.response?.data?.message || error?.message || 'Failed to send invitation');
+    } finally {
+      setIsSubmittingInvite(false);
+      fetchInProgressRef.current = false;
     }
   };
 
@@ -98,7 +239,7 @@ const SystemUsers = () => {
     try {
       const values = await changeRoleForm.validateFields();
       const newUserType = values.userType;
-      
+
       // Check if trying to change to Super Admin and one already exists
       if (newUserType === 'Super Admin') {
         const existingSuperAdmin = systemUsers.find(user => user.userType === 'Super Admin' && user.key !== selectedUser.key);
@@ -110,11 +251,11 @@ const SystemUsers = () => {
           return;
         }
       }
-      
+
       setSystemUsers(systemUsers.map(user =>
         user.key === selectedUser.key ? { ...user, userType: newUserType } : user
       ));
-      
+
       setIsChangeRoleModalVisible(false);
       changeRoleForm.resetFields();
       setSelectedUser(null);
@@ -224,9 +365,9 @@ const SystemUsers = () => {
             <Button
               type="primary"
               icon={<UserAddOutlined />}
-              onClick={handleGrantAccess}
+              onClick={handleInviteUser}
             >
-              Grant Access
+              Invite User
             </Button>
           </div>
         </div>
@@ -238,13 +379,14 @@ const SystemUsers = () => {
         />
       </Card>
 
-      {/* Grant Access Modal */}
+      {/* Invite User Modal */}
       <CustomModal
-        title="Grant System User Access"
+        title="Invite User"
         open={isGrantAccessModalVisible}
         onClose={() => {
           setIsGrantAccessModalVisible(false);
           grantAccessForm.resetFields();
+          setSelectedResourceId(null);
         }}
         width={600}
         buttons={[
@@ -254,57 +396,65 @@ const SystemUsers = () => {
             onClick: () => {
               setIsGrantAccessModalVisible(false);
               grantAccessForm.resetFields();
+              setSelectedResourceId(null);
             },
+            disabled: isSubmittingInvite,
           },
           {
-            text: 'Grant Access',
+            text: 'Send Invitation',
             type: 'primary',
-            onClick: handleGrantAccessSubmit,
+            onClick: handleInviteSubmit,
+            loading: isSubmittingInvite,
           },
         ]}
       >
         <Form form={grantAccessForm} layout="vertical">
           <Form.Item
-            label="Employee"
-            name="employeeNumber"
-            rules={[{ required: true, message: 'Employee is required' }]}
+            label="Name"
+            name="name"
+            rules={[
+              { required: true, message: 'Please select a user' },
+            ]}
           >
             <Select
-              placeholder="Select employee"
+              placeholder="Select user"
               showSearch
+              allowClear
+              loading={loadingResources}
+              onChange={handleResourceSelect}
+              onClear={handleResourceClear}
               filterOption={(input, option) =>
-                (option?.children ?? '').toLowerCase().includes(input.toLowerCase())
+                (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
               }
-            >
-              {availableEmployees.map(emp => (
-                <Option key={emp.employeeNumber} value={emp.employeeNumber}>
-                  {emp.employeeNumber} - {emp.name} ({emp.position})
-                </Option>
-              ))}
-            </Select>
-          </Form.Item>
-          <Form.Item
-            label="User Type"
-            name="userType"
-            rules={[{ required: true, message: 'User type is required' }]}
-          >
-            <Select placeholder="Select user type">
-              <Option value="User">User</Option>
-              <Option value="Admin">Admin</Option>
-              <Option value="Super Admin" disabled={systemUsers.some(u => u.userType === 'Super Admin')}>
-                Super Admin {systemUsers.some(u => u.userType === 'Super Admin') ? '(Already exists)' : ''}
-              </Option>
-            </Select>
+              options={resourcesList.map(resource => ({
+                value: resource.id,
+                label: resource.name || resource.employee_name || 'N/A',
+              }))}
+            />
           </Form.Item>
           <Form.Item
             label="Email"
             name="email"
             rules={[
               { required: true, message: 'Email is required' },
-              { type: 'email', message: 'Please enter a valid email' },
+              { type: 'email', message: 'Please enter a valid email address' },
             ]}
           >
-            <Input placeholder="Enter email address" />
+            <Input
+              placeholder="Email will be auto-filled when you select a user"
+              disabled={!!selectedResourceId}
+            />
+          </Form.Item>
+          <Form.Item
+            label="Role"
+            name="role"
+            rules={[{ required: true, message: 'Role is required' }]}
+            help="Select the role for the user. Admin users have elevated permissions."
+          >
+            <Select placeholder="Select role">
+              <Option value="User">User</Option>
+              <Option value="Admin">Admin</Option>
+            </Select>
           </Form.Item>
         </Form>
       </CustomModal>

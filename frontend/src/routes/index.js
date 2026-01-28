@@ -19,6 +19,7 @@ import MonthlyAllocationReport from '@pages/MonthlyAllocationReport';
 import PreSaleReport from '@pages/PreSaleReport';
 import Settings from '@pages/Settings';
 import Configurations from '@pages/Configurations';
+import ActivityLog from '@pages/ActivityLog';
 import SystemUsers from '@pages/SystemUsers';
 
 export const routes = [
@@ -125,6 +126,11 @@ export const routes = [
   {
     path: '/configurations',
     component: Configurations,
+    isPrivate: true,
+  },
+  {
+    path: '/activity-log',
+    component: ActivityLog,
     isPrivate: true,
   },
   {

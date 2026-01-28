@@ -63,6 +63,8 @@ export const clientsService = {
    * @param {string} clientData.client_name - Client name
    * @param {string} clientData.contact_person - Contact person name
    * @param {string} clientData.contact_email - Contact email
+   * @param {string} clientData.contact_phone - Contact phone
+   * @param {string} clientData.address - Client address
    * @param {boolean} clientData.is_active - Is active
    * @returns {Promise<{success: boolean, data: {id: string, ...}}>}
    */

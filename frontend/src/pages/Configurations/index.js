@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Button, Form, Input, Tabs, Space, Tooltip, Select, Switch, message, Modal, Badge, Row, Col, DatePicker } from 'antd';
+import { Card, Button, Form, Input, Tabs, Space, Tooltip, Select, Switch, message, Modal, Badge, Row, Col, DatePicker, InputNumber } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import CustomModal from '@components/Modal';
 import CustomTable from '@components/Table';
-import { tracksService, designationsService, projectsService, clientsService } from '@api';
+import { tracksService, designationsService, projectsService, clientsService, accountManagersService } from '@api';
+import { showErrorToast, showSuccessToast } from '@utils/toast.utils';
 import dayjs from 'dayjs';
 import '@styles/pages/Configurations.scss';
 
@@ -50,6 +51,13 @@ const Configurations = () => {
     pageSize: 20,
     total: 0,
   });
+  const [clientFilters, setClientFilters] = useState({
+    search: '',
+    is_active: undefined,
+  });
+  const [accountManagersList, setAccountManagersList] = useState([]);
+  const [loadingAccountManagers, setLoadingAccountManagers] = useState(false);
+  const [accountType, setAccountType] = useState('External');
 
   // Designation handlers
   const handleAddDesignation = () => {
@@ -455,13 +463,71 @@ const Configurations = () => {
       fetchClients();
       fetchProjectTypes(1, 20);
     }
+    if (activeTab === 'clients') {
+      fetchClientsList(1, 20);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
+
+  // Fetch clients when filters change
+  useEffect(() => {
+    if (activeTab === 'clients') {
+      const timer = setTimeout(() => {
+        fetchClientsList(1, clientPagination.pageSize);
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clientFilters.search, clientFilters.is_active]);
+
+  // Fetch account managers for project form
+  useEffect(() => {
+    const fetchAccountManagers = async () => {
+      try {
+        setLoadingAccountManagers(true);
+        const response = await accountManagersService.getAll();
+        let accountManagersData = [];
+
+        if (response) {
+          if (Array.isArray(response.data)) {
+            accountManagersData = response.data;
+          } else if (response.data && Array.isArray(response.data)) {
+            accountManagersData = response.data;
+          } else if (Array.isArray(response)) {
+            accountManagersData = response;
+          }
+        }
+
+        const accountManagers = accountManagersData
+          .filter(am => am.id && am.name)
+          .map(am => ({
+            id: am.id,
+            name: am.name,
+          }));
+
+        setAccountManagersList(accountManagers);
+      } catch (error) {
+        console.error('Failed to fetch account managers:', error);
+        showErrorToast('Failed to load account managers');
+      } finally {
+        setLoadingAccountManagers(false);
+      }
+    };
+
+    fetchAccountManagers();
+  }, []);
 
   const handleAddProjectType = () => {
     setIsEditMode(false);
     setSelectedItem(null);
+    setAccountType('External');
     projectTypeForm.resetFields();
+    projectTypeForm.setFieldsValue({
+      account_type: 'External',
+      status: 'Active',
+      billing_type: 'Billing',
+      team_size: 1,
+    });
     setIsProjectTypeModalVisible(true);
   };
 
@@ -515,44 +581,117 @@ const Configurations = () => {
       setProjectTypeLoading(true);
       const values = await projectTypeForm.validateFields();
 
+      // Validate required fields
+      if (!values.project_name) {
+        showErrorToast('Project name is required');
+        setProjectTypeLoading(false);
+        return;
+      }
+
+      if (!values.account_manager) {
+        showErrorToast('Account manager is required');
+        setProjectTypeLoading(false);
+        return;
+      }
+
+      // Handle client_id - required only for External projects
+      let client_id = null;
+      if (values.account_type === 'External') {
+        if (values.client_id) {
+          client_id = values.client_id;
+        } else {
+          showErrorToast('Client is required for External projects');
+          setProjectTypeLoading(false);
+          return;
+        }
+      }
+
+      // Map project type - API expects: Client|Bench|Training|POC|Presale|Research
+      const projectTypeMap = {
+        'Client': 'Client',
+        'Bench': 'Bench',
+        'Training': 'Training',
+        'POC': 'POC',
+        'Presale': 'Presale',
+        'Research': 'Research',
+      };
+
+      const project_type = projectTypeMap[values.project_type] || 'Client';
+
+      // Map status - API expects: Active|On Hold|Completed|Cancelled
+      const statusMap = {
+        'Active': 'Active',
+        'On Hold': 'On Hold',
+        'Completed': 'Completed',
+        'Cancelled': 'Cancelled',
+      };
+      const status = statusMap[values.status] || 'Active';
+
       if (isEditMode) {
         // Prepare API payload for update
         const updatePayload = {
           project_name: values.project_name,
-          client_id: values.client_id || null,
-          status: values.status,
+          client_id: client_id,
+          status: status,
           description: values.description || '',
         };
 
         const response = await projectsService.update(selectedItem.id, updatePayload);
 
         if (response && (response.success !== false || response.data)) {
-          message.success('Project updated successfully');
+          showSuccessToast('Project updated successfully');
           await fetchProjectTypes(projectTypePagination.current, projectTypePagination.pageSize);
         } else {
-          message.error(response?.message || 'Failed to update project');
+          showErrorToast(response?.message || 'Failed to update project');
         }
       } else {
-        // Prepare API payload for create
-        const createPayload = {
+        // Prepare API payload according to API specification
+        const projectPayload = {
           project_name: values.project_name,
           project_code: values.project_code || '',
-          client_id: values.client_id || null, // Optional for Internal projects
-          project_type: values.project_type,
-          is_billable: values.is_billable !== undefined ? values.is_billable : true,
-          status: values.status,
+          client_id: client_id,
+          project_type: project_type,
+          account_type: values.account_type || 'External',
+          account_manager: values.account_manager,
+          account_reg_sales_owner: values.account_reg_sales_owner || '',
+          team_size: values.team_size || 1,
+          billing_type: values.billing_type || 'Billing',
+          budget: values.budget || 0,
+          status: status,
           start_date: values.start_date ? values.start_date.format('YYYY-MM-DD') : null,
           end_date: values.end_date ? values.end_date.format('YYYY-MM-DD') : null,
           description: values.description || '',
         };
 
-        const response = await projectsService.create(createPayload);
+        // Clean up payload: remove empty optional fields
+        const cleanedPayload = { ...projectPayload };
+
+        if (!cleanedPayload.project_code || cleanedPayload.project_code === '') {
+          delete cleanedPayload.project_code;
+        }
+        if (!cleanedPayload.account_reg_sales_owner || cleanedPayload.account_reg_sales_owner === '') {
+          delete cleanedPayload.account_reg_sales_owner;
+        }
+        if (!cleanedPayload.description || cleanedPayload.description === '') {
+          delete cleanedPayload.description;
+        }
+        if (!cleanedPayload.start_date) {
+          delete cleanedPayload.start_date;
+        }
+        if (!cleanedPayload.end_date) {
+          delete cleanedPayload.end_date;
+        }
+        if (cleanedPayload.account_type === 'Internal') {
+          delete cleanedPayload.client_id;
+        }
+
+        const response = await projectsService.create(cleanedPayload);
 
         if (response && (response.success !== false || response.data)) {
-          message.success('Project created successfully');
+          showSuccessToast('Project created successfully');
           await fetchProjectTypes(projectTypePagination.current, projectTypePagination.pageSize);
         } else {
-          message.error(response?.message || 'Failed to create project');
+          showErrorToast(response?.message || 'Failed to create project');
         }
       }
 
@@ -560,9 +699,10 @@ const Configurations = () => {
       projectTypeForm.resetFields();
       setSelectedItem(null);
       setIsEditMode(false);
+      setAccountType('External');
     } catch (error) {
       console.error('Project submit error:', error);
-      message.error(error?.message || 'Failed to save project');
+      showErrorToast(error?.message || 'Failed to save project');
     } finally {
       setProjectTypeLoading(false);
     }
@@ -572,10 +712,22 @@ const Configurations = () => {
   const fetchClientsList = async (page = 1, limit = 20) => {
     try {
       setLoadingClients(true);
-      const response = await clientsService.getAll({
+      const params = {
         page,
         limit,
-      });
+      };
+
+      // Add search filter if provided
+      if (clientFilters.search && clientFilters.search.trim()) {
+        params.search = clientFilters.search.trim();
+      }
+
+      // Add is_active filter if provided
+      if (clientFilters.is_active !== undefined && clientFilters.is_active !== null) {
+        params.is_active = clientFilters.is_active;
+      }
+
+      const response = await clientsService.getAll(params);
 
       // Handle response structure after interceptor transformation
       let clientsData = [];
@@ -641,10 +793,21 @@ const Configurations = () => {
   // Fetch clients on component mount and when clients tab is active
   useEffect(() => {
     if (activeTab === 'clients') {
-      fetchClientsList(1, 20);
+      fetchClientsList(1, clientPagination.pageSize);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
+
+  // Fetch clients when filters change
+  useEffect(() => {
+    if (activeTab === 'clients') {
+      const timer = setTimeout(() => {
+        fetchClientsList(1, clientPagination.pageSize);
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clientFilters.search, clientFilters.is_active]);
 
   // Client handlers
   const handleAddClient = () => {
@@ -712,11 +875,13 @@ const Configurations = () => {
       };
 
       if (isEditMode) {
-        // Update client - only include fields that can be updated
+        // Update client - include all fields that can be updated
         const updatePayload = {
           client_name: values.client_name,
           contact_person: values.contact_person || '',
           contact_email: values.contact_email || '',
+          contact_phone: values.contact_phone || '',
+          address: values.address || '',
           is_active: values.is_active !== undefined ? values.is_active : true,
         };
 
@@ -1112,13 +1277,37 @@ const Configurations = () => {
                       <span className="table-title">Clients</span>
                     </div>
                     <div className="table-header-actions">
-                      <Button
-                        type="primary"
-                        icon={<PlusOutlined />}
-                        onClick={handleAddClient}
-                      >
-                        Add Client
-                      </Button>
+                      <Space>
+                        <Input
+                          placeholder="Search by name or contact person"
+                          value={clientFilters.search}
+                          onChange={(e) => {
+                            setClientFilters({ ...clientFilters, search: e.target.value });
+                          }}
+                          onPressEnter={() => fetchClientsList(1, clientPagination.pageSize)}
+                          style={{ width: 250 }}
+                          allowClear
+                        />
+                        <Select
+                          placeholder="Filter by status"
+                          value={clientFilters.is_active}
+                          onChange={(value) => {
+                            setClientFilters({ ...clientFilters, is_active: value });
+                          }}
+                          allowClear
+                          style={{ width: 150 }}
+                        >
+                          <Option value={true}>Active</Option>
+                          <Option value={false}>Inactive</Option>
+                        </Select>
+                        <Button
+                          type="primary"
+                          icon={<PlusOutlined />}
+                          onClick={handleAddClient}
+                        >
+                          Add Client
+                        </Button>
+                      </Space>
                     </div>
                   </div>
                   <CustomTable
@@ -1348,7 +1537,12 @@ const Configurations = () => {
           },
         ]}
       >
-        <Form form={projectTypeForm} layout="vertical">
+        <Form form={projectTypeForm} layout="vertical" initialValues={{
+          account_type: 'External',
+          status: 'Active',
+          billing_type: 'Billing',
+          team_size: 1,
+        }}>
           <Row gutter={16}>
             <Col xs={24} sm={12}>
               <Form.Item
@@ -1369,36 +1563,9 @@ const Configurations = () => {
                 </Form.Item>
               </Col>
             )}
-            <Col xs={24} sm={12}>
-              <Form.Item
-                label="Client"
-                name="client_id"
-                rules={[
-                  {
-                    validator: (_, value) => {
-                      const projectType = projectTypeForm.getFieldValue('project_type');
-                      if (projectType && projectType !== 'Internal' && !value) {
-                        return Promise.reject(new Error('Client is required for this project type'));
-                      }
-                      return Promise.resolve();
-                    },
-                  },
-                ]}
-              >
-                <Select
-                  placeholder="Select client (optional for Internal projects)"
-                  allowClear
-                  showSearch
-                  optionFilterProp="children"
-                >
-                  {clients.map((client) => (
-                    <Option key={client.id} value={client.id}>
-                      {client.name}
-                    </Option>
-                  ))}
-                </Select>
-              </Form.Item>
-            </Col>
+          </Row>
+
+          <Row gutter={16}>
             <Col xs={24} sm={12}>
               <Form.Item
                 label="Project Type"
@@ -1407,9 +1574,62 @@ const Configurations = () => {
               >
                 <Select placeholder="Select project type">
                   <Option value="Client">Client</Option>
-                  <Option value="Internal">Internal</Option>
-                  <Option value="Pre-Sales">Pre-Sales</Option>
                   <Option value="Bench">Bench</Option>
+                  <Option value="Training">Training</Option>
+                  <Option value="POC">POC</Option>
+                  <Option value="Presale">Presale</Option>
+                  <Option value="Research">Research</Option>
+                </Select>
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={12}>
+              <Form.Item
+                label="Account Type"
+                name="account_type"
+                rules={[{ required: true, message: 'Account type is required' }]}
+              >
+                <Select
+                  placeholder="Select account type"
+                  onChange={(value) => setAccountType(value)}
+                >
+                  <Option value="Internal">Internal</Option>
+                  <Option value="External">External</Option>
+                </Select>
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Row gutter={16}>
+            <Col xs={24} sm={12}>
+              <Form.Item
+                label="Client Name"
+                name="client_id"
+                rules={[
+                  ({ getFieldValue }) => ({
+                    validator(_, value) {
+                      const accountType = getFieldValue('account_type');
+                      if (accountType === 'External' && !value) {
+                        return Promise.reject(new Error('Client is required for External projects'));
+                      }
+                      return Promise.resolve();
+                    },
+                  }),
+                ]}
+              >
+                <Select
+                  placeholder="Select client"
+                  showSearch
+                  allowClear
+                  disabled={accountType === 'Internal'}
+                  filterOption={(input, option) =>
+                    (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                  }
+                >
+                  {clients.map((client) => (
+                    <Option key={client.id} value={client.id} label={client.name}>
+                      {client.name}
+                    </Option>
+                  ))}
                 </Select>
               </Form.Item>
             </Col>
@@ -1427,18 +1647,100 @@ const Configurations = () => {
                 </Select>
               </Form.Item>
             </Col>
+          </Row>
+
+          <Row gutter={16}>
+            <Col xs={24} sm={12}>
+              <Form.Item
+                label="Account Manager"
+                name="account_manager"
+                rules={[{ required: true, message: 'Account manager is required' }]}
+              >
+                <Select
+                  placeholder="Select account manager"
+                  showSearch
+                  allowClear
+                  loading={loadingAccountManagers}
+                  filterOption={(input, option) =>
+                    (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                  }
+                >
+                  {accountManagersList.map((am) => (
+                    <Option key={am.id} value={am.name} label={am.name}>
+                      {am.name}
+                    </Option>
+                  ))}
+                </Select>
+              </Form.Item>
+            </Col>
             {!isEditMode && (
               <Col xs={24} sm={12}>
                 <Form.Item
-                  label="Is Billable"
-                  name="is_billable"
-                  valuePropName="checked"
-                  initialValue={true}
+                  label="Billing Type"
+                  name="billing_type"
+                  rules={[{ required: true, message: 'Billing type is required' }]}
                 >
-                  <Switch checkedChildren="Yes" unCheckedChildren="No" />
+                  <Select placeholder="Select billing type">
+                    <Option value="Billing">Billing</Option>
+                    <Option value="Non-Billing">Non-Billing</Option>
+                  </Select>
                 </Form.Item>
               </Col>
             )}
+          </Row>
+
+          <Row gutter={16}>
+            <Col xs={24} sm={12}>
+              <Form.Item
+                label="Team Size"
+                name="team_size"
+                rules={[
+                  { required: true, message: 'Team size is required' },
+                  { type: 'number', min: 1, message: 'Team size must be at least 1' },
+                ]}
+              >
+                <InputNumber
+                  style={{ width: '100%' }}
+                  placeholder="Enter team size"
+                  min={1}
+                />
+              </Form.Item>
+            </Col>
+            {!isEditMode && (
+              <Col xs={24} sm={12}>
+                <Form.Item
+                  label="Budget"
+                  name="budget"
+                  rules={[
+                    { type: 'number', min: 0, message: 'Budget must be 0 or greater' },
+                  ]}
+                >
+                  <InputNumber
+                    style={{ width: '100%' }}
+                    placeholder="Enter budget (optional)"
+                    min={0}
+                    formatter={value => `$ ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                    parser={value => value.replace(/\$\s?|(,*)/g, '')}
+                  />
+                </Form.Item>
+              </Col>
+            )}
+          </Row>
+
+          {!isEditMode && (
+            <Row gutter={16}>
+              <Col xs={24} sm={12}>
+                <Form.Item
+                  label="Account Reg/Sales Owner"
+                  name="account_reg_sales_owner"
+                >
+                  <Input placeholder="Enter account reg/sales owner (optional)" />
+                </Form.Item>
+              </Col>
+            </Row>
+          )}
+
+          <Row gutter={16}>
             <Col xs={24} sm={12}>
               <Form.Item
                 label="Start Date"
@@ -1451,10 +1753,25 @@ const Configurations = () => {
               <Form.Item
                 label="End Date"
                 name="end_date"
+                dependencies={['start_date']}
+                rules={[
+                  ({ getFieldValue }) => ({
+                    validator(_, value) {
+                      const startDate = getFieldValue('start_date');
+                      if (!value || !startDate || value >= startDate) {
+                        return Promise.resolve();
+                      }
+                      return Promise.reject(new Error('End date must be greater than or equal to start date'));
+                    },
+                  }),
+                ]}
               >
                 <DatePicker style={{ width: '100%' }} placeholder="Select end date" />
               </Form.Item>
             </Col>
+          </Row>
+
+          <Row gutter={16}>
             <Col xs={24}>
               <Form.Item
                 label="Description"
