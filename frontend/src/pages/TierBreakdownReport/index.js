@@ -202,11 +202,11 @@ const TierBreakdownReport = () => {
 
           // Extract unique tech stacks from employee details for filter dropdown
           // Only extract on initial load (when no filters are applied) to get all available tech stacks
-          const hasNoFilters = filters.projectName === 'All' && 
-                               filters.tier === 'All' && 
-                               filters.accountManager === 'All' && 
-                               filters.track === 'All' && 
-                               filters.techStack === 'All';
+          const hasNoFilters = filters.projectName === 'All' &&
+            filters.tier === 'All' &&
+            filters.accountManager === 'All' &&
+            filters.track === 'All' &&
+            filters.techStack === 'All';
 
           if (hasNoFilters && reportData.employeeDetails.length > 0) {
             const uniqueTechStacks = [...new Set(
