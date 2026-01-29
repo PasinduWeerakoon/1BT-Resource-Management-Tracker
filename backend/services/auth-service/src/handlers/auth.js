@@ -52,8 +52,14 @@ const loginHandler = async (event) => {
             });
         }
 
+        // Extract user ID from the access token for audit logging
+        const tokenPayload = JSON.parse(
+            Buffer.from(response.AuthenticationResult.AccessToken.split('.')[1], 'base64').toString()
+        );
+        const userId = tokenPayload.sub || null;
+
         // Send audit event for successful login
-        await audit.login(event, response.AuthenticationResult.AccessToken, email, SERVICE_NAME, {
+        await audit.login(event, userId, email, SERVICE_NAME, {
             method: 'ADMIN_USER_PASSWORD_AUTH'
         });
 
