@@ -300,14 +300,6 @@ export const remove = async (event) => {
     }
 };
 
-return success({ message: 'Client deleted successfully' });
-
-    } catch (err) {
-    log.error('Failed to delete client', { id, error: err.message });
-    return error('Failed to delete client', err);
-}
-};
-
 /**
  * Get all projects for a client
  */

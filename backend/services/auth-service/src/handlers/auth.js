@@ -52,8 +52,14 @@ const loginHandler = async (event) => {
             });
         }
 
+        // Extract user ID from the access token for audit logging
+        const tokenPayload = JSON.parse(
+            Buffer.from(response.AuthenticationResult.AccessToken.split('.')[1], 'base64').toString()
+        );
+        const userId = tokenPayload.sub || null;
+
         // Send audit event for successful login
-        await audit.login(event, response.AuthenticationResult.AccessToken, email, SERVICE_NAME, {
+        await audit.login(event, userId, email, SERVICE_NAME, {
             method: 'ADMIN_USER_PASSWORD_AUTH'
         });
 
@@ -240,6 +246,15 @@ const completeInviteHandler = async (event) => {
         });
     } catch (error) {
         console.error('Complete invite error:', error);
+
+        // Return specific error messages for password policy violations
+        if (error.name === 'InvalidPasswordException') {
+            throw createError(400, error.message || 'Password does not meet requirements. Must include uppercase, lowercase, numbers, and special characters.');
+        }
+        if (error.name === 'ExpiredCodeException' || error.name === 'NotAuthorizedException') {
+            throw createError(400, 'Session expired. Please request a new invitation.');
+        }
+
         throw createError(400, 'Failed to set password');
     }
 };
