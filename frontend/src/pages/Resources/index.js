@@ -137,8 +137,10 @@ const Resources = () => {
       };
 
       // Add search if name or employeeNumber is provided
+      // Convert to lowercase for case-insensitive search
       if (filters.name || filters.employeeNumber) {
-        queryParams.search = filters.name || filters.employeeNumber;
+        const searchValue = filters.name || filters.employeeNumber;
+        queryParams.search = searchValue ? searchValue.toLowerCase().trim() : '';
       }
 
       // Add filters
@@ -534,6 +536,13 @@ const Resources = () => {
       dataIndex: 'position',
       key: 'position',
       width: 200,
+    },
+    {
+      title: 'Tech Stack',
+      dataIndex: 'tech_stack',
+      key: 'tech_stack',
+      width: 150,
+      render: (techStack) => techStack || '-',
     },
     {
       title: 'Join Date',
