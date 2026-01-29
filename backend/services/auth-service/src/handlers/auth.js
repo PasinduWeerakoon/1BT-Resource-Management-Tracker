@@ -12,7 +12,9 @@ import {
     ForgotPasswordCommand,
     ConfirmForgotPasswordCommand,
     AdminAddUserToGroupCommand,
-    AdminGetUserCommand
+    AdminGetUserCommand,
+    ListUsersCommand,
+    AdminListGroupsForUserCommand
 } from '@aws-sdk/client-cognito-identity-provider';
 import createError from 'http-errors';
 import { withMiddleware, success } from '/opt/nodejs/index.js';
@@ -302,6 +304,97 @@ const getCurrentUserHandler = async (event) => {
     }
 };
 
+/**
+ * Get System Users Handler (Protected - Admin only)
+ * Returns list of all users in the Cognito User Pool with their groups/roles
+ */
+const getSystemUsersHandler = async (event) => {
+    // User is already authenticated by JWT authorizer
+    const callingUserGroups = event.user?.groups || [];
+
+    // Check if caller has admin rights
+    const isAdmin = callingUserGroups.includes('Admin') || callingUserGroups.includes('SuperAdmin');
+    if (!isAdmin) {
+        throw createError(403, 'Forbidden: Admin access required');
+    }
+
+    try {
+        // Get query parameters for pagination
+        const limit = parseInt(event.queryStringParameters?.limit || '60', 10);
+        const paginationToken = event.queryStringParameters?.paginationToken || null;
+
+        // List all users from Cognito User Pool
+        const listUsersParams = {
+            UserPoolId: USER_POOL_ID,
+            Limit: limit
+        };
+        
+        if (paginationToken) {
+            listUsersParams.PaginationToken = paginationToken;
+        }
+
+        const usersResponse = await cognito.send(new ListUsersCommand(listUsersParams));
+
+        // For each user, get their groups and format the response
+        const users = await Promise.all(
+            (usersResponse.Users || []).map(async (user) => {
+                // Parse user attributes
+                const attributes = {};
+                user.Attributes?.forEach(attr => {
+                    attributes[attr.Name] = attr.Value;
+                });
+
+                // Get user groups
+                let groups = [];
+                try {
+                    const groupsResponse = await cognito.send(new AdminListGroupsForUserCommand({
+                        UserPoolId: USER_POOL_ID,
+                        Username: user.Username
+                    }));
+                    groups = groupsResponse.Groups?.map(g => g.GroupName) || [];
+                } catch (error) {
+                    console.error(`Error getting groups for user ${user.Username}:`, error);
+                    // Continue without groups if there's an error
+                }
+
+                // Determine user type based on groups
+                let userType = 'User';
+                if (groups.includes('SuperAdmin')) {
+                    userType = 'Super Admin';
+                } else if (groups.includes('Admin')) {
+                    userType = 'Admin';
+                }
+
+                return {
+                    id: user.Username,
+                    email: attributes.email || user.Username,
+                    name: attributes.name || '',
+                    username: user.Username,
+                    userType: userType,
+                    groups: groups,
+                    status: user.UserStatus === 'CONFIRMED' ? 'Active' : 
+                           user.UserStatus === 'FORCE_CHANGE_PASSWORD' ? 'Pending' : 
+                           user.UserStatus === 'UNCONFIRMED' ? 'Unconfirmed' : 
+                           user.UserStatus || 'Unknown',
+                    enabled: user.Enabled !== false,
+                    emailVerified: attributes.email_verified === 'true',
+                    createdAt: user.UserCreateDate?.toISOString(),
+                    lastModified: user.UserLastModifiedDate?.toISOString()
+                };
+            })
+        );
+
+        return success({
+            users: users,
+            paginationToken: usersResponse.PaginationToken || null,
+            count: users.length
+        });
+    } catch (error) {
+        console.error('Get system users error:', error);
+        throw createError(500, 'Failed to get system users');
+    }
+};
+
 // Export wrapped handlers
 export const login = withMiddleware(loginHandler, { requireAuth: false, serviceName: 'auth-service' });
 export const logout = withMiddleware(logoutHandler, { requireAuth: false, serviceName: 'auth-service' });
@@ -311,3 +404,4 @@ export const resetPassword = withMiddleware(resetPasswordHandler, { requireAuth:
 export const inviteUser = withMiddleware(inviteUserHandler, { requireAuth: true, serviceName: 'auth-service' });
 export const completeInvite = withMiddleware(completeInviteHandler, { requireAuth: false, serviceName: 'auth-service' });
 export const getCurrentUser = withMiddleware(getCurrentUserHandler, { requireAuth: true, serviceName: 'auth-service', parseBody: false });
+export const getSystemUsers = withMiddleware(getSystemUsersHandler, { requireAuth: true, serviceName: 'auth-service', parseBody: false });

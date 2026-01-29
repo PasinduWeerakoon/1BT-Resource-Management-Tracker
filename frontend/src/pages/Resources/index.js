@@ -6,6 +6,7 @@ import { commonOptions, colors } from '@utils/chartConfig';
 import CustomModal from '@components/Modal';
 import CustomTable from '@components/Table';
 import { resourcesService, designationsService, tracksService } from '@api';
+import { showErrorToast, showWarningToast } from '@utils/toast.utils';
 import dayjs from 'dayjs';
 import '@styles/pages/Resources.scss';
 
@@ -72,6 +73,12 @@ const Resources = () => {
   };
 
   const [employees, setEmployees] = useState([]);
+  const [employeeAllocations, setEmployeeAllocations] = useState([]);
+  const [loadingAllocations, setLoadingAllocations] = useState(false);
+  const [activeTab, setActiveTab] = useState('overview');
+  const [updatingAccountManager, setUpdatingAccountManager] = useState({});
+  const [updatingTier, setUpdatingTier] = useState({});
+  const [updatingTechStack, setUpdatingTechStack] = useState({});
 
   // Handle Add Employee
   const handleAddEmployee = () => {
@@ -100,6 +107,112 @@ const Resources = () => {
   const handleViewProfile = (record) => {
     setSelectedEmployee(record);
     setIsProfileModalVisible(true);
+    setActiveTab('overview');
+    setEmployeeAllocations([]);
+  };
+
+  // Fetch employee allocations
+  const fetchEmployeeAllocations = async (employeeId) => {
+    if (!employeeId) {
+      setEmployeeAllocations([]);
+      return;
+    }
+
+    try {
+      setLoadingAllocations(true);
+      const response = await resourcesService.getAllocations(employeeId);
+      
+      // Handle response structure after interceptor transformation
+      let allocationsData = [];
+
+      if (response) {
+        // Check if response has allocations array directly
+        if (response.allocations && Array.isArray(response.allocations)) {
+          allocationsData = response.allocations;
+        }
+        // Check if response.data has allocations array
+        else if (response.data && response.data.allocations && Array.isArray(response.data.allocations)) {
+          allocationsData = response.data.allocations;
+        }
+        // Check if response.data is directly an array
+        else if (Array.isArray(response.data)) {
+          allocationsData = response.data;
+        }
+        // Check if response is an array directly
+        else if (Array.isArray(response)) {
+          allocationsData = response;
+        }
+        // Check if response.data is a single object with allocations property
+        else if (response.data && typeof response.data === 'object' && !Array.isArray(response.data)) {
+          if (response.data.allocations && Array.isArray(response.data.allocations)) {
+            allocationsData = response.data.allocations;
+          }
+          // If it's a single allocation object, wrap it in array
+          else if (response.data.id) {
+            allocationsData = [response.data];
+          }
+        }
+      }
+
+      // Transform allocations data to match table format
+      const transformedAllocations = allocationsData.map((allocation, index) => {
+        // Calculate duration in days
+        let duration = 0;
+        if (allocation.start_date) {
+          const startDate = dayjs(allocation.start_date);
+          const endDate = allocation.end_date ? dayjs(allocation.end_date) : dayjs();
+          duration = endDate.diff(startDate, 'day');
+        }
+
+        // Handle allocation_percentage and billing_percentage as strings or numbers
+        const allocationPercentage = typeof allocation.allocation_percentage === 'string'
+          ? parseFloat(allocation.allocation_percentage)
+          : (allocation.allocation_percentage || 0);
+        const billingPercentage = typeof allocation.billing_percentage === 'string'
+          ? parseFloat(allocation.billing_percentage)
+          : (allocation.billing_percentage || 0);
+
+        // Determine billing status based on project_type
+        let billingStatus = 'Non-Billing';
+        if (allocation.project_type === 'Client' || allocation.project_is_billable) {
+          billingStatus = 'Billing';
+        } else if (allocation.project_type === 'Bench') {
+          billingStatus = 'Bench';
+        } else if (allocation.project_type === 'Pre-Sales' || allocation.project_type === 'Presale' || allocation.project_type === 'Pre-Sale') {
+          billingStatus = 'Presale';
+        } else if (allocation.project_type === 'Training') {
+          billingStatus = 'Training';
+        }
+
+        return {
+          key: allocation.id || `allocation-${index}`,
+          id: allocation.id,
+          project: allocation.project_name || 'N/A',
+          allocatedDate: allocation.start_date ? dayjs(allocation.start_date).format('YYYY-MM-DD') : '-',
+          deallocatedDate: allocation.end_date ? dayjs(allocation.end_date).format('YYYY-MM-DD') : '-',
+          billingStatus: billingStatus,
+          billingPercentage: billingPercentage ? `${billingPercentage.toFixed(0)}%` : '0%',
+          projectAllocation: allocationPercentage ? `${allocationPercentage.toFixed(0)}%` : '0%',
+          duration: duration,
+        };
+      });
+
+      setEmployeeAllocations(transformedAllocations);
+    } catch (error) {
+      console.error('Failed to fetch employee allocations:', error);
+      showErrorToast(error?.response?.data?.message || error?.message || 'Failed to load employee allocations');
+      setEmployeeAllocations([]);
+    } finally {
+      setLoadingAllocations(false);
+    }
+  };
+
+  // Handle tab change
+  const handleTabChange = (key) => {
+    setActiveTab(key);
+    if (key === 'allocations' && selectedEmployee?.id) {
+      fetchEmployeeAllocations(selectedEmployee.id);
+    }
   };
 
   // Fetch designations and tracks on component mount
@@ -382,6 +495,7 @@ const Resources = () => {
   // Handle Account Manager Toggle
   const handleToggleAccountManager = async (record, isAccountManager) => {
     try {
+      setUpdatingAccountManager(prev => ({ ...prev, [record.id]: true }));
       const response = await resourcesService.updateAccountManager(record.id, {
         is_account_manager: isAccountManager,
       });
@@ -394,12 +508,15 @@ const Resources = () => {
     } catch (error) {
       console.error('Account manager toggle error:', error);
       message.error(error.message || 'Failed to update account manager status');
+    } finally {
+      setUpdatingAccountManager(prev => ({ ...prev, [record.id]: false }));
     }
   };
 
   // Handle Tier Update
   const handleUpdateTier = async (record, newTier) => {
     try {
+      setUpdatingTier(prev => ({ ...prev, [record.id]: true }));
       const response = await resourcesService.updateTier(record.id, { tier: newTier });
       if (response && (response.success !== false || response.data)) {
         message.success('Resource tier updated successfully');
@@ -410,12 +527,15 @@ const Resources = () => {
     } catch (error) {
       console.error('Tier update error:', error);
       message.error(error.message || 'Failed to update tier');
+    } finally {
+      setUpdatingTier(prev => ({ ...prev, [record.id]: false }));
     }
   };
 
   // Handle Tech Stack Update
   const handleUpdateTechStack = async (record, newTechStack) => {
     try {
+      setUpdatingTechStack(prev => ({ ...prev, [record.id]: true }));
       const response = await resourcesService.updateTechStack(record.id, { tech_stack: newTechStack });
       if (response && (response.success !== false || response.data)) {
         message.success('Resource tech stack updated successfully');
@@ -426,6 +546,8 @@ const Resources = () => {
     } catch (error) {
       console.error('Tech stack update error:', error);
       message.error(error.message || 'Failed to update tech stack');
+    } finally {
+      setUpdatingTechStack(prev => ({ ...prev, [record.id]: false }));
     }
   };
 
@@ -572,6 +694,8 @@ const Resources = () => {
           onChange={(checked) => handleToggleAccountManager(record, checked)}
           checkedChildren="Yes"
           unCheckedChildren="No"
+          loading={updatingAccountManager[record.id]}
+          disabled={updatingAccountManager[record.id]}
         />
       ),
     },
@@ -1157,7 +1281,8 @@ const Resources = () => {
           ]}
         >
           <Tabs
-            defaultActiveKey="overview"
+            activeKey={activeTab}
+            onChange={handleTabChange}
             items={[
               {
                 key: 'overview',
@@ -1266,40 +1391,10 @@ const Resources = () => {
                         { title: 'Project Allocation', dataIndex: 'projectAllocation', key: 'projectAllocation', width: 150 },
                         { title: 'Duration (Days)', dataIndex: 'duration', key: 'duration', width: 130 },
                       ]}
-                      dataSource={[
-                        {
-                          key: '1',
-                          project: 'Project A',
-                          allocatedDate: '2024-01-15',
-                          deallocatedDate: '-',
-                          billingStatus: 'Billing',
-                          billingPercentage: '50%',
-                          projectAllocation: '50%',
-                          duration: '165',
-                        },
-                        {
-                          key: '2',
-                          project: 'Project B',
-                          allocatedDate: '2024-02-01',
-                          deallocatedDate: '2024-05-31',
-                          billingStatus: 'Billing',
-                          billingPercentage: '30%',
-                          projectAllocation: '30%',
-                          duration: '120',
-                        },
-                        {
-                          key: '3',
-                          project: 'Bench',
-                          allocatedDate: '2024-06-01',
-                          deallocatedDate: '-',
-                          billingStatus: 'Bench',
-                          billingPercentage: '0%',
-                          projectAllocation: '20%',
-                          duration: '90',
-                        },
-                      ]}
+                      dataSource={employeeAllocations}
                       scroll={{ x: 1000 }}
                       pagination={false}
+                      loading={loadingAllocations}
                     />
                   </div>
                 ),

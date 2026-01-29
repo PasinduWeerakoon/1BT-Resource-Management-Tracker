@@ -122,6 +122,25 @@ export const authService = {
     // The interceptor transforms the response
     return response.data || response;
   },
+
+  /**
+   * Get all system users (Admin only)
+   * @param {Object} params - Query parameters (limit, paginationToken)
+   * @returns {Promise<{success: boolean, data: {users: Array, paginationToken: string|null, count: number}}>}
+   */
+  getSystemUsers: async (params = {}) => {
+    const queryParams = new URLSearchParams();
+    if (params.limit) queryParams.append('limit', params.limit);
+    if (params.paginationToken) queryParams.append('paginationToken', params.paginationToken);
+    
+    const url = queryParams.toString() 
+      ? `${ENDPOINTS.AUTH.USERS}?${queryParams.toString()}`
+      : ENDPOINTS.AUTH.USERS;
+    
+    const response = await apiClient.get(url);
+    // The interceptor transforms the response
+    return response.data || response;
+  },
 };
 
 export default authService;

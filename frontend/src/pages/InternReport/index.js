@@ -1,10 +1,11 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Row, Col, Card, Select, Badge, Button } from 'antd';
 import { FilterOutlined, UpOutlined, DownOutlined, ReloadOutlined } from '@ant-design/icons';
 import CustomTable from '@components/Table';
-import { accountManagersService } from '@api';
+import { accountManagersService, reportsService, projectsService, tracksService, resourcesService } from '@api';
 import { useUserAllocationModal } from '@hooks/useUserAllocationModal';
 import UserAllocationModal from '@components/UserAllocationModal';
+import { showErrorToast } from '@utils/toast.utils';
 import '@styles/pages/InternReport.scss';
 
 const { Option } = Select;
@@ -16,8 +17,6 @@ const InternReport = () => {
     accountManager: 'All',
     track: 'All',
     techStack: 'All',
-    designation: 'All',
-    tier: 'All',
   });
 
   // Default filter values for comparison
@@ -26,8 +25,6 @@ const InternReport = () => {
     accountManager: 'All',
     track: 'All',
     techStack: 'All',
-    designation: 'All',
-    tier: 'All',
   };
 
   // Count active filters (filters that differ from defaults)
@@ -41,10 +38,26 @@ const InternReport = () => {
     return count;
   }, [filters]);
 
-  // Account managers for dropdown
+  // Filter options for dropdowns
   const [accountManagers, setAccountManagers] = useState([]);
   const [loadingAccountManagers, setLoadingAccountManagers] = useState(false);
+  const [projects, setProjects] = useState([]);
+  const [loadingProjects, setLoadingProjects] = useState(false);
+  const [tracks, setTracks] = useState([]);
+  const [loadingTracks, setLoadingTracks] = useState(false);
+  const [techStacks, setTechStacks] = useState([]);
+  const [loadingTechStacks, setLoadingTechStacks] = useState(false);
 
+  // Report data
+  const [internData, setInternData] = useState([]);
+  const [totalInternCount, setTotalInternCount] = useState(0);
+  const [internPercentage, setInternPercentage] = useState('0.0');
+  const [loadingReport, setLoadingReport] = useState(false);
+
+  // Refs to prevent duplicate API calls
+  const fetchReportInProgressRef = useRef(false);
+
+  // Fetch filter options on mount
   useEffect(() => {
     const fetchAccountManagers = async () => {
       try {
@@ -64,26 +77,175 @@ const InternReport = () => {
           .filter((am) => am.id && am.name);
         setAccountManagers(formatted);
       } catch (error) {
-        // silent fail; filters remain usable
-        // console.error('Failed to fetch account managers for InternReport:', error);
+        console.error('Failed to fetch account managers:', error);
       } finally {
         setLoadingAccountManagers(false);
       }
     };
 
+    const fetchProjects = async () => {
+      try {
+        setLoadingProjects(true);
+        const response = await projectsService.getAll({ limit: 100 });
+        let projectsData = [];
+
+        if (response) {
+          if (Array.isArray(response.data)) {
+            projectsData = response.data;
+          } else if (response.data && response.data.data && Array.isArray(response.data.data)) {
+            projectsData = response.data.data;
+          } else if (response.data && Array.isArray(response.data)) {
+            projectsData = response.data;
+          }
+        }
+
+        const formatted = projectsData
+          .map((project) => ({
+            id: project.id,
+            name: project.project_name || project.name,
+          }))
+          .filter((project) => project.id && project.name);
+
+        setProjects(formatted);
+      } catch (error) {
+        console.error('Failed to fetch projects:', error);
+      } finally {
+        setLoadingProjects(false);
+      }
+    };
+
+    const fetchTracks = async () => {
+      try {
+        setLoadingTracks(true);
+        const response = await tracksService.getAll({ limit: 100 });
+        let tracksData = [];
+
+        if (response) {
+          if (Array.isArray(response.data)) {
+            tracksData = response.data;
+          } else if (response.data && response.data.data && Array.isArray(response.data.data)) {
+            tracksData = response.data.data;
+          }
+        }
+
+        const formatted = tracksData
+          .map((track) => ({
+            id: track.id,
+            name: track.name,
+          }))
+          .filter((track) => track.id && track.name);
+
+        setTracks(formatted);
+      } catch (error) {
+        console.error('Failed to fetch tracks:', error);
+      } finally {
+        setLoadingTracks(false);
+      }
+    };
+
+    const fetchTechStacks = async () => {
+      try {
+        setLoadingTechStacks(true);
+        const response = await resourcesService.getAll({ limit: 1000, status: 'Active' });
+        let resourcesData = [];
+
+        if (response) {
+          if (Array.isArray(response.data)) {
+            resourcesData = response.data;
+          } else if (response.data && response.data.data && Array.isArray(response.data.data)) {
+            resourcesData = response.data.data;
+          }
+        }
+
+        // Get unique tech stacks
+        const uniqueTechStacks = [...new Set(
+          resourcesData
+            .map((resource) => resource.tech_stack)
+            .filter((techStack) => techStack && techStack.trim() !== '')
+        )].sort();
+
+        setTechStacks(uniqueTechStacks.map((techStack) => ({ name: techStack })));
+      } catch (error) {
+        console.error('Failed to fetch tech stacks:', error);
+      } finally {
+        setLoadingTechStacks(false);
+      }
+    };
+
     fetchAccountManagers();
+    fetchProjects();
+    fetchTracks();
+    fetchTechStacks();
   }, []);
+
+  // Fetch intern report data
+  const fetchInternReport = async () => {
+    if (fetchReportInProgressRef.current) {
+      return;
+    }
+
+    try {
+      fetchReportInProgressRef.current = true;
+      setLoadingReport(true);
+
+      // Build query params from filters
+      const params = {};
+      if (filters.projectName && filters.projectName !== 'All') {
+        params.project_name = filters.projectName;
+      }
+      if (filters.accountManager && filters.accountManager !== 'All') {
+        params.account_manager = filters.accountManager;
+      }
+      if (filters.track && filters.track !== 'All') {
+        params.track = filters.track;
+      }
+      if (filters.techStack && filters.techStack !== 'All') {
+        params.tech_stack = filters.techStack;
+      }
+
+      const response = await reportsService.getIntern(params);
+
+      // Handle response structure
+      let reportData = null;
+      if (response) {
+        if (response.data) {
+          reportData = response.data;
+        } else if (response.summary || response.data) {
+          reportData = response;
+        }
+      }
+
+      if (reportData) {
+        // Update summary data
+        if (reportData.summary) {
+          setTotalInternCount(reportData.summary.totalInternCount || 0);
+          setInternPercentage(reportData.summary.internPercentage?.toFixed(1) || '0.0');
+        }
+
+        // Update intern data for table
+        if (reportData.data && Array.isArray(reportData.data)) {
+          setInternData(reportData.data);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch intern report:', error);
+      showErrorToast(error?.response?.data?.message || error?.message || 'Failed to load intern report');
+    } finally {
+      setLoadingReport(false);
+      fetchReportInProgressRef.current = false;
+    }
+  };
+
+  // Fetch report on mount and when any filter changes
+  useEffect(() => {
+    fetchInternReport();
+  }, [filters.projectName, filters.accountManager, filters.track, filters.techStack]);
 
   // Reset filters to default values
   const handleResetFilters = (e) => {
     e.stopPropagation();
     setFilters({ ...defaultFilters });
   };
-
-  // KPI Data - Mock data for interns
-  const totalInternCount = 8;
-  const totalEmployees = 114;
-  const internPercentage = ((totalInternCount / totalEmployees) * 100).toFixed(1);
 
   // User allocation modal hook
   const {
@@ -158,105 +320,6 @@ const InternReport = () => {
     },
   ];
 
-  // Mock intern data
-  const internData = [
-    {
-      key: '1',
-      employeeName: 'Amali Perera',
-      project: 'Training',
-      allocatedDate: '01 Oct 2025',
-      deallocatedDate: '',
-      billingStatus: 'Training',
-      billingPercentage: '0.00%',
-      projectAllocation: '100.00%',
-      duration: 1,
-      status: 'Active',
-    },
-    {
-      key: '2',
-      employeeName: 'Buddhika Silva',
-      project: 'Seer Insights',
-      allocatedDate: '15 Sep 2025',
-      deallocatedDate: '',
-      billingStatus: 'Non-Billing',
-      billingPercentage: '0.00%',
-      projectAllocation: '100.00%',
-      duration: 1,
-      status: 'Active',
-    },
-    {
-      key: '3',
-      employeeName: 'Chamara Fernando',
-      project: 'Training',
-      allocatedDate: '20 Oct 2025',
-      deallocatedDate: '',
-      billingStatus: 'Training',
-      billingPercentage: '0.00%',
-      projectAllocation: '100.00%',
-      duration: 1,
-      status: 'Active',
-    },
-    {
-      key: '4',
-      employeeName: 'Dilani Jayasuriya',
-      project: 'Healthfinder',
-      allocatedDate: '05 Nov 2025',
-      deallocatedDate: '',
-      billingStatus: 'Non-Billing',
-      billingPercentage: '0.00%',
-      projectAllocation: '100.00%',
-      duration: 1,
-      status: 'Active',
-    },
-    {
-      key: '5',
-      employeeName: 'Eranda Wijesinghe',
-      project: 'Training',
-      allocatedDate: '10 Sep 2025',
-      deallocatedDate: '',
-      billingStatus: 'Training',
-      billingPercentage: '0.00%',
-      projectAllocation: '100.00%',
-      duration: 1,
-      status: 'Active',
-    },
-    {
-      key: '6',
-      employeeName: 'Fathima Nazeer',
-      project: 'MillionSpaces',
-      allocatedDate: '25 Oct 2025',
-      deallocatedDate: '',
-      billingStatus: 'Non-Billing',
-      billingPercentage: '0.00%',
-      projectAllocation: '50.00%',
-      duration: 1,
-      status: 'Active',
-    },
-    {
-      key: '7',
-      employeeName: 'Gayani Perera',
-      project: 'Training',
-      allocatedDate: '12 Nov 2025',
-      deallocatedDate: '',
-      billingStatus: 'Training',
-      billingPercentage: '0.00%',
-      projectAllocation: '100.00%',
-      duration: 1,
-      status: 'Active',
-    },
-    {
-      key: '8',
-      employeeName: 'Harshani De Silva',
-      project: 'Seer Home Page',
-      allocatedDate: '18 Sep 2025',
-      deallocatedDate: '',
-      billingStatus: 'Non-Billing',
-      billingPercentage: '0.00%',
-      projectAllocation: '100.00%',
-      duration: 1,
-      status: 'Active',
-    },
-  ];
 
   return (
     <div className="intern-report-page">
@@ -308,10 +371,19 @@ const InternReport = () => {
                     value={filters.projectName}
                     onChange={(value) => setFilters({ ...filters, projectName: value })}
                     style={{ width: '100%' }}
+                    loading={loadingProjects}
+                    showSearch
+                    allowClear
+                    filterOption={(input, option) =>
+                      (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                    }
                   >
                     <Option value="All">All</Option>
-                    <Option value="Training">Training</Option>
-                    <Option value="Seer Insights">Seer Insights</Option>
+                    {projects.map((project) => (
+                      <Option key={project.id} value={project.name} label={project.name}>
+                        {project.name}
+                      </Option>
+                    ))}
                   </Select>
                 </div>
               </Col>
@@ -345,12 +417,19 @@ const InternReport = () => {
                     value={filters.track}
                     onChange={(value) => setFilters({ ...filters, track: value })}
                     style={{ width: '100%' }}
+                    loading={loadingTracks}
+                    showSearch
+                    allowClear
+                    filterOption={(input, option) =>
+                      (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                    }
                   >
                     <Option value="All">All</Option>
-                    <Option value="Dev">Dev</Option>
-                    <Option value="QA">QA</Option>
-                    <Option value="PM">PM</Option>
-                    <Option value="BA">BA</Option>
+                    {tracks.map((track) => (
+                      <Option key={track.id} value={track.name} label={track.name}>
+                        {track.name}
+                      </Option>
+                    ))}
                   </Select>
                 </div>
               </Col>
@@ -361,45 +440,19 @@ const InternReport = () => {
                     value={filters.techStack}
                     onChange={(value) => setFilters({ ...filters, techStack: value })}
                     style={{ width: '100%' }}
+                    loading={loadingTechStacks}
+                    showSearch
+                    allowClear
+                    filterOption={(input, option) =>
+                      (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                    }
                   >
                     <Option value="All">All</Option>
-                    <Option value=".NET">.NET</Option>
-                    <Option value="Full Stack">Full Stack</Option>
-                    <Option value="QA">QA</Option>
-                  </Select>
-                </div>
-              </Col>
-              <Col xs={24} sm={12} md={8} lg={6}>
-                <div className="filter-item">
-                  <label>Designation</label>
-                  <Select
-                    value={filters.designation}
-                    onChange={(value) => setFilters({ ...filters, designation: value })}
-                    style={{ width: '100%' }}
-                  >
-                    <Option value="All">All</Option>
-                    <Option value="ASE">ASE</Option>
-                    <Option value="SE">SE</Option>
-                    <Option value="STL">STL</Option>
-                  </Select>
-                </div>
-              </Col>
-              <Col xs={24} sm={12} md={8} lg={6}>
-                <div className="filter-item">
-                  <label>Tier</label>
-                  <Select
-                    value={filters.tier}
-                    onChange={(value) => setFilters({ ...filters, tier: value })}
-                    style={{ width: '100%' }}
-                  >
-                    <Option value="All">All</Option>
-                    <Option value="0">Tier 0</Option>
-                    <Option value="1">Tier 1</Option>
-                    <Option value="2">Tier 2</Option>
-                    <Option value="3">Tier 3</Option>
-                    <Option value="4">Tier 4</Option>
-                    <Option value="5">Tier 5</Option>
-                    <Option value="99">Tier 99</Option>
+                    {techStacks.map((techStack) => (
+                      <Option key={techStack.name} value={techStack.name} label={techStack.name}>
+                        {techStack.name}
+                      </Option>
+                    ))}
                   </Select>
                 </div>
               </Col>
@@ -411,13 +464,13 @@ const InternReport = () => {
       {/* KPI Cards Section */}
       <Row gutter={[16, 16]} className="kpi-section">
         <Col xs={24} sm={12} md={8} lg={6}>
-          <Card className="kpi-card">
+          <Card className="kpi-card" loading={loadingReport}>
             <div className="kpi-value">{totalInternCount}</div>
             <div className="kpi-label">TOTAL INTERN COUNT</div>
           </Card>
         </Col>
         <Col xs={24} sm={12} md={8} lg={6}>
-          <Card className="kpi-card">
+          <Card className="kpi-card" loading={loadingReport}>
             <div className="kpi-value">{internPercentage}%</div>
             <div className="kpi-label">INTERN PERCENTAGE</div>
           </Card>
@@ -425,7 +478,7 @@ const InternReport = () => {
       </Row>
 
       {/* Table Section */}
-      <Card className="table-card" title="BY ALLOCATION">
+      <Card className="table-card" title="BY ALLOCATION" loading={loadingReport}>
         <CustomTable
           columns={allocationColumns}
           dataSource={internData}

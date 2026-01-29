@@ -116,6 +116,33 @@ export const reportsService = {
     });
     return response.data || response;
   },
+
+  /**
+   * Get tier breakdown report
+   * Resources grouped by tier with allocation details
+   * @param {Object} params - Query parameters
+   * @param {string} params.tier - Filter by tier (0, 1, 2, 3, 4, 5, 99, or 'All')
+   * @returns {Promise<{success: boolean, summary: {totalEmployees: number}, tierDistribution: Array<{tier: string, count: number}>, employeeDetails: Array, generatedAt: string}>}
+   */
+  getTierBreakdown: async (params = {}) => {
+    const response = await apiClient.get(ENDPOINTS.REPORTS.TIER_BREAKDOWN, {
+      params,
+    });
+    return response.data || response;
+  },
+
+  /**
+   * Get intern report
+   * All interns with their current projects, total count, and percentage
+   * @param {Object} params - Query parameters (none required)
+   * @returns {Promise<{success: boolean, summary: {totalInternCount: number, totalEmployees: number, internPercentage: number}, data: Array, total: number, generatedAt: string}>}
+   */
+  getIntern: async (params = {}) => {
+    const response = await apiClient.get(ENDPOINTS.REPORTS.INTERN, {
+      params,
+    });
+    return response.data || response;
+  },
 };
 
 export default reportsService;

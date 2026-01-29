@@ -18,6 +18,7 @@ export const ENDPOINTS = {
     RESET_PASSWORD: `${BASE_URL}/auth/reset-password`,
     INVITE: `${BASE_URL}/auth/invite`,
     COMPLETE_INVITE: `${BASE_URL}/auth/complete-invite`,
+    USERS: `${BASE_URL}/auth/users`,
   },
 
   // Resources (Employees)
@@ -47,6 +48,16 @@ export const ENDPOINTS = {
     GET_BY_ID: (id) => `${BASE_URL}/tracks/${id}`,
     CREATE: `${BASE_URL}/tracks`,
     UPDATE: (id) => `${BASE_URL}/tracks/${id}`,
+  },
+
+  // Tags
+  TAGS: {
+    BASE: `${BASE_URL}/tags`,
+    LIST: `${BASE_URL}/tags`,
+    GET_BY_ID: (id) => `${BASE_URL}/tags/${id}`,
+    CREATE: `${BASE_URL}/tags`,
+    UPDATE: (id) => `${BASE_URL}/tags/${id}`,
+    DELETE: (id) => `${BASE_URL}/tags/${id}`,
   },
 
   // Designations
@@ -99,10 +110,12 @@ export const ENDPOINTS = {
     BENCH: `${BASE_URL}/reports/bench`,
     ACCOUNT_MANAGER: `${BASE_URL}/reports/account-manager`,
     EMPLOYEE: `${BASE_URL}/reports/employee`,
+    INTERN: `${BASE_URL}/reports/intern`,
     MONTHLY_ALLOCATION: `${BASE_URL}/reports/monthly-allocation`,
     EXCEPTION: `${BASE_URL}/reports/exception`,
     NON_BILLING: `${BASE_URL}/reports/non-billing`,
     PRE_SALE: `${BASE_URL}/reports/pre-sale`,
+    TIER_BREAKDOWN: `${BASE_URL}/reports/tier-breakdown`,
   },
 
   // Audit Logs
