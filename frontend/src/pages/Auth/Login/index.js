@@ -8,6 +8,7 @@ import { authService } from '@api';
 import { storeAuth } from '@utils/auth.utils';
 import { getUserFromToken } from '@utils/jwt.utils';
 import { showErrorToast, showSuccessToast } from '@utils/toast.utils';
+import ForgotPassword from '@pages/Auth/ForgotPassword';
 import '@styles/pages/Auth/Login.scss';
 
 const { Title, Text } = Typography;
@@ -22,6 +23,7 @@ const Login = () => {
   const [inviteEmail, setInviteEmail] = useState('');
   const [completeInviteForm] = Form.useForm();
   const [completingInvite, setCompletingInvite] = useState(false);
+  const [showForgotPasswordModal, setShowForgotPasswordModal] = useState(false);
   const { message } = App.useApp();
 
   useEffect(() => {
@@ -35,17 +37,158 @@ const Login = () => {
     }
   }, [isAuthenticated, navigate]);
 
+  // Debug: Log when modal state changes
+  useEffect(() => {
+    console.log('🔍 Modal state changed - showCompleteInviteModal:', showCompleteInviteModal);
+    console.log('🔍 inviteSession:', inviteSession ? 'Set' : 'Not set');
+    console.log('🔍 inviteEmail:', inviteEmail);
+  }, [showCompleteInviteModal, inviteSession, inviteEmail]);
+
   const onFinish = async (values) => {
     setLoading(true);
     try {
       // Call login API
       const response = await authService.login(values.email, values.password);
 
-      // Handle different response structures:
-      // 1. { success: true, data: { accessToken, refreshToken, idToken, expiresIn } }
-      // 2. { accessToken, refreshToken, idToken, expiresIn } (direct token data)
+      // IMMEDIATE CHECK: Handle NEW_PASSWORD_REQUIRED challenge BEFORE anything else
+      // The interceptor transforms: { success: true, data: { challenge, session } } 
+      // to: { success: true, data: { challenge, session }, message: "..." }
 
-      console.log('Login response:', response);
+      console.log('=== LOGIN RESPONSE DEBUG ===');
+      console.log('Full response:', response);
+      console.log('response.success:', response?.success);
+      console.log('response.message:', response?.message);
+      console.log('response.data:', response?.data);
+      console.log('response.data?.challenge:', response?.data?.challenge);
+      console.log('response.data?.session:', response?.data?.session);
+      console.log('===========================');
+
+      // Check for challenge in ALL possible locations IMMEDIATELY
+      // Check message first (most reliable since error toast shows it)
+      const messageHasPasswordRequired = response?.message &&
+        response.message.toLowerCase().includes('new password required');
+
+      const hasChallengeInData = response?.data?.challenge === 'NEW_PASSWORD_REQUIRED' ||
+        response?.data?.code === 'NEW_PASSWORD_REQUIRED';
+
+      const hasChallenge = hasChallengeInData ||
+        response?.challenge === 'NEW_PASSWORD_REQUIRED' ||
+        messageHasPasswordRequired;
+
+      console.log('Challenge detection:');
+      console.log('  messageHasPasswordRequired:', messageHasPasswordRequired);
+      console.log('  hasChallengeInData:', hasChallengeInData);
+      console.log('  hasChallenge:', hasChallenge);
+
+      if (hasChallenge || messageHasPasswordRequired) {
+        console.log('🚨 NEW_PASSWORD_REQUIRED DETECTED - Opening modal immediately');
+        const session = response?.data?.session ||
+          response?.data?.Session ||
+          response?.session ||
+          response?.data?.data?.session;
+
+        console.log('Session found:', !!session);
+        console.log('Session preview:', session ? session.substring(0, 50) + '...' : 'NONE');
+
+        if (session) {
+          console.log('✅ Setting modal state synchronously...');
+          // Set all state at once
+          setInviteSession(session);
+          setInviteEmail(values.email);
+          setShowCompleteInviteModal(true);
+          setLoading(false);
+
+          // Force a check after state update
+          setTimeout(() => {
+            console.log('✅ After setTimeout - Modal state should be set');
+            console.log('   If modal still not showing, check React DevTools');
+          }, 100);
+
+          console.log('✅ Returning early - modal should open');
+          return;
+        } else {
+          console.error('❌ Session missing! Full response structure:', JSON.stringify(response, null, 2));
+          showErrorToast('Session token missing. Please contact support.');
+          setLoading(false);
+          return;
+        }
+      }
+
+      // Check for NEW_PASSWORD_REQUIRED challenge in success response FIRST
+      // After interceptor transformation, the response structure is:
+      // { success: true, data: { challenge: "NEW_PASSWORD_REQUIRED", session: "..." }, message: "..." }
+      // OR the interceptor might have transformed it differently
+
+      // Check multiple possible locations for the challenge
+      const challenge = response?.data?.challenge ||
+        response?.data?.code ||
+        response?.challenge ||
+        (response?.message?.toLowerCase().includes('new password required') ? 'NEW_PASSWORD_REQUIRED' : null);
+
+      console.log('Detected challenge:', challenge);
+
+      if (challenge === 'NEW_PASSWORD_REQUIRED') {
+        console.log('NEW_PASSWORD_REQUIRED challenge detected!');
+        // Extract session token from response (check multiple locations)
+        const session = response?.data?.session ||
+          response?.data?.Session ||
+          response?.session ||
+          response?.data?.data?.session;
+        console.log('Session token:', session ? 'Found' : 'Missing');
+        console.log('Full response for debugging:', JSON.stringify(response, null, 2));
+
+        if (session) {
+          console.log('Opening complete invite modal');
+          setInviteSession(session);
+          setInviteEmail(values.email);
+          setShowCompleteInviteModal(true);
+          setLoading(false);
+          return;
+        } else {
+          console.error('Session token missing from NEW_PASSWORD_REQUIRED response:', response);
+          showErrorToast('Session token missing from response. Please try again.');
+          setLoading(false);
+          return;
+        }
+      }
+
+      // Also check if message indicates new password required (fallback check)
+      if (response?.message && response.message.toLowerCase().includes('new password required')) {
+        console.log('New password required detected from message (fallback)');
+        const session = response?.data?.session ||
+          response?.data?.Session ||
+          response?.session ||
+          response?.data?.data?.session;
+        console.log('Session from message check:', session ? 'Found' : 'Missing');
+        if (session) {
+          console.log('Opening modal from message check');
+          setInviteSession(session);
+          setInviteEmail(values.email);
+          setShowCompleteInviteModal(true);
+          setLoading(false);
+          return;
+        } else {
+          console.error('Session missing even though message indicates new password required');
+        }
+      }
+
+      // Final check: if response has success=true but no tokens and has a message about password
+      if (response?.success === true &&
+        !response?.data?.accessToken &&
+        !response?.accessToken &&
+        (response?.message?.toLowerCase().includes('password') ||
+          response?.data?.challenge === 'NEW_PASSWORD_REQUIRED')) {
+        console.log('Final fallback: Detecting challenge from success response without tokens');
+        const session = response?.data?.session || response?.session;
+        if (session) {
+          console.log('Opening modal from final fallback check');
+          setInviteSession(session);
+          setInviteEmail(values.email);
+          setShowCompleteInviteModal(true);
+          setLoading(false);
+          return;
+        }
+      }
 
       let tokenData = null;
 
@@ -53,9 +196,12 @@ const Login = () => {
       if (response && typeof response === 'object' && response.accessToken && response.refreshToken && response.idToken) {
         tokenData = response;
       }
-      // Check if response has success flag and data field
+      // Check if response has success flag and data field (and no challenge)
       else if (response && response.success === true && response.data) {
-        tokenData = response.data;
+        // Only treat as token data if it doesn't have a challenge
+        if (!response.data.challenge && !response.data.code && response.data.accessToken) {
+          tokenData = response.data;
+        }
       }
       // Check if response.data contains tokens directly
       else if (response && response.data && typeof response.data === 'object' && response.data.accessToken) {
@@ -187,6 +333,29 @@ const Login = () => {
         }
       } else {
         // Response indicates failure or unexpected structure
+        // BUT check one more time for NEW_PASSWORD_REQUIRED challenge
+        // (in case it wasn't caught earlier)
+        const challenge = response?.data?.challenge ||
+          response?.data?.code ||
+          response?.challenge;
+
+        if (challenge === 'NEW_PASSWORD_REQUIRED' ||
+          response?.message?.toLowerCase().includes('new password required')) {
+          console.log('NEW_PASSWORD_REQUIRED detected in else block!');
+          const session = response?.data?.session ||
+            response?.data?.Session ||
+            response?.session;
+
+          if (session) {
+            console.log('Opening complete invite modal from else block');
+            setInviteSession(session);
+            setInviteEmail(values.email);
+            setShowCompleteInviteModal(true);
+            setLoading(false);
+            return;
+          }
+        }
+
         console.error('Login failed - unexpected response structure:', response);
         message.error(response?.message || 'Invalid credentials');
       }
@@ -509,8 +678,27 @@ const Login = () => {
         </Form>
         <div className="login-info">
           <Text type="secondary" className="info-title">Enter your email and password to sign in</Text>
+          <div style={{ marginTop: 12, textAlign: 'center' }}>
+            <Button
+              type="link"
+              onClick={() => setShowForgotPasswordModal(true)}
+              style={{ fontSize: 14, padding: 0 }}
+            >
+              Forgot Password?
+            </Button>
+          </div>
         </div>
       </Card>
+
+      {/* Forgot Password Modal */}
+      <ForgotPassword
+        visible={showForgotPasswordModal}
+        onClose={() => setShowForgotPasswordModal(false)}
+        onSuccess={(email) => {
+          // Optionally handle success (e.g., show additional message)
+          console.log('Password reset email sent to:', email);
+        }}
+      />
 
       {/* Complete Invite Modal - Set New Password */}
       <Modal
