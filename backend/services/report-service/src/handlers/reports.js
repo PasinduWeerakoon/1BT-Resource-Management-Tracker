@@ -201,6 +201,17 @@ export const getBenchReport = async (event) => {
                 WHERE is_active = true 
                 AND (end_date IS NULL OR end_date >= CURRENT_DATE)
                 GROUP BY resource_id
+            ),
+            bench_allocations AS (
+                SELECT 
+                    a.resource_id,
+                    a.allocation_percentage as bench_allocation
+                FROM allocations a
+                INNER JOIN projects p ON a.project_id = p.id
+                WHERE a.is_active = true 
+                AND (a.end_date IS NULL OR a.end_date >= CURRENT_DATE)
+                AND p.is_bench_project = true
+                AND p.deleted_at IS NULL
             )
             SELECT 
                 r.id,
@@ -210,6 +221,7 @@ export const getBenchReport = async (event) => {
                 t.name as track,
                 COALESCE(ra.total_allocation, 0) as current_allocation,
                 (100 - COALESCE(ra.total_allocation, 0)) as available_capacity,
+                COALESCE(ba.bench_allocation, 0) as bench_allocation_percentage,
                 r.date_of_joining,
                 r.intern_classification,
                 CASE WHEN r.date_of_joining IS NOT NULL 
@@ -217,6 +229,7 @@ export const getBenchReport = async (event) => {
                      ELSE NULL END as days_in_company
             FROM resources r
             LEFT JOIN resource_allocations ra ON r.id = ra.resource_id
+            LEFT JOIN bench_allocations ba ON r.id = ba.resource_id
             LEFT JOIN designations d ON r.designation_id = d.id
             LEFT JOIN tracks t ON r.track_id = t.id
             WHERE r.status = 'Active'
