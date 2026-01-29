@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Row, Col, Card, Select, Badge, Button } from 'antd';
 import { FilterOutlined, UpOutlined, DownOutlined, ReloadOutlined } from '@ant-design/icons';
 import CustomTable from '@components/Table';
-import { accountManagersService, reportsService, projectsService, tracksService, resourcesService } from '@api';
+import { accountManagersService, reportsService, projectsService, tracksService } from '@api';
 import { useUserAllocationModal } from '@hooks/useUserAllocationModal';
 import UserAllocationModal from '@components/UserAllocationModal';
 import { showErrorToast } from '@utils/toast.utils';
@@ -46,7 +46,6 @@ const InternReport = () => {
   const [tracks, setTracks] = useState([]);
   const [loadingTracks, setLoadingTracks] = useState(false);
   const [techStacks, setTechStacks] = useState([]);
-  const [loadingTechStacks, setLoadingTechStacks] = useState(false);
 
   // Report data
   const [internData, setInternData] = useState([]);
@@ -143,39 +142,9 @@ const InternReport = () => {
       }
     };
 
-    const fetchTechStacks = async () => {
-      try {
-        setLoadingTechStacks(true);
-        const response = await resourcesService.getAll({ limit: 1000, status: 'Active' });
-        let resourcesData = [];
-
-        if (response) {
-          if (Array.isArray(response.data)) {
-            resourcesData = response.data;
-          } else if (response.data && response.data.data && Array.isArray(response.data.data)) {
-            resourcesData = response.data.data;
-          }
-        }
-
-        // Get unique tech stacks
-        const uniqueTechStacks = [...new Set(
-          resourcesData
-            .map((resource) => resource.tech_stack)
-            .filter((techStack) => techStack && techStack.trim() !== '')
-        )].sort();
-
-        setTechStacks(uniqueTechStacks.map((techStack) => ({ name: techStack })));
-      } catch (error) {
-        console.error('Failed to fetch tech stacks:', error);
-      } finally {
-        setLoadingTechStacks(false);
-      }
-    };
-
     fetchAccountManagers();
     fetchProjects();
     fetchTracks();
-    fetchTechStacks();
   }, []);
 
   // Fetch intern report data
@@ -225,6 +194,35 @@ const InternReport = () => {
         // Update intern data for table
         if (reportData.data && Array.isArray(reportData.data)) {
           setInternData(reportData.data);
+
+          // Extract unique tech stacks from intern data for filter dropdown
+          // Only extract on initial load (when no filters are applied) to get all available tech stacks
+          const hasNoFilters = filters.projectName === 'All' &&
+            filters.accountManager === 'All' &&
+            filters.track === 'All' &&
+            filters.techStack === 'All';
+
+          if (hasNoFilters && reportData.data.length > 0) {
+            // Get unique tech stacks from the intern data
+            // Since each row represents an intern-project allocation, we need to get unique interns first
+            const uniqueInterns = new Map();
+            reportData.data.forEach((row) => {
+              // Use employeeName as key to get unique interns
+              if (!uniqueInterns.has(row.employeeName)) {
+                uniqueInterns.set(row.employeeName, row);
+              }
+            });
+
+            const uniqueTechStacks = [...new Set(
+              Array.from(uniqueInterns.values())
+                .map((intern) => intern.techStack || intern.tech_stack)
+                .filter((techStack) => techStack && techStack.trim() !== '')
+            )].sort();
+
+            if (uniqueTechStacks.length > 0) {
+              setTechStacks(uniqueTechStacks.map((techStack) => ({ name: techStack })));
+            }
+          }
         }
       }
     } catch (error) {
@@ -440,7 +438,6 @@ const InternReport = () => {
                     value={filters.techStack}
                     onChange={(value) => setFilters({ ...filters, techStack: value })}
                     style={{ width: '100%' }}
-                    loading={loadingTechStacks}
                     showSearch
                     allowClear
                     filterOption={(input, option) =>

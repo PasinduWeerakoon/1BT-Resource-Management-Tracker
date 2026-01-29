@@ -416,15 +416,16 @@ export const getInternReport = async (event) => {
         const internDetailsQuery = project_name || account_manager
             ? `
                 SELECT DISTINCT
-                    r.id,
+                r.id,
                     r.name as employee_name,
-                    r.email,
-                    d.name as designation,
-                    t.name as track,
-                    r.date_of_joining,
-                    CASE WHEN r.date_of_joining IS NOT NULL 
-                         THEN EXTRACT(MONTH FROM AGE(CURRENT_DATE, r.date_of_joining::DATE)) 
-                         ELSE NULL END as months_in_company,
+                r.email,
+                d.name as designation,
+                t.name as track,
+                    r.tech_stack,
+                r.date_of_joining,
+                CASE WHEN r.date_of_joining IS NOT NULL 
+                     THEN EXTRACT(MONTH FROM AGE(CURRENT_DATE, r.date_of_joining::DATE)) 
+                     ELSE NULL END as months_in_company,
                     p.project_name as project,
                     p.id as project_id,
                     TO_CHAR(a.start_date, 'DD Mon YYYY') as project_allocated_date,
@@ -445,9 +446,9 @@ export const getInternReport = async (event) => {
                     END as duration_days,
                     CASE WHEN a.is_active = true AND (a.end_date IS NULL OR a.end_date >= CURRENT_DATE) THEN 'Active' ELSE 'Inactive' END as status,
                     a.is_active
-                FROM resources r
-                LEFT JOIN designations d ON r.designation_id = d.id
-                LEFT JOIN tracks t ON r.track_id = t.id
+            FROM resources r
+            LEFT JOIN designations d ON r.designation_id = d.id
+            LEFT JOIN tracks t ON r.track_id = t.id
                 INNER JOIN allocations a ON r.id = a.resource_id 
                     AND a.is_active = true 
                     AND (a.end_date IS NULL OR a.end_date >= CURRENT_DATE)
@@ -464,6 +465,7 @@ export const getInternReport = async (event) => {
                     r.email,
                     d.name as designation,
                     t.name as track,
+                    r.tech_stack,
                     r.date_of_joining,
                     CASE WHEN r.date_of_joining IS NOT NULL 
                          THEN EXTRACT(MONTH FROM AGE(CURRENT_DATE, r.date_of_joining::DATE)) 
@@ -526,6 +528,7 @@ export const getInternReport = async (event) => {
                     email: row.email,
                     designation: row.designation,
                     track: row.track,
+                    techStack: row.tech_stack,
                     dateOfJoining: row.date_of_joining,
                     monthsInCompany: row.months_in_company,
                     projects: []
@@ -556,6 +559,7 @@ export const getInternReport = async (event) => {
                 internData.push({
                     key: `${intern.id}-no-project`,
                     employeeName: intern.employeeName,
+                    techStack: intern.techStack,
                     project: 'Bench',
                     allocatedDate: '',
                     deallocatedDate: '',
@@ -571,6 +575,7 @@ export const getInternReport = async (event) => {
                     internData.push({
                         key: `${intern.id}-${project.projectId}-${index}`,
                         employeeName: intern.employeeName,
+                        techStack: intern.techStack,
                         project: project.project,
                         allocatedDate: project.allocatedDate,
                         deallocatedDate: project.deallocatedDate || '',

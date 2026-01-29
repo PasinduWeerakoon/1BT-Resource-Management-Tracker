@@ -3,7 +3,7 @@ import { Card, Button, Form, Input, Tabs, Space, Tooltip, Select, Switch, messag
 import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import CustomModal from '@components/Modal';
 import CustomTable from '@components/Table';
-import { tracksService, tagsService, designationsService, projectsService, clientsService, accountManagersService } from '@api';
+import { tracksService, tagsService, designationsService, projectsService, clientsService, accountManagersService, billingStatusesService, projectTypesService } from '@api';
 import { showErrorToast, showSuccessToast } from '@utils/toast.utils';
 import dayjs from 'dayjs';
 import '@styles/pages/Configurations.scss';
@@ -16,12 +16,16 @@ const Configurations = () => {
   const [tagForm] = Form.useForm();
   const [projectTypeForm] = Form.useForm();
   const [clientForm] = Form.useForm();
+  const [billingStatusForm] = Form.useForm();
+  const [projectTypeConfigForm] = Form.useForm();
 
   const [isDesignationModalVisible, setIsDesignationModalVisible] = useState(false);
   const [isTrackModalVisible, setIsTrackModalVisible] = useState(false);
   const [isTagModalVisible, setIsTagModalVisible] = useState(false);
   const [isProjectTypeModalVisible, setIsProjectTypeModalVisible] = useState(false);
   const [isClientModalVisible, setIsClientModalVisible] = useState(false);
+  const [isBillingStatusModalVisible, setIsBillingStatusModalVisible] = useState(false);
+  const [isProjectTypeConfigModalVisible, setIsProjectTypeConfigModalVisible] = useState(false);
 
   const [isEditMode, setIsEditMode] = useState(false);
   const [selectedItem, setSelectedItem] = useState(null);
@@ -38,6 +42,14 @@ const Configurations = () => {
   const [tags, setTags] = useState([]);
   const [loadingTags, setLoadingTags] = useState(false);
   const [tagLoading, setTagLoading] = useState(false);
+
+  const [billingStatuses, setBillingStatuses] = useState([]);
+  const [loadingBillingStatuses, setLoadingBillingStatuses] = useState(false);
+  const [billingStatusLoading, setBillingStatusLoading] = useState(false);
+
+  const [projectTypesConfig, setProjectTypesConfig] = useState([]);
+  const [loadingProjectTypesConfig, setLoadingProjectTypesConfig] = useState(false);
+  const [projectTypeConfigLoading, setProjectTypeConfigLoading] = useState(false);
 
   const [projectTypes, setProjectTypes] = useState([]);
   const [clients, setClients] = useState([]);
@@ -490,6 +502,358 @@ const Configurations = () => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
+
+  // Billing Status handlers
+  const handleAddBillingStatus = () => {
+    setIsEditMode(false);
+    setSelectedItem(null);
+    billingStatusForm.resetFields();
+    setIsBillingStatusModalVisible(true);
+  };
+
+  const handleEditBillingStatus = (record) => {
+    setIsEditMode(true);
+    setSelectedItem(record);
+    billingStatusForm.setFieldsValue({
+      name: record.name,
+      description: record.description || '',
+      is_active: record.is_active !== undefined ? record.is_active : true,
+    });
+    setIsBillingStatusModalVisible(true);
+  };
+
+  const handleDeleteBillingStatus = (record) => {
+    const modal = Modal.confirm({
+      title: 'Delete Billing Status',
+      content: `Are you sure you want to delete "${record.name}"? This action cannot be undone.`,
+      okText: 'Delete',
+      okType: 'danger',
+      cancelText: 'Cancel',
+      okButtonProps: {
+        loading: false,
+      },
+      onOk: async () => {
+        try {
+          modal.update({
+            okButtonProps: {
+              loading: true,
+              disabled: true,
+            },
+            cancelButtonProps: {
+              disabled: true,
+            },
+          });
+
+          const response = await billingStatusesService.delete(record.id);
+
+          if (response && (response.success !== false || response.data)) {
+            showSuccessToast('Billing status deleted successfully');
+            await fetchBillingStatuses();
+          } else {
+            showErrorToast(response?.message || 'Failed to delete billing status');
+            modal.update({
+              okButtonProps: {
+                loading: false,
+                disabled: false,
+              },
+              cancelButtonProps: {
+                disabled: false,
+              },
+            });
+          }
+        } catch (error) {
+          console.error('Failed to delete billing status:', error);
+          showErrorToast(error?.message || 'Failed to delete billing status');
+          modal.update({
+            okButtonProps: {
+              loading: false,
+              disabled: false,
+            },
+            cancelButtonProps: {
+              disabled: false,
+            },
+          });
+        }
+      },
+    });
+  };
+
+  // Fetch billing statuses from API
+  const fetchBillingStatuses = async () => {
+    try {
+      setLoadingBillingStatuses(true);
+      const response = await billingStatusesService.getAll();
+
+      // Handle response structure after interceptor transformation
+      let billingStatusesData = [];
+
+      if (response) {
+        // Check if response has data array directly (after interceptor transformation)
+        if (Array.isArray(response.data)) {
+          billingStatusesData = response.data;
+        }
+        // Check if response has nested data structure
+        else if (response.data && response.data.data && Array.isArray(response.data.data)) {
+          billingStatusesData = response.data.data;
+        }
+        // Check if response is the data object directly
+        else if (response.data && Array.isArray(response.data)) {
+          billingStatusesData = response.data;
+        }
+        // Fallback: response is an array
+        else if (Array.isArray(response)) {
+          billingStatusesData = response;
+        }
+      }
+
+      // Transform billing statuses data to match table format
+      const transformedBillingStatuses = billingStatusesData.map((billingStatus) => ({
+        key: billingStatus.id,
+        id: billingStatus.id,
+        name: billingStatus.name,
+        description: billingStatus.description || '',
+        is_active: billingStatus.is_active !== undefined ? billingStatus.is_active : true,
+        is_default: billingStatus.is_default === true,
+      }));
+
+      setBillingStatuses(transformedBillingStatuses);
+    } catch (error) {
+      console.error('Failed to fetch billing statuses:', error);
+      showErrorToast('Failed to load billing statuses');
+    } finally {
+      setLoadingBillingStatuses(false);
+    }
+  };
+
+  // Fetch billing statuses on component mount and when billing statuses tab is active
+  useEffect(() => {
+    if (activeTab === 'billing-statuses') {
+      fetchBillingStatuses();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
+
+  // Project Type handlers
+  const handleAddProjectTypeConfig = () => {
+    setIsEditMode(false);
+    setSelectedItem(null);
+    projectTypeConfigForm.resetFields();
+    setIsProjectTypeConfigModalVisible(true);
+  };
+
+  const handleEditProjectTypeConfig = (record) => {
+    setIsEditMode(true);
+    setSelectedItem(record);
+    projectTypeConfigForm.setFieldsValue({
+      name: record.name,
+      description: record.description || '',
+      is_active: record.is_active !== undefined ? record.is_active : true,
+    });
+    setIsProjectTypeConfigModalVisible(true);
+  };
+
+  const handleDeleteProjectTypeConfig = (record) => {
+    const modal = Modal.confirm({
+      title: 'Delete Project Type',
+      content: `Are you sure you want to delete "${record.name}"? This action cannot be undone.`,
+      okText: 'Delete',
+      okType: 'danger',
+      cancelText: 'Cancel',
+      okButtonProps: {
+        loading: false,
+      },
+      onOk: async () => {
+        try {
+          modal.update({
+            okButtonProps: {
+              loading: true,
+              disabled: true,
+            },
+            cancelButtonProps: {
+              disabled: true,
+            },
+          });
+
+          const response = await projectTypesService.delete(record.id);
+
+          if (response && (response.success !== false || response.data)) {
+            showSuccessToast('Project type deleted successfully');
+            await fetchProjectTypesConfig();
+          } else {
+            showErrorToast(response?.message || 'Failed to delete project type');
+            modal.update({
+              okButtonProps: {
+                loading: false,
+                disabled: false,
+              },
+              cancelButtonProps: {
+                disabled: false,
+              },
+            });
+          }
+        } catch (error) {
+          console.error('Failed to delete project type:', error);
+          showErrorToast(error?.message || 'Failed to delete project type');
+          modal.update({
+            okButtonProps: {
+              loading: false,
+              disabled: false,
+            },
+            cancelButtonProps: {
+              disabled: false,
+            },
+          });
+        }
+      },
+    });
+  };
+
+  // Fetch project types from API
+  const fetchProjectTypesConfig = async () => {
+    try {
+      setLoadingProjectTypesConfig(true);
+      const response = await projectTypesService.getAll();
+
+      // Handle response structure after interceptor transformation
+      let projectTypesData = [];
+
+      if (response) {
+        // Check if response has data array directly (after interceptor transformation)
+        if (Array.isArray(response.data)) {
+          projectTypesData = response.data;
+        }
+        // Check if response has nested data structure
+        else if (response.data && response.data.data && Array.isArray(response.data.data)) {
+          projectTypesData = response.data.data;
+        }
+        // Check if response is the data object directly
+        else if (response.data && Array.isArray(response.data)) {
+          projectTypesData = response.data;
+        }
+        // Fallback: response is an array
+        else if (Array.isArray(response)) {
+          projectTypesData = response;
+        }
+      }
+
+      // Transform project types data to match table format
+      const transformedProjectTypes = projectTypesData.map((projectType) => ({
+        key: projectType.id,
+        id: projectType.id,
+        name: projectType.name,
+        description: projectType.description || '',
+        is_active: projectType.is_active !== undefined ? projectType.is_active : true,
+        is_default: projectType.is_default === true,
+      }));
+
+      setProjectTypesConfig(transformedProjectTypes);
+    } catch (error) {
+      console.error('Failed to fetch project types:', error);
+      showErrorToast('Failed to load project types');
+    } finally {
+      setLoadingProjectTypesConfig(false);
+    }
+  };
+
+  // Fetch project types on component mount and when project types tab is active
+  useEffect(() => {
+    if (activeTab === 'project-types-config') {
+      fetchProjectTypesConfig();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
+
+  const handleProjectTypeConfigSubmit = async () => {
+    try {
+      setProjectTypeConfigLoading(true);
+      const values = await projectTypeConfigForm.validateFields();
+
+      // Prepare API payload
+      const projectTypePayload = {
+        name: values.name,
+        description: values.description || '',
+        is_active: values.is_active !== undefined ? values.is_active : true,
+      };
+
+      if (isEditMode) {
+        // Update project type
+        const response = await projectTypesService.update(selectedItem.id, projectTypePayload);
+
+        if (response && (response.success !== false || response.data)) {
+          showSuccessToast('Project type updated successfully');
+          await fetchProjectTypesConfig();
+        } else {
+          showErrorToast(response?.message || 'Failed to update project type');
+        }
+      } else {
+        // Create project type
+        const response = await projectTypesService.create(projectTypePayload);
+
+        if (response && (response.success !== false || response.data)) {
+          showSuccessToast('Project type created successfully');
+          await fetchProjectTypesConfig();
+        } else {
+          showErrorToast(response?.message || 'Failed to create project type');
+        }
+      }
+
+      setIsProjectTypeConfigModalVisible(false);
+      projectTypeConfigForm.resetFields();
+      setSelectedItem(null);
+      setIsEditMode(false);
+    } catch (error) {
+      console.error('Project type submit error:', error);
+      showErrorToast(error?.message || 'Failed to save project type');
+    } finally {
+      setProjectTypeConfigLoading(false);
+    }
+  };
+
+  const handleBillingStatusSubmit = async () => {
+    try {
+      setBillingStatusLoading(true);
+      const values = await billingStatusForm.validateFields();
+
+      // Prepare API payload
+      const billingStatusPayload = {
+        name: values.name,
+        description: values.description || '',
+        is_active: values.is_active !== undefined ? values.is_active : true,
+      };
+
+      if (isEditMode) {
+        // Update billing status
+        const response = await billingStatusesService.update(selectedItem.id, billingStatusPayload);
+
+        if (response && (response.success !== false || response.data)) {
+          showSuccessToast('Billing status updated successfully');
+          await fetchBillingStatuses();
+        } else {
+          showErrorToast(response?.message || 'Failed to update billing status');
+        }
+      } else {
+        // Create billing status
+        const response = await billingStatusesService.create(billingStatusPayload);
+
+        if (response && (response.success !== false || response.data)) {
+          showSuccessToast('Billing status created successfully');
+          await fetchBillingStatuses();
+        } else {
+          showErrorToast(response?.message || 'Failed to create billing status');
+        }
+      }
+
+      setIsBillingStatusModalVisible(false);
+      billingStatusForm.resetFields();
+      setSelectedItem(null);
+      setIsEditMode(false);
+    } catch (error) {
+      console.error('Billing status submit error:', error);
+      showErrorToast(error?.message || 'Failed to save billing status');
+    } finally {
+      setBillingStatusLoading(false);
+    }
+  };
 
   const handleTagSubmit = async () => {
     try {
@@ -1369,6 +1733,120 @@ const Configurations = () => {
     },
   ];
 
+  // Billing Status columns
+  const billingStatusColumns = [
+    {
+      title: 'Name',
+      dataIndex: 'name',
+      key: 'name',
+      width: 200,
+      fixed: 'left',
+    },
+    {
+      title: 'Description',
+      dataIndex: 'description',
+      key: 'description',
+      width: 400,
+    },
+    {
+      title: 'Status',
+      dataIndex: 'is_active',
+      key: 'is_active',
+      width: 100,
+      render: (isActive) => (
+        <span style={{ color: isActive ? '#52c41a' : '#ff4d4f' }}>
+          {isActive ? 'Active' : 'Inactive'}
+        </span>
+      ),
+    },
+    {
+      title: 'Actions',
+      key: 'actions',
+      width: 120,
+      fixed: 'right',
+      render: (_, record) => (
+        <Space>
+          <Tooltip title={record.is_default ? 'Default billing statuses cannot be edited' : 'Edit'}>
+            <Button
+              type="text"
+              icon={<EditOutlined />}
+              onClick={() => handleEditBillingStatus(record)}
+              className="action-icon-btn"
+              disabled={record.is_default}
+            />
+          </Tooltip>
+          <Tooltip title={record.is_default ? 'Default billing statuses cannot be deleted' : 'Delete'}>
+            <Button
+              type="text"
+              icon={<DeleteOutlined />}
+              onClick={() => handleDeleteBillingStatus(record)}
+              className="action-icon-btn"
+              danger
+              disabled={record.is_default}
+            />
+          </Tooltip>
+        </Space>
+      ),
+    },
+  ];
+
+  // Project Type columns
+  const projectTypeConfigColumns = [
+    {
+      title: 'Name',
+      dataIndex: 'name',
+      key: 'name',
+      width: 200,
+      fixed: 'left',
+    },
+    {
+      title: 'Description',
+      dataIndex: 'description',
+      key: 'description',
+      width: 400,
+    },
+    {
+      title: 'Status',
+      dataIndex: 'is_active',
+      key: 'is_active',
+      width: 100,
+      render: (isActive) => (
+        <span style={{ color: isActive ? '#52c41a' : '#ff4d4f' }}>
+          {isActive ? 'Active' : 'Inactive'}
+        </span>
+      ),
+    },
+    {
+      title: 'Actions',
+      key: 'actions',
+      width: 120,
+      fixed: 'right',
+      render: (_, record) => (
+        <Space>
+          <Tooltip title={record.is_default ? 'Default project types cannot be edited' : 'Edit'}>
+            <Button
+              type="text"
+              icon={<EditOutlined />}
+              onClick={() => handleEditProjectTypeConfig(record)}
+              className="action-icon-btn"
+              disabled={record.is_default}
+            />
+          </Tooltip>
+          <Tooltip title={record.is_default ? 'Default project types cannot be deleted' : 'Delete'}>
+            <Button
+              type="text"
+              icon={<DeleteOutlined />}
+              onClick={() => handleDeleteProjectTypeConfig(record)}
+              className="action-icon-btn"
+              danger
+              disabled={record.is_default}
+            />
+          </Tooltip>
+        </Space>
+      ),
+    },
+  ];
+
   // Client columns
   const clientColumns = [
     {
@@ -1737,6 +2215,64 @@ const Configurations = () => {
                     dataSource={tags}
                     scroll={{ x: 600 }}
                     loading={loadingTags}
+                    pagination={{ pageSize: 20 }}
+                  />
+                </div>
+              ),
+            },
+            {
+              key: 'billing-statuses',
+              label: 'Billing Status',
+              children: (
+                <div>
+                  <div className="table-header-section">
+                    <div className="table-header-left">
+                      <span className="table-title">Billing Statuses</span>
+                    </div>
+                    <div className="table-header-actions">
+                      <Button
+                        type="primary"
+                        icon={<PlusOutlined />}
+                        onClick={handleAddBillingStatus}
+                      >
+                        Add Billing Status
+                      </Button>
+                    </div>
+                  </div>
+                  <CustomTable
+                    columns={billingStatusColumns}
+                    dataSource={billingStatuses}
+                    scroll={{ x: 600 }}
+                    loading={loadingBillingStatuses}
+                    pagination={{ pageSize: 20 }}
+                  />
+                </div>
+              ),
+            },
+            {
+              key: 'project-types-config',
+              label: 'Project Type',
+              children: (
+                <div>
+                  <div className="table-header-section">
+                    <div className="table-header-left">
+                      <span className="table-title">Project Types</span>
+                    </div>
+                    <div className="table-header-actions">
+                      <Button
+                        type="primary"
+                        icon={<PlusOutlined />}
+                        onClick={handleAddProjectTypeConfig}
+                      >
+                        Add Project Type
+                      </Button>
+                    </div>
+                  </div>
+                  <CustomTable
+                    columns={projectTypeConfigColumns}
+                    dataSource={projectTypesConfig}
+                    scroll={{ x: 600 }}
+                    loading={loadingProjectTypesConfig}
                     pagination={{ pageSize: 20 }}
                   />
                 </div>
@@ -2210,6 +2746,128 @@ const Configurations = () => {
               </Form.Item>
             </Col>
           </Row>
+        </Form>
+      </CustomModal>
+
+      {/* Add/Edit Billing Status Modal */}
+      <CustomModal
+        title={isEditMode ? 'Edit Billing Status' : 'Add New Billing Status'}
+        open={isBillingStatusModalVisible}
+        onClose={() => {
+          setIsBillingStatusModalVisible(false);
+          billingStatusForm.resetFields();
+          setSelectedItem(null);
+          setIsEditMode(false);
+        }}
+        width={600}
+        buttons={[
+          {
+            text: 'Cancel',
+            type: 'default',
+            onClick: () => {
+              setIsBillingStatusModalVisible(false);
+              billingStatusForm.resetFields();
+              setSelectedItem(null);
+              setIsEditMode(false);
+            },
+          },
+          {
+            text: isEditMode ? 'Update' : 'Add',
+            type: 'primary',
+            onClick: handleBillingStatusSubmit,
+            loading: billingStatusLoading,
+          },
+        ]}
+      >
+        <Form form={billingStatusForm} layout="vertical">
+          <Form.Item
+            label="Name"
+            name="name"
+            rules={[
+              { required: true, message: 'Name is required' },
+              { max: 50, message: 'Name must be less than 50 characters' },
+            ]}
+          >
+            <Input placeholder="Enter billing status name (e.g., Billing, Non-Billing, Presales)" />
+          </Form.Item>
+          <Form.Item
+            label="Description"
+            name="description"
+            rules={[
+              { max: 500, message: 'Description must be less than 500 characters' },
+            ]}
+          >
+            <Input.TextArea rows={3} placeholder="Enter description (optional)" />
+          </Form.Item>
+          <Form.Item
+            label="Active"
+            name="is_active"
+            valuePropName="checked"
+            initialValue={true}
+          >
+            <Switch checkedChildren="Active" unCheckedChildren="Inactive" />
+          </Form.Item>
+        </Form>
+      </CustomModal>
+
+      {/* Add/Edit Project Type Config Modal */}
+      <CustomModal
+        title={isEditMode ? 'Edit Project Type' : 'Add New Project Type'}
+        open={isProjectTypeConfigModalVisible}
+        onClose={() => {
+          setIsProjectTypeConfigModalVisible(false);
+          projectTypeConfigForm.resetFields();
+          setSelectedItem(null);
+          setIsEditMode(false);
+        }}
+        width={600}
+        buttons={[
+          {
+            text: 'Cancel',
+            type: 'default',
+            onClick: () => {
+              setIsProjectTypeConfigModalVisible(false);
+              projectTypeConfigForm.resetFields();
+              setSelectedItem(null);
+              setIsEditMode(false);
+            },
+          },
+          {
+            text: isEditMode ? 'Update' : 'Add',
+            type: 'primary',
+            onClick: handleProjectTypeConfigSubmit,
+            loading: projectTypeConfigLoading,
+          },
+        ]}
+      >
+        <Form form={projectTypeConfigForm} layout="vertical">
+          <Form.Item
+            label="Name"
+            name="name"
+            rules={[
+              { required: true, message: 'Name is required' },
+              { max: 50, message: 'Name must be less than 50 characters' },
+            ]}
+          >
+            <Input placeholder="Enter project type name (e.g., Client, Bench, POC)" />
+          </Form.Item>
+          <Form.Item
+            label="Description"
+            name="description"
+            rules={[
+              { max: 500, message: 'Description must be less than 500 characters' },
+            ]}
+          >
+            <Input.TextArea rows={3} placeholder="Enter description (optional)" />
+          </Form.Item>
+          <Form.Item
+            label="Active"
+            name="is_active"
+            valuePropName="checked"
+            initialValue={true}
+          >
+            <Switch checkedChildren="Active" unCheckedChildren="Inactive" />
+          </Form.Item>
         </Form>
       </CustomModal>
 
