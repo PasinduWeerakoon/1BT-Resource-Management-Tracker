@@ -273,3 +273,49 @@ functions:
           path: /api/v1/tiers/{id}
           method: DELETE
           authorizer: ${self:custom.authorizer}
+
+  # ==================== BILLING STATUSES ====================
+  listBillingStatuses:
+    handler: src/handlers/billingStatuses.list
+    description: List all billing statuses
+    events:
+      - httpApi:
+          path: /api/v1/billing-statuses
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  getBillingStatus:
+    handler: src/handlers/billingStatuses.getById
+    description: Get a billing status by ID
+    events:
+      - httpApi:
+          path: /api/v1/billing-statuses/{id}
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  createBillingStatus:
+    handler: src/handlers/billingStatuses.create
+    description: Create a new billing status
+    events:
+      - httpApi:
+          path: /api/v1/billing-statuses
+          method: POST
+          authorizer: ${self:custom.authorizer}
+
+  updateBillingStatus:
+    handler: src/handlers/billingStatuses.update
+    description: Update an existing billing status
+    events:
+      - httpApi:
+          path: /api/v1/billing-statuses/{id}
+          method: PUT
+          authorizer: ${self:custom.authorizer}
+
+  deleteBillingStatus:
+    handler: src/handlers/billingStatuses.remove
+    description: Delete a billing status
+    events:
+      - httpApi:
+          path: /api/v1/billing-statuses/{id}
+          method: DELETE
+          authorizer: ${self:custom.authorizer}

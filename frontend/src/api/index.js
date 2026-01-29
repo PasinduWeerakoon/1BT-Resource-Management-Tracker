@@ -62,6 +62,7 @@ export { default as authService } from './services/auth.service';
 export { default as resourcesService } from './services/resources.service';
 export { default as tracksService } from './services/tracks.service';
 export { default as designationsService } from './services/designations.service';
+export { default as billingStatusesService } from './services/billingStatuses.service';
 export { default as clientsService } from './services/clients.service';
 export { default as projectsService } from './services/projects.service';
 export { default as allocationsService } from './services/allocations.service';

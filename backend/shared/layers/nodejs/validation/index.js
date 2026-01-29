@@ -255,6 +255,7 @@ export const allocationSchemas = {
         resource_id: Joi.string().pattern(uuidPattern).required(),
         project_id: Joi.string().pattern(uuidPattern).required(),
         allocation_percentage: Joi.number().min(0).max(100).required(),
+        billing_status_id: Joi.string().pattern(uuidPattern).optional(), // Optional - will default to 'Billing' if not provided
         start_date: Joi.date().iso().required(),
         end_date: Joi.date().iso().optional(),
         billing_percentage: Joi.number().min(0).max(100).default(100),
@@ -263,6 +264,7 @@ export const allocationSchemas = {
 
     update: Joi.object({
         allocation_percentage: Joi.number().min(0).max(100).optional(),
+        billing_status_id: Joi.string().pattern(uuidPattern).optional(),
         start_date: Joi.date().iso().optional(),
         end_date: Joi.date().iso().optional(),
         billing_percentage: Joi.number().min(0).max(100).optional(),

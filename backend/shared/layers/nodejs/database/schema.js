@@ -111,6 +111,24 @@ export const users = pgTable('users', {
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// Billing Statuses table (configurable)
+export const billingStatuses = pgTable('billing_statuses', {
+    id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+    name: varchar('name', { length: 50 }).notNull().unique(),
+    description: text('description'),
+    color: varchar('color', { length: 20 }).default('#1890ff'),
+    displayOrder: integer('display_order').notNull().default(0),
+    isActive: boolean('is_active').notNull().default(true),
+    isSystem: boolean('is_system').notNull().default(false), // System statuses cannot be deleted
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    createdBy: uuid('created_by').references(() => users.id),
+    updatedBy: uuid('updated_by').references(() => users.id),
+}, (table) => ({
+    isActiveIdx: index('idx_billing_statuses_is_active').on(table.isActive),
+    displayOrderIdx: index('idx_billing_statuses_display_order').on(table.displayOrder),
+}));
+
 // Clients table
 export const clients = pgTable('clients', {
     id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
@@ -165,6 +183,7 @@ export const allocations = pgTable('allocations', {
     projectId: uuid('project_id').notNull().references(() => projects.id),
     allocationPercentage: decimal('allocation_percentage', { precision: 5, scale: 2 }).notNull(),
     billingPercentage: decimal('billing_percentage', { precision: 5, scale: 2 }).default(sql`100`),
+    billingStatusId: uuid('billing_status_id').notNull().references(() => billingStatuses.id),
     startDate: date('start_date').notNull(),
     endDate: date('end_date'),
     isActive: boolean('is_active').default(true),
@@ -178,6 +197,7 @@ export const allocations = pgTable('allocations', {
 }, (table) => ({
     resourceIdx: index('idx_allocations_resource').on(table.resourceId),
     projectIdx: index('idx_allocations_project').on(table.projectId),
+    billingStatusIdx: index('idx_allocations_billing_status').on(table.billingStatusId),
     datesIdx: index('idx_allocations_dates').on(table.startDate, table.endDate),
     uniqueAllocation: uniqueIndex('unique_active_allocation').on(table.resourceId, table.projectId, table.startDate),
 }));
@@ -263,6 +283,7 @@ export const schema = {
     tracks,
     designations,
     tiers,
+    billingStatuses,
     resources,
     users,
     clients,

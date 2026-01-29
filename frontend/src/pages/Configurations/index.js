@@ -3,7 +3,7 @@ import { Card, Button, Form, Input, Tabs, Space, Tooltip, Select, Switch, messag
 import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import CustomModal from '@components/Modal';
 import CustomTable from '@components/Table';
-import { tracksService, designationsService, projectsService, clientsService, accountManagersService } from '@api';
+import { tracksService, designationsService, projectsService, clientsService, accountManagersService, billingStatusesService } from '@api';
 import { showErrorToast, showSuccessToast } from '@utils/toast.utils';
 import dayjs from 'dayjs';
 import '@styles/pages/Configurations.scss';
@@ -15,11 +15,13 @@ const Configurations = () => {
   const [trackForm] = Form.useForm();
   const [projectTypeForm] = Form.useForm();
   const [clientForm] = Form.useForm();
+  const [billingStatusForm] = Form.useForm();
 
   const [isDesignationModalVisible, setIsDesignationModalVisible] = useState(false);
   const [isTrackModalVisible, setIsTrackModalVisible] = useState(false);
   const [isProjectTypeModalVisible, setIsProjectTypeModalVisible] = useState(false);
   const [isClientModalVisible, setIsClientModalVisible] = useState(false);
+  const [isBillingStatusModalVisible, setIsBillingStatusModalVisible] = useState(false);
 
   const [isEditMode, setIsEditMode] = useState(false);
   const [selectedItem, setSelectedItem] = useState(null);
@@ -32,6 +34,10 @@ const Configurations = () => {
   const [tracks, setTracks] = useState([]);
   const [loadingTracks, setLoadingTracks] = useState(false);
   const [trackLoading, setTrackLoading] = useState(false);
+
+  const [billingStatuses, setBillingStatuses] = useState([]);
+  const [loadingBillingStatuses, setLoadingBillingStatuses] = useState(false);
+  const [billingStatusLoading, setBillingStatusLoading] = useState(false);
 
   const [projectTypes, setProjectTypes] = useState([]);
   const [clients, setClients] = useState([]);
@@ -311,6 +317,151 @@ const Configurations = () => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
+
+  // Billing Status handlers
+  const handleAddBillingStatus = () => {
+    setIsEditMode(false);
+    setSelectedItem(null);
+    billingStatusForm.resetFields();
+    setIsBillingStatusModalVisible(true);
+  };
+
+  const handleEditBillingStatus = (record) => {
+    setIsEditMode(true);
+    setSelectedItem(record);
+    billingStatusForm.setFieldsValue({
+      name: record.name,
+      description: record.description || '',
+      color: record.color || '#1890ff',
+      display_order: record.display_order || 0,
+      is_active: record.is_active !== undefined ? record.is_active : true,
+    });
+    setIsBillingStatusModalVisible(true);
+  };
+
+  const handleDeleteBillingStatus = (record) => {
+    Modal.confirm({
+      title: 'Delete Billing Status',
+      content: record.is_system 
+        ? `"${record.name}" is a system status and cannot be deleted.`
+        : `Are you sure you want to delete "${record.name}"? This action cannot be undone.`,
+      okText: 'Delete',
+      okType: 'danger',
+      cancelText: 'Cancel',
+      disabled: record.is_system,
+      onOk: async () => {
+        try {
+          await billingStatusesService.delete(record.id);
+          message.success('Billing status deleted successfully');
+          fetchBillingStatuses();
+        } catch (error) {
+          console.error('Failed to delete billing status:', error);
+          message.error(error?.message || 'Failed to delete billing status');
+        }
+      },
+    });
+  };
+
+  // Fetch billing statuses from API
+  const fetchBillingStatuses = async () => {
+    try {
+      setLoadingBillingStatuses(true);
+      const response = await billingStatusesService.getAll();
+
+      // Handle response structure after interceptor transformation
+      let statusesData = [];
+
+      if (response) {
+        if (Array.isArray(response.data)) {
+          statusesData = response.data;
+        } else if (response.data && response.data.data && Array.isArray(response.data.data)) {
+          statusesData = response.data.data;
+        } else if (response.data && Array.isArray(response.data)) {
+          statusesData = response.data;
+        } else if (Array.isArray(response)) {
+          statusesData = response;
+        }
+      }
+
+      // Transform billing statuses data to match table format
+      const transformedStatuses = statusesData.map((status) => ({
+        key: status.id,
+        id: status.id,
+        name: status.name,
+        description: status.description || '',
+        color: status.color || '#1890ff',
+        display_order: status.display_order || 0,
+        is_active: status.is_active !== undefined ? status.is_active : true,
+        is_system: status.is_system || false,
+      }));
+
+      // Sort by display_order
+      transformedStatuses.sort((a, b) => a.display_order - b.display_order);
+
+      setBillingStatuses(transformedStatuses);
+    } catch (error) {
+      console.error('Failed to fetch billing statuses:', error);
+      message.error('Failed to load billing statuses');
+    } finally {
+      setLoadingBillingStatuses(false);
+    }
+  };
+
+  // Fetch billing statuses on component mount and when billing statuses tab is active
+  useEffect(() => {
+    if (activeTab === 'billing-statuses') {
+      fetchBillingStatuses();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
+
+  const handleBillingStatusSubmit = async () => {
+    try {
+      setBillingStatusLoading(true);
+      const values = await billingStatusForm.validateFields();
+
+      // Prepare API payload
+      const statusPayload = {
+        name: values.name,
+        description: values.description || '',
+        color: values.color || '#1890ff',
+        display_order: values.display_order || 0,
+        is_active: values.is_active !== undefined ? values.is_active : true,
+      };
+
+      if (isEditMode) {
+        // Update billing status
+        const response = await billingStatusesService.update(selectedItem.id, statusPayload);
+
+        if (response && (response.success !== false || response.data)) {
+          message.success('Billing status updated successfully');
+          await fetchBillingStatuses();
+        } else {
+          message.error(response?.message || 'Failed to update billing status');
+        }
+      } else {
+        // Create billing status
+        const response = await billingStatusesService.create(statusPayload);
+
+        if (response && (response.success !== false || response.data)) {
+          message.success('Billing status created successfully');
+          await fetchBillingStatuses();
+        } else {
+          message.error(response?.message || 'Failed to create billing status');
+        }
+      }
+
+      setIsBillingStatusModalVisible(false);
+      billingStatusForm.resetFields();
+      setSelectedItem(null);
+      setIsEditMode(false);
+    } catch (error) {
+      console.error('Billing status submit error:', error);
+      message.error(error?.message || 'Failed to save billing status');
+    } finally {
+      setBillingStatusLoading(false);
+    }
+  };
 
   const handleTrackSubmit = async () => {
     try {
@@ -1033,6 +1184,108 @@ const Configurations = () => {
     },
   ];
 
+  // Billing Status columns
+  const billingStatusColumns = [
+    {
+      title: 'Name',
+      dataIndex: 'name',
+      key: 'name',
+      width: 150,
+      fixed: 'left',
+      render: (name, record) => (
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span
+            style={{
+              display: 'inline-block',
+              width: 12,
+              height: 12,
+              borderRadius: '50%',
+              backgroundColor: record.color || '#1890ff',
+            }}
+          />
+          {name}
+          {record.is_system && (
+            <Badge count="System" style={{ backgroundColor: '#52c41a', marginLeft: 8 }} />
+          )}
+        </span>
+      ),
+    },
+    {
+      title: 'Description',
+      dataIndex: 'description',
+      key: 'description',
+      width: 300,
+      render: (desc) => desc || '-',
+    },
+    {
+      title: 'Color',
+      dataIndex: 'color',
+      key: 'color',
+      width: 100,
+      render: (color) => (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span
+            style={{
+              display: 'inline-block',
+              width: 24,
+              height: 24,
+              borderRadius: 4,
+              backgroundColor: color || '#1890ff',
+              border: '1px solid #d9d9d9',
+            }}
+          />
+          <span style={{ fontSize: 12, color: '#8c8c8c' }}>{color || '#1890ff'}</span>
+        </div>
+      ),
+    },
+    {
+      title: 'Display Order',
+      dataIndex: 'display_order',
+      key: 'display_order',
+      width: 120,
+      sorter: (a, b) => a.display_order - b.display_order,
+    },
+    {
+      title: 'Status',
+      dataIndex: 'is_active',
+      key: 'is_active',
+      width: 100,
+      render: (isActive) => (
+        <span style={{ color: isActive ? '#52c41a' : '#ff4d4f' }}>
+          {isActive ? 'Active' : 'Inactive'}
+        </span>
+      ),
+    },
+    {
+      title: 'Actions',
+      key: 'actions',
+      width: 120,
+      fixed: 'right',
+      render: (_, record) => (
+        <Space>
+          <Tooltip title="Edit">
+            <Button
+              type="text"
+              icon={<EditOutlined />}
+              onClick={() => handleEditBillingStatus(record)}
+              className="action-icon-btn"
+            />
+          </Tooltip>
+          <Tooltip title={record.is_system ? 'System status cannot be deleted' : 'Delete'}>
+            <Button
+              type="text"
+              icon={<DeleteOutlined />}
+              onClick={() => handleDeleteBillingStatus(record)}
+              className="action-icon-btn"
+              danger
+              disabled={record.is_system}
+            />
+          </Tooltip>
+        </Space>
+      ),
+    },
+  ];
+
   // Client columns
   const clientColumns = [
     {
@@ -1372,6 +1625,35 @@ const Configurations = () => {
                     dataSource={tracks}
                     scroll={{ x: 600 }}
                     loading={loadingTracks}
+                    pagination={{ pageSize: 20 }}
+                  />
+                </div>
+              ),
+            },
+            {
+              key: 'billing-statuses',
+              label: 'Billing Statuses',
+              children: (
+                <div>
+                  <div className="table-header-section">
+                    <div className="table-header-left">
+                      <span className="table-title">Billing Statuses</span>
+                    </div>
+                    <div className="table-header-actions">
+                      <Button
+                        type="primary"
+                        icon={<PlusOutlined />}
+                        onClick={handleAddBillingStatus}
+                      >
+                        Add Billing Status
+                      </Button>
+                    </div>
+                  </div>
+                  <CustomTable
+                    columns={billingStatusColumns}
+                    dataSource={billingStatuses}
+                    scroll={{ x: 800 }}
+                    loading={loadingBillingStatuses}
                     pagination={{ pageSize: 20 }}
                   />
                 </div>
@@ -1882,6 +2164,132 @@ const Configurations = () => {
                 initialValue={true}
               >
                 <Switch checkedChildren="Active" unCheckedChildren="Inactive" />
+              </Form.Item>
+            </Col>
+          </Row>
+        </Form>
+      </CustomModal>
+
+      {/* Add/Edit Billing Status Modal */}
+      <CustomModal
+        title={isEditMode ? 'Edit Billing Status' : 'Add New Billing Status'}
+        open={isBillingStatusModalVisible}
+        onClose={() => {
+          setIsBillingStatusModalVisible(false);
+          billingStatusForm.resetFields();
+          setSelectedItem(null);
+          setIsEditMode(false);
+        }}
+        width={600}
+        buttons={[
+          {
+            text: 'Cancel',
+            type: 'default',
+            onClick: () => {
+              setIsBillingStatusModalVisible(false);
+              billingStatusForm.resetFields();
+              setSelectedItem(null);
+              setIsEditMode(false);
+            },
+          },
+          {
+            text: isEditMode ? 'Update' : 'Add',
+            type: 'primary',
+            onClick: handleBillingStatusSubmit,
+            loading: billingStatusLoading,
+          },
+        ]}
+      >
+        <Form form={billingStatusForm} layout="vertical">
+          <Row gutter={16}>
+            <Col xs={24} sm={12}>
+              <Form.Item
+                label="Name"
+                name="name"
+                rules={[
+                  { required: true, message: 'Billing status name is required' },
+                  { max: 50, message: 'Name must be less than 50 characters' },
+                ]}
+              >
+                <Input 
+                  placeholder="Enter billing status name" 
+                  disabled={isEditMode && selectedItem?.is_system}
+                />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={12}>
+              <Form.Item
+                label="Color"
+                name="color"
+                rules={[
+                  { required: true, message: 'Color is required' },
+                  { pattern: /^#[0-9A-Fa-f]{6}$/, message: 'Color must be a valid hex code (e.g., #1890ff)' },
+                ]}
+              >
+                <Form.Item noStyle shouldUpdate={(prevValues, currentValues) => prevValues.color !== currentValues.color}>
+                  {({ getFieldValue }) => {
+                    const colorValue = getFieldValue('color') || '#1890ff';
+                    return (
+                      <Input 
+                        placeholder="#1890ff" 
+                        prefix={
+                          <span
+                            style={{
+                              display: 'inline-block',
+                              width: 20,
+                              height: 20,
+                              borderRadius: 4,
+                              backgroundColor: colorValue,
+                              border: '1px solid #d9d9d9',
+                              marginRight: 8,
+                            }}
+                          />
+                        }
+                      />
+                    );
+                  }}
+                </Form.Item>
+              </Form.Item>
+            </Col>
+            <Col xs={24}>
+              <Form.Item
+                label="Description"
+                name="description"
+                rules={[
+                  { max: 500, message: 'Description must be less than 500 characters' },
+                ]}
+              >
+                <Input.TextArea rows={3} placeholder="Enter description (optional)" />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={12}>
+              <Form.Item
+                label="Display Order"
+                name="display_order"
+                rules={[
+                  { required: true, message: 'Display order is required' },
+                  { type: 'number', min: 0, message: 'Display order must be 0 or greater' },
+                ]}
+              >
+                <InputNumber
+                  style={{ width: '100%' }}
+                  placeholder="Enter display order"
+                  min={0}
+                />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={12}>
+              <Form.Item
+                label="Active"
+                name="is_active"
+                valuePropName="checked"
+                initialValue={true}
+              >
+                <Switch 
+                  checkedChildren="Active" 
+                  unCheckedChildren="Inactive"
+                  disabled={isEditMode && selectedItem?.is_system}
+                />
               </Form.Item>
             </Col>
           </Row>

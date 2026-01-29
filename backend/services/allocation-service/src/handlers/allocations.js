@@ -131,11 +131,32 @@ const adjustBenchAllocation = async (resourceId, userId, log) => {
             });
         }
     } else if (newBenchPercentage > 0) {
-        // Create bench allocation if it doesn't exist and should have a value
-        await db.query(`
-            INSERT INTO allocations (resource_id, project_id, allocation_percentage, start_date, is_active, notes, created_by)
-            VALUES ($1, $2, $3, CURRENT_DATE, true, 'Auto-created bench allocation', $4)
-        `, [resourceId, benchProjectId, newBenchPercentage, userId || '00000000-0000-0000-0000-000000000000']);
+        // Get 'Bench' billing status ID
+        const benchStatusResult = await db.query(
+            "SELECT id FROM billing_statuses WHERE name = 'Bench' AND is_active = true LIMIT 1"
+        );
+        const benchStatusId = benchStatusResult.rows.length > 0 
+            ? benchStatusResult.rows[0].id 
+            : null;
+
+        if (!benchStatusId) {
+            log.warn('Bench billing status not found, using default');
+            // Fallback to first active status
+            const fallbackResult = await db.query(
+                "SELECT id FROM billing_statuses WHERE is_active = true ORDER BY display_order ASC LIMIT 1"
+            );
+            const fallbackStatusId = fallbackResult.rows.length > 0 ? fallbackResult.rows[0].id : null;
+            
+            await db.query(`
+                INSERT INTO allocations (resource_id, project_id, allocation_percentage, billing_status_id, start_date, is_active, notes, created_by)
+                VALUES ($1, $2, $3, $4, CURRENT_DATE, true, 'Auto-created bench allocation', $5)
+            `, [resourceId, benchProjectId, newBenchPercentage, fallbackStatusId, userId || '00000000-0000-0000-0000-000000000000']);
+        } else {
+            await db.query(`
+                INSERT INTO allocations (resource_id, project_id, allocation_percentage, billing_status_id, start_date, is_active, notes, created_by)
+                VALUES ($1, $2, $3, $4, CURRENT_DATE, true, 'Auto-created bench allocation', $5)
+            `, [resourceId, benchProjectId, newBenchPercentage, benchStatusId, userId || '00000000-0000-0000-0000-000000000000']);
+        }
         log.info('Bench allocation created', { resourceId, percentage: newBenchPercentage });
     }
 
@@ -255,11 +276,14 @@ export const list = async (event) => {
                 r.name as resource_name,
                 r.email as resource_email,
                 p.project_name,
-                c.client_name
+                c.client_name,
+                bs.name as billing_status_name,
+                bs.color as billing_status_color
             FROM allocations a
             LEFT JOIN resources r ON a.resource_id = r.id
             LEFT JOIN projects p ON a.project_id = p.id
             LEFT JOIN clients c ON p.client_id = c.id
+            LEFT JOIN billing_statuses bs ON a.billing_status_id = bs.id
             ${whereClause}
             ORDER BY a.start_date DESC
             LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
@@ -300,11 +324,14 @@ export const getById = async (event) => {
                 r.name as resource_name,
                 r.email as resource_email,
                 p.project_name,
-                c.client_name
+                c.client_name,
+                bs.name as billing_status_name,
+                bs.color as billing_status_color
             FROM allocations a
             LEFT JOIN resources r ON a.resource_id = r.id
             LEFT JOIN projects p ON a.project_id = p.id
             LEFT JOIN clients c ON p.client_id = c.id
+            LEFT JOIN billing_statuses bs ON a.billing_status_id = bs.id
             WHERE a.id = $1
         `;
 
@@ -349,12 +376,34 @@ export const create = async (event) => {
             validated.end_date
         );
 
+        // Get billing_status_id (use provided or default to 'Billing')
+        let billingStatusId = validated.billing_status_id;
+        if (!billingStatusId) {
+            // Default to 'Billing' status if not provided
+            const defaultStatusResult = await db.query(
+                "SELECT id FROM billing_statuses WHERE name = 'Billing' AND is_active = true LIMIT 1"
+            );
+            if (defaultStatusResult.rows.length > 0) {
+                billingStatusId = defaultStatusResult.rows[0].id;
+            } else {
+                // Fallback: get first active status
+                const fallbackResult = await db.query(
+                    "SELECT id FROM billing_statuses WHERE is_active = true ORDER BY display_order ASC LIMIT 1"
+                );
+                if (fallbackResult.rows.length > 0) {
+                    billingStatusId = fallbackResult.rows[0].id;
+                } else {
+                    return error('No active billing statuses found. Please configure billing statuses first.', null, 400);
+                }
+            }
+        }
+
         const query = `
             INSERT INTO allocations (
-                resource_id, project_id, allocation_percentage, start_date, end_date,
+                resource_id, project_id, allocation_percentage, billing_status_id, start_date, end_date,
                 is_active, notes, created_by
             )
-            VALUES ($1, $2, $3, $4::date, $5::date, $6, $7, $8)
+            VALUES ($1, $2, $3, $4, $5::date, $6::date, $7, $8, $9)
             RETURNING *
         `;
 
@@ -372,6 +421,7 @@ export const create = async (event) => {
             validated.resource_id,
             validated.project_id,
             validated.allocation_percentage,
+            billingStatusId,
             startDateStr,
             endDateStr,
             true, // is_active
@@ -488,6 +538,22 @@ export const update = async (event) => {
         const updates = [];
         const params = [id];
         let paramIndex = 2;
+
+        // Handle billing_status_id separately to validate it exists
+        if (updateData.billing_status_id !== undefined) {
+            // Validate billing status exists and is active
+            const statusCheck = await db.query(
+                'SELECT id FROM billing_statuses WHERE id = $1 AND is_active = true',
+                [updateData.billing_status_id]
+            );
+            if (statusCheck.rows.length === 0) {
+                return badRequest('Invalid or inactive billing status');
+            }
+            updates.push(`billing_status_id = $${paramIndex}`);
+            params.push(updateData.billing_status_id);
+            paramIndex++;
+            delete updateData.billing_status_id;
+        }
 
         for (const [key, value] of Object.entries(updateData)) {
             if (value !== undefined) {

@@ -59,6 +59,16 @@ export const ENDPOINTS = {
     HISTORY: (id) => `${BASE_URL}/designations/${id}/history`,
   },
 
+  // Billing Statuses
+  BILLING_STATUSES: {
+    BASE: `${BASE_URL}/billing-statuses`,
+    LIST: `${BASE_URL}/billing-statuses`,
+    GET_BY_ID: (id) => `${BASE_URL}/billing-statuses/${id}`,
+    CREATE: `${BASE_URL}/billing-statuses`,
+    UPDATE: (id) => `${BASE_URL}/billing-statuses/${id}`,
+    DELETE: (id) => `${BASE_URL}/billing-statuses/${id}`,
+  },
+
   // Clients
   CLIENTS: {
     BASE: `${BASE_URL}/clients`,

@@ -12,7 +12,7 @@
 // Import from Lambda Layer (mounted at /opt/nodejs)
 import * as db from '/opt/nodejs/database/index.js';
 import { getDrizzle, withTransaction } from '/opt/nodejs/database/drizzle.js';
-import { resources, allocations, projects, designations, tracks, users, clients } from '/opt/nodejs/database/schema.js';
+import { resources, allocations, projects, designations, tracks, users, clients, billingStatuses } from '/opt/nodejs/database/schema.js';
 import { eq, and, isNull, ilike, or, sql, desc } from 'drizzle-orm';
 import logger from '/opt/nodejs/logger/index.js';
 import { success, error, notFound, validationError, conflict } from '/opt/nodejs/utils/response.js';
@@ -664,6 +664,7 @@ export const getAllocations = async (event) => {
                 resource_id: allocations.resourceId,
                 project_id: allocations.projectId,
                 allocation_percentage: allocations.allocationPercentage,
+                billing_status_id: allocations.billingStatusId,
                 start_date: allocations.startDate,
                 end_date: allocations.endDate,
                 is_active: allocations.isActive,
@@ -676,11 +677,15 @@ export const getAllocations = async (event) => {
                 project_code: projects.projectCode,
                 project_type: projects.projectType,
                 // Joined field from clients
-                client_name: clients.clientName
+                client_name: clients.clientName,
+                // Joined fields from billing_statuses
+                billing_status_name: billingStatuses.name,
+                billing_status_color: billingStatuses.color
             })
             .from(allocations)
             .leftJoin(projects, eq(allocations.projectId, projects.id))
             .leftJoin(clients, eq(projects.clientId, clients.id))
+            .leftJoin(billingStatuses, eq(allocations.billingStatusId, billingStatuses.id))
             .where(and(...conditions))
             .orderBy(desc(allocations.startDate));
 

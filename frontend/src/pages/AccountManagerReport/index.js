@@ -20,7 +20,7 @@ import { Doughnut, Bar } from 'react-chartjs-2';
 import { commonOptions, colors } from '@utils/chartConfig';
 import CustomTable from '@components/Table';
 import CustomModal from '@components/Modal';
-import { projectsService, clientsService, allocationsService, resourcesService, accountManagersService, reportsService } from '@api';
+import { projectsService, clientsService, allocationsService, resourcesService, accountManagersService, reportsService, billingStatusesService } from '@api';
 import { showErrorToast, showSuccessToast, showWarningToast } from '@utils/toast.utils';
 import '@styles/pages/AccountManagerReport.scss';
 
@@ -78,6 +78,8 @@ const AccountManagerReport = () => {
     const [selectedResourceName, setSelectedResourceName] = useState('');
     const [accountManagersList, setAccountManagersList] = useState([]);
     const [loadingAccountManagers, setLoadingAccountManagers] = useState(false);
+    const [billingStatuses, setBillingStatuses] = useState([]);
+    const [loadingBillingStatuses, setLoadingBillingStatuses] = useState(false);
     const [projectsForFilter, setProjectsForFilter] = useState([]);
     const [loadingProjectsForFilter, setLoadingProjectsForFilter] = useState(false);
     const [reportData, setReportData] = useState({
@@ -1027,12 +1029,16 @@ const AccountManagerReport = () => {
     };
 
     const handleAddUserAllocationRow = () => {
+        // Get default billing status ID (first active status or 'Billing')
+        const defaultBillingStatus = billingStatuses.find(s => s.name === 'Billing' && s.is_active) || billingStatuses.find(s => s.is_active);
+        
         const newAllocation = {
             key: `new-${Date.now()}`,
             projectName: undefined,
             allocatedDate: undefined,
             deallocatedDate: undefined,
-            billingStatus: 'Billing',
+            billing_status_id: defaultBillingStatus?.id || null,
+            billingStatus: defaultBillingStatus?.name || 'Billing',
             billingPercentage: 0,
             projectAllocation: 0,
             duration: 0,
@@ -1513,6 +1519,37 @@ const AccountManagerReport = () => {
         fetchResources();
     }, []);
 
+    // Fetch billing statuses
+    useEffect(() => {
+        const fetchBillingStatuses = async () => {
+            if (isAllocationModalVisible || isUserAllocationModalVisible) {
+                try {
+                    setLoadingBillingStatuses(true);
+                    const response = await billingStatusesService.getAll();
+                    let statuses = [];
+                    
+                    if (response && response.data) {
+                        if (Array.isArray(response.data)) {
+                            statuses = response.data;
+                        } else if (response.data.data && Array.isArray(response.data.data)) {
+                            statuses = response.data.data;
+                        }
+                    }
+                    
+                    // Sort by display_order
+                    statuses.sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
+                    setBillingStatuses(statuses);
+                } catch (error) {
+                    console.error('Failed to fetch billing statuses:', error);
+                } finally {
+                    setLoadingBillingStatuses(false);
+                }
+            }
+        };
+
+        fetchBillingStatuses();
+    }, [isAllocationModalVisible, isUserAllocationModalVisible]);
+
     // Handle add allocation
     const handleAddAllocation = () => {
         setIsEditAllocationMode(false);
@@ -1528,18 +1565,32 @@ const AccountManagerReport = () => {
     };
 
     // Handle edit allocation
-    const handleEditAllocation = (record) => {
+    const handleEditAllocation = async (record) => {
         setIsEditAllocationMode(true);
         setSelectedAllocation(record);
 
         // Find the resource ID from the resource name
         const resource = resourcesList.find(r => r.name === record.employeeName);
 
+        // Fetch the full allocation to get billing_status_id
+        let billingStatusId = null;
+        if (record.id) {
+            try {
+                const allocationResponse = await allocationsService.getById(record.id);
+                if (allocationResponse && allocationResponse.data) {
+                    billingStatusId = allocationResponse.data.billing_status_id || allocationResponse.data.billingStatusId;
+                }
+            } catch (error) {
+                console.error('Failed to fetch allocation details:', error);
+            }
+        }
+
         allocationForm.setFieldsValue({
             resource_id: resource?.id,
             project_id: selectedProjectId,
             allocation_percentage: parseFloat(record.projectAllocation?.replace('%', '') || '0'),
             billing_percentage: parseFloat(record.billingPercentage?.replace('%', '') || '0'),
+            billing_status_id: billingStatusId,
             start_date: record.allocatedDate ? dayjs(record.allocatedDate, 'DD MMM YYYY') : null,
             end_date: record.deallocatedDate ? dayjs(record.deallocatedDate, 'DD MMM YYYY') : null,
             is_active: record.status === 'Active',
@@ -1590,6 +1641,7 @@ const AccountManagerReport = () => {
                 project_id: values.project_id,
                 allocation_percentage: values.allocation_percentage,
                 billing_percentage: values.billing_percentage,
+                billing_status_id: values.billing_status_id, // Include billing_status_id
                 start_date: values.start_date ? values.start_date.format('YYYY-MM-DD') : null,
                 end_date: values.end_date ? values.end_date.format('YYYY-MM-DD') : null,
                 notes: values.notes || '',
@@ -1600,6 +1652,7 @@ const AccountManagerReport = () => {
                 const updatePayload = {
                     allocation_percentage: values.allocation_percentage,
                     billing_percentage: values.billing_percentage,
+                    billing_status_id: values.billing_status_id, // Include billing_status_id
                     start_date: values.start_date ? values.start_date.format('YYYY-MM-DD') : null,
                     end_date: values.end_date ? values.end_date.format('YYYY-MM-DD') : null,
                     is_active: values.is_active !== undefined ? values.is_active : true,
@@ -3278,19 +3331,39 @@ const AccountManagerReport = () => {
                                 <Col xs={24} sm={12} md={8}>
                                     <Form.Item
                                         label="Billing Status"
-                                        name={[`allocations`, allocation.key, 'billingStatus']}
-                                        initialValue={allocation.billingStatus}
+                                        name={[`allocations`, allocation.key, 'billing_status_id']}
+                                        rules={[{ required: true, message: 'Billing status is required' }]}
+                                        initialValue={allocation.billing_status_id || allocation.billingStatusId}
                                     >
                                         <Select
                                             placeholder="Select billing status"
-                                            value={allocation.billingStatus}
-                                            onChange={(value) => handleUserAllocationFieldChange(allocation.key, 'billingStatus', value)}
+                                            loading={loadingBillingStatuses}
+                                            value={allocation.billing_status_id || allocation.billingStatusId}
+                                            onChange={(value) => {
+                                                handleUserAllocationFieldChange(allocation.key, 'billing_status_id', value);
+                                                // Also update billingStatus for display
+                                                const selectedStatus = billingStatuses.find(s => s.id === value);
+                                                if (selectedStatus) {
+                                                    handleUserAllocationFieldChange(allocation.key, 'billingStatus', selectedStatus.name);
+                                                }
+                                            }}
                                         >
-                                            <Option value="Billing">Billing</Option>
-                                            <Option value="Non-Billing">Non-Billing</Option>
-                                            <Option value="Bench">Bench</Option>
-                                            <Option value="Training">Training</Option>
-                                            <Option value="Presale">Presale</Option>
+                                            {billingStatuses.map((status) => (
+                                                <Option key={status.id} value={status.id}>
+                                                    <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                        <span
+                                                            style={{
+                                                                display: 'inline-block',
+                                                                width: 12,
+                                                                height: 12,
+                                                                borderRadius: '50%',
+                                                                backgroundColor: status.color || '#1890ff',
+                                                            }}
+                                                        />
+                                                        {status.name}
+                                                    </span>
+                                                </Option>
+                                            ))}
                                         </Select>
                                     </Form.Item>
                                 </Col>
@@ -3516,6 +3589,35 @@ const AccountManagerReport = () => {
                                     formatter={value => `${value}%`}
                                     parser={value => value.replace('%', '')}
                                 />
+                            </Form.Item>
+                        </Col>
+                        <Col xs={24} sm={12}>
+                            <Form.Item
+                                label="Billing Status"
+                                name="billing_status_id"
+                                rules={[{ required: true, message: 'Billing status is required' }]}
+                            >
+                                <Select
+                                    placeholder="Select billing status"
+                                    loading={loadingBillingStatuses}
+                                >
+                                    {billingStatuses.map((status) => (
+                                        <Option key={status.id} value={status.id}>
+                                            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                <span
+                                                    style={{
+                                                        display: 'inline-block',
+                                                        width: 12,
+                                                        height: 12,
+                                                        borderRadius: '50%',
+                                                        backgroundColor: status.color || '#1890ff',
+                                                    }}
+                                                />
+                                                {status.name}
+                                            </span>
+                                        </Option>
+                                    ))}
+                                </Select>
                             </Form.Item>
                         </Col>
                         <Col xs={24} sm={12}>
