@@ -393,6 +393,21 @@ resources:
           - !Ref VpcEndpointSecurityGroup
         PrivateDnsEnabled: true
 
+    # SQS Endpoint (~$7/month - required for audit service DLQ access)
+    SqsEndpoint:
+      Type: AWS::EC2::VPCEndpoint
+      Condition: CreateVpcEndpoints
+      Properties:
+        VpcId: !Ref VPC
+        ServiceName: !Sub com.amazonaws.${AWS::Region}.sqs
+        VpcEndpointType: Interface
+        SubnetIds:
+          - !Ref PrivateSubnet1
+          - !Ref PrivateSubnet2
+        SecurityGroupIds:
+          - !Ref VpcEndpointSecurityGroup
+        PrivateDnsEnabled: true
+
     # ================================================================
     # SECURITY GROUPS
     # ================================================================
