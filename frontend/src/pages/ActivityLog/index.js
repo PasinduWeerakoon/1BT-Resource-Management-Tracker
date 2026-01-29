@@ -671,11 +671,21 @@ const ActivityLog = () => {
                       <Card title="Entity Types Breakdown" loading={loadingStats}>
                         <Descriptions column={1} bordered>
                           {stats.byEntityType &&
-                            Object.entries(stats.byEntityType).map(([entityType, count]) => (
-                              <Descriptions.Item key={entityType} label={entityType}>
-                                <strong>{count}</strong>
-                              </Descriptions.Item>
-                            ))}
+                            (Array.isArray(stats.byEntityType)
+                              ? stats.byEntityType.map((item, index) => (
+                                  <Descriptions.Item 
+                                    key={item.entity_type || item.entityType || index} 
+                                    label={item.entity_type || item.entityType || 'Unknown'}
+                                  >
+                                    <strong>{item.count || 0}</strong>
+                                  </Descriptions.Item>
+                                ))
+                              : Object.entries(stats.byEntityType).map(([entityType, count]) => (
+                                  <Descriptions.Item key={entityType} label={entityType}>
+                                    <strong>{typeof count === 'object' ? (count.count || 0) : count}</strong>
+                                  </Descriptions.Item>
+                                ))
+                            )}
                         </Descriptions>
                       </Card>
                     </Col>

@@ -25,7 +25,6 @@ import { showErrorToast, showSuccessToast, showWarningToast } from '@utils/toast
 import '@styles/pages/AccountManagerReport.scss';
 
 const { Option } = Select;
-const { RangePicker } = DatePicker;
 
 const AccountManagerReport = () => {
     const { message } = App.useApp();
@@ -99,7 +98,6 @@ const AccountManagerReport = () => {
         designations: { data: [] },
     });
     const [loadingReport, setLoadingReport] = useState(false);
-    const [dateRange, setDateRange] = useState(null);
 
     // Refs to prevent duplicate API calls
     const fetchProjectsInProgressRef = useRef(false);
@@ -117,9 +115,6 @@ const AccountManagerReport = () => {
         allocationStatus: 'Active',
         clientName: 'All',
         billingStatus: 'All',
-        year: '2025',
-        month: 'All',
-        employeeStatus: 'Active',
     });
 
     // Default filter values for comparison
@@ -130,9 +125,6 @@ const AccountManagerReport = () => {
         allocationStatus: 'Active',
         clientName: 'All',
         billingStatus: 'All',
-        year: '2025',
-        month: 'All',
-        employeeStatus: 'Active',
     };
 
     // Count active filters (filters that differ from defaults)
@@ -145,6 +137,23 @@ const AccountManagerReport = () => {
         });
         return count;
     }, [filters]);
+
+    // Get selected Account Manager name for display
+    const selectedAccountManagerName = useMemo(() => {
+        if (filters.accountManager) {
+            return filters.accountManager; // Returns "All" or the actual Account Manager name
+        }
+        return null;
+    }, [filters.accountManager]);
+
+    // Get selected project name for display
+    const displayProjectName = useMemo(() => {
+        if (selectedProjectId) {
+            const project = projectData.find(p => p.id === selectedProjectId);
+            return project ? (project.project || project.project_name || 'N/A') : null;
+        }
+        return null;
+    }, [selectedProjectId, projectData]);
 
     // Fetch clients list for client lookup and filters
     useEffect(() => {
@@ -339,32 +348,6 @@ const AccountManagerReport = () => {
                 queryParams.billing_status = filters.billingStatus;
             }
 
-            // Year
-            if (filters.year && filters.year !== 'All') {
-                queryParams.year = parseInt(filters.year);
-            }
-
-            // Month
-            if (filters.month && filters.month !== 'All') {
-                const monthMap = {
-                    'January': 1, 'February': 2, 'March': 3, 'April': 4,
-                    'May': 5, 'June': 6, 'July': 7, 'August': 8,
-                    'September': 9, 'October': 10, 'November': 11, 'December': 12
-                };
-                queryParams.month = monthMap[filters.month] || parseInt(filters.month);
-            }
-
-            // Employee Status
-            if (filters.employeeStatus && filters.employeeStatus !== 'All') {
-                queryParams.employee_status = filters.employeeStatus;
-            }
-
-            // Date Range
-            if (dateRange && dateRange.length === 2) {
-                queryParams.start_date = dateRange[0].format('YYYY-MM-DD');
-                queryParams.end_date = dateRange[1].format('YYYY-MM-DD');
-            }
-
             // Pagination (use allocation pagination if project is selected, otherwise project pagination)
             if (selectedProjectId) {
                 queryParams.page = allocationPagination.current;
@@ -401,27 +384,48 @@ const AccountManagerReport = () => {
 
                 // Update project data and pagination
                 if (data.projects && data.projects.data) {
-                    const transformedProjects = data.projects.data.map((project) => ({
-                        key: project.id,
-                        id: project.id,
-                        project: project.project || project.project_name || project.name || 'N/A',
-                        customer: project.customer || project.client_name || 'N/A',
-                        projectType: project.project_type || 'N/A',
-                        teamSize: project.team_size ? (typeof project.team_size === 'string' ? parseInt(project.team_size, 10) : project.team_size) : 0,
-                        status: project.status || 'N/A',
-                        billingStatus: project.billing_status || 'N/A',
-                        accountManagerId: project.account_manager_id,
-                        accountManagerName: project.account_manager_name || 'N/A',
-                        // Keep additional fields for edit functionality
-                        project_name: project.project || project.project_name,
-                        project_code: project.project_code,
-                        client_id: project.client_id,
-                        is_billable: project.billing_status === 'Billing',
-                        start_date: project.start_date,
-                        end_date: project.end_date,
-                        description: project.description,
-                        project_type: project.project_type,
-                    }));
+                    // Get allocations data to calculate counts
+                    const allocationsData = data.allocations?.data || [];
+
+                    const transformedProjects = data.projects.data.map((project) => {
+                        // Calculate allocated resource count (unique resources allocated to this project)
+                        const projectAllocations = allocationsData.filter(alloc => alloc.project_id === project.id);
+                        const uniqueResourceIds = new Set(projectAllocations.map(alloc => alloc.resource_id).filter(Boolean));
+                        const allocatedResourceCount = uniqueResourceIds.size;
+
+                        // Calculate billing count (resources with billing_percentage > 0)
+                        const billingResources = projectAllocations.filter(alloc => {
+                            const billingPct = parseFloat(alloc.billing_percentage) || 0;
+                            return billingPct > 0;
+                        });
+                        const uniqueBillingResourceIds = new Set(billingResources.map(alloc => alloc.resource_id).filter(Boolean));
+                        const billingCount = uniqueBillingResourceIds.size;
+
+                        return {
+                            key: project.id,
+                            id: project.id,
+                            project: project.project || project.project_name || project.name || 'N/A',
+                            customer: project.customer || project.client_name || 'N/A',
+                            projectType: project.project_type || 'N/A',
+                            teamSize: project.team_size ? (typeof project.team_size === 'string' ? parseInt(project.team_size, 10) : project.team_size) : 0,
+                            status: project.status || 'N/A',
+                            billingStatus: project.billing_status || 'N/A',
+                            accountManagerId: project.account_manager_id,
+                            accountManagerName: project.account_manager_name || 'N/A',
+                            // New fields
+                            allocatedResourceCount: project.allocated_resource_count !== undefined ? project.allocated_resource_count : allocatedResourceCount,
+                            billingCount: project.billing_count !== undefined ? project.billing_count : billingCount,
+                            // Keep additional fields for edit functionality
+                            project_name: project.project || project.project_name,
+                            project_code: project.project_code,
+                            client_id: project.client_id,
+                            is_billable: project.billing_status === 'Billing',
+                            start_date: project.start_date,
+                            end_date: project.end_date,
+                            description: project.description,
+                            project_type: project.project_type,
+                        };
+                    });
 
                     setProjectData(transformedProjects);
                     setProjectPagination({
@@ -431,8 +435,9 @@ const AccountManagerReport = () => {
                     });
                 }
 
-                // Update allocation data and pagination
-                if (data.allocations && data.allocations.data) {
+                // Update allocation data and pagination ONLY if a project is selected
+                // If no project is selected, clear the allocation data
+                if (selectedProjectId && data.allocations && data.allocations.data) {
                     const transformedAllocations = data.allocations.data.map((allocation) => {
                         const allocationPercentage = parseFloat(allocation.allocation_percentage) || 0;
                         const billingPercentage = parseFloat(allocation.billing_percentage) || 0;
@@ -462,6 +467,14 @@ const AccountManagerReport = () => {
                         pageSize: data.allocations.pagination?.limit || allocationPagination.pageSize,
                         total: data.allocations.pagination?.total || 0,
                     });
+                } else {
+                    // Clear allocation data when no project is selected
+                    setAllocationData([]);
+                    setAllocationPagination({
+                        current: 1,
+                        pageSize: allocationPagination.pageSize,
+                        total: 0,
+                    });
                 }
             }
         } catch (error) {
@@ -486,10 +499,6 @@ const AccountManagerReport = () => {
         filters.allocationStatus,
         filters.clientName,
         filters.billingStatus,
-        filters.year,
-        filters.month,
-        filters.employeeStatus,
-        dateRange,
         // Removed selectedProjectId - don't refetch report when project is selected
         // Allocations are fetched separately via fetchProjectAllocations when clicking a project row
         projectPagination.current,
@@ -1550,29 +1559,58 @@ const AccountManagerReport = () => {
 
     // Handle delete allocation
     const handleDeleteAllocation = (record) => {
-        Modal.confirm({
+        const modal = Modal.confirm({
             title: 'Delete Allocation',
             content: `Are you sure you want to delete the allocation for "${record.employeeName}"? This action cannot be undone.`,
             okText: 'Delete',
             okType: 'danger',
             cancelText: 'Cancel',
+            okButtonProps: {
+                loading: false,
+            },
             onOk: async () => {
                 try {
-                    setLoadingAllocations(true);
+                    isDeleting = true;
+                    modal.update({
+                        okButtonProps: {
+                            loading: true,
+                            disabled: true,
+                        },
+                        cancelButtonProps: {
+                            disabled: true,
+                        },
+                    });
                     const response = await allocationsService.delete(record.id);
 
                     if (response && (response.success !== false || response.message)) {
                         showSuccessToast('Allocation deleted successfully');
                         // Refresh allocations for the selected project
                         await fetchAccountManagerReport();
+                        modal.destroy();
                     } else {
                         showErrorToast(response?.message || 'Failed to delete allocation');
+                        modal.update({
+                            okButtonProps: {
+                                loading: false,
+                                disabled: false,
+                            },
+                            cancelButtonProps: {
+                                disabled: false,
+                            },
+                        });
                     }
                 } catch (error) {
                     console.error('Failed to delete allocation:', error);
                     showErrorToast(error?.response?.data?.message || error?.message || 'Failed to delete allocation');
-                } finally {
-                    setLoadingAllocations(false);
+                    modal.update({
+                        okButtonProps: {
+                            loading: false,
+                            disabled: false,
+                        },
+                        cancelButtonProps: {
+                            disabled: false,
+                        },
+                    });
                 }
             },
         });
@@ -1755,11 +1793,11 @@ const AccountManagerReport = () => {
                     key: allocation.id || `allocation-${index}`,
                     id: allocation.id,
                     project: allocation.project_name || 'N/A',
-                    allocatedDate: allocation.start_date ? dayjs(allocation.start_date).format('DD MMM YYYY') : '',
-                    deallocatedDate: allocation.end_date ? dayjs(allocation.end_date).format('DD MMM YYYY') : '',
+                    allocatedDate: allocation.start_date ? dayjs(allocation.start_date).format('YYYY-MM-DD') : '-',
+                    deallocatedDate: allocation.end_date ? dayjs(allocation.end_date).format('YYYY-MM-DD') : '-',
                     billingStatus: billingStatus,
-                    billingPercentage: billingPercentage ? `${billingPercentage.toFixed(2)}%` : '0.00%',
-                    projectAllocation: allocationPercentage ? `${allocationPercentage.toFixed(2)}%` : '0.00%',
+                    billingPercentage: billingPercentage ? `${billingPercentage.toFixed(0)}%` : '0%',
+                    projectAllocation: allocationPercentage ? `${allocationPercentage.toFixed(0)}%` : '0%',
                     duration: duration,
                     status: allocation.is_active !== undefined ? (allocation.is_active ? 'Active' : 'Inactive') : (allocation.status || 'Active'),
                     project_id: allocation.project_id,
@@ -2123,6 +2161,14 @@ const AccountManagerReport = () => {
         fetchProjectAllocations(project.id, 1, allocationPagination.pageSize);
     };
 
+    // Clear allocation data when no project is selected
+    useEffect(() => {
+        if (!selectedProjectId) {
+            setAllocationData([]);
+            setAllocationPagination(prev => ({ ...prev, current: 1, total: 0 }));
+        }
+    }, [selectedProjectId]);
+
     const projectColumns = [
         {
             title: 'Project',
@@ -2147,6 +2193,22 @@ const AccountManagerReport = () => {
             dataIndex: 'teamSize',
             key: 'teamSize',
             width: 120,
+        },
+        {
+            title: 'Allocated Resource Count',
+            dataIndex: 'allocatedResourceCount',
+            key: 'allocatedResourceCount',
+            width: 180,
+            align: 'center',
+            render: (count) => count !== undefined && count !== null ? count : 0,
+        },
+        {
+            title: 'Billing Count',
+            dataIndex: 'billingCount',
+            key: 'billingCount',
+            width: 130,
+            align: 'center',
+            render: (count) => count !== undefined && count !== null ? count : 0,
         },
         {
             title: 'Actions',
@@ -2340,57 +2402,6 @@ const AccountManagerReport = () => {
                                     </Select>
                                 </div>
                             </Col>
-                            <Col xs={24} sm={12} md={8} lg={6}>
-                                <div className="filter-item">
-                                    <label>Year</label>
-                                    <Select
-                                        value={filters.year}
-                                        onChange={(value) => setFilters({ ...filters, year: value })}
-                                        style={{ width: '100%' }}
-                                    >
-                                        <Option value="2025">2025</Option>
-                                        <Option value="2024">2024</Option>
-                                    </Select>
-                                </div>
-                            </Col>
-                            <Col xs={24} sm={12} md={8} lg={6}>
-                                <div className="filter-item">
-                                    <label>Month</label>
-                                    <Select
-                                        value={filters.month}
-                                        onChange={(value) => setFilters({ ...filters, month: value })}
-                                        style={{ width: '100%' }}
-                                    >
-                                        <Option value="All">All</Option>
-                                        <Option value="January">January</Option>
-                                        <Option value="February">February</Option>
-                                    </Select>
-                                </div>
-                            </Col>
-                            <Col xs={24} sm={12} md={8} lg={6}>
-                                <div className="filter-item">
-                                    <label>Employee Status</label>
-                                    <Select
-                                        value={filters.employeeStatus}
-                                        onChange={(value) => setFilters({ ...filters, employeeStatus: value })}
-                                        style={{ width: '100%' }}
-                                    >
-                                        <Option value="Active">Active</Option>
-                                        <Option value="Inactive">Inactive</Option>
-                                    </Select>
-                                </div>
-                            </Col>
-                            <Col xs={24} sm={12} md={8} lg={6}>
-                                <div className="filter-item">
-                                    <label>Duration</label>
-                                    <RangePicker
-                                        style={{ width: '100%' }}
-                                        value={dateRange}
-                                        onChange={(dates) => setDateRange(dates)}
-                                        allowClear
-                                    />
-                                </div>
-                            </Col>
                         </Row>
                     </div>
                 )}
@@ -2474,7 +2485,14 @@ const AccountManagerReport = () => {
                 className="table-card"
                 title={
                     <div className="project-overview-header">
-                        <span className="project-overview-title">Project Overview</span>
+                        <span className="project-overview-title">
+                            Project Overview
+                            {selectedAccountManagerName && (
+                                <span style={{ marginLeft: '8px', color: '#1890ff', fontWeight: 'normal' }}>
+                                    - {selectedAccountManagerName}
+                                </span>
+                            )}
+                        </span>
                         <div className="project-overview-actions">
                             {projectOverviewExpanded && (
                                 <Button
@@ -2540,7 +2558,14 @@ const AccountManagerReport = () => {
                             onClick={() => setByAllocationExpanded(!byAllocationExpanded)}
                             style={{ flex: 1 }}
                         >
-                            <span>BY ALLOCATION</span>
+                            <span>
+                                BY ALLOCATION
+                                {displayProjectName && (
+                                    <span style={{ marginLeft: '8px', color: '#1890ff', fontWeight: 'normal' }}>
+                                        - {displayProjectName}
+                                    </span>
+                                )}
+                            </span>
                             {byAllocationExpanded ? <UpOutlined /> : <DownOutlined />}
                         </div>
                         {byAllocationExpanded && (

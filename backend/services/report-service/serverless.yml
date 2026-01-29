@@ -100,6 +100,15 @@ functions:
           method: GET
           authorizer: ${self:custom.authorizer}
 
+  internReport:
+    handler: src/handlers/reports.getInternReport
+    description: Get intern report with projects and statistics
+    events:
+      - httpApi:
+          path: /api/v1/reports/intern
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
   monthlyAllocationReport:
     handler: src/handlers/reports.getMonthlyAllocationReport
     description: Get monthly allocation report
@@ -133,5 +142,14 @@ functions:
     events:
       - httpApi:
           path: /api/v1/reports/pre-sale
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  tierBreakdownReport:
+    handler: src/handlers/reports.getTierBreakdownReport
+    description: Get tier breakdown report with employee details
+    events:
+      - httpApi:
+          path: /api/v1/reports/tier-breakdown
           method: GET
           authorizer: ${self:custom.authorizer}

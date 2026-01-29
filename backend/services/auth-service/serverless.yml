@@ -31,6 +31,8 @@ provider:
             - cognito-idp:GlobalSignOut
             - cognito-idp:ForgotPassword
             - cognito-idp:ConfirmForgotPassword
+            - cognito-idp:ListUsers
+            - cognito-idp:AdminListGroupsForUser
           Resource: !ImportValue onebt-${self:provider.stage}-CognitoUserPoolArn
         - Effect: Allow
           Action:
@@ -148,6 +150,20 @@ functions:
     events:
       - httpApi:
           path: /api/v1/auth/me
+          method: GET
+          authorizer:
+            type: jwt
+            id: !ImportValue onebt-${self:provider.stage}-CognitoAuthorizerId
+
+  # ============================================
+  # GET SYSTEM USERS - Protected endpoint (Admin only)
+  # ============================================
+  getSystemUsers:
+    handler: src/handlers/auth.getSystemUsers
+    description: Get all system users (Admin only)
+    events:
+      - httpApi:
+          path: /api/v1/auth/users
           method: GET
           authorizer:
             type: jwt
