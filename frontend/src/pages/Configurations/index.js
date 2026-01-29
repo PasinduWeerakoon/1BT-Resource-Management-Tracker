@@ -23,7 +23,7 @@ const Configurations = () => {
 
   const [isEditMode, setIsEditMode] = useState(false);
   const [selectedItem, setSelectedItem] = useState(null);
-  const [activeTab, setActiveTab] = useState('designations');
+  const [activeTab, setActiveTab] = useState('project-types');
 
   const [designations, setDesignations] = useState([]);
   const [loadingDesignations, setLoadingDesignations] = useState(false);
@@ -1210,59 +1210,44 @@ const Configurations = () => {
           onChange={setActiveTab}
           items={[
             {
-              key: 'designations',
-              label: 'Designation Related',
+              key: 'project-types',
+              label: 'Projects',
               children: (
                 <div>
                   <div className="table-header-section">
                     <div className="table-header-left">
-                      <span className="table-title">Designations</span>
+                      <span className="table-title">Project Types</span>
                     </div>
                     <div className="table-header-actions">
                       <Button
                         type="primary"
                         icon={<PlusOutlined />}
-                        onClick={handleAddDesignation}
+                        onClick={handleAddProjectType}
                       >
-                        Add Designation
+                        Add New Project
                       </Button>
                     </div>
                   </div>
                   <CustomTable
-                    columns={designationColumns}
-                    dataSource={designations}
-                    scroll={{ x: 600 }}
-                    loading={loadingDesignations}
-                    pagination={{ pageSize: 20 }}
-                  />
-                </div>
-              ),
-            },
-            {
-              key: 'tracks',
-              label: 'Tracks',
-              children: (
-                <div>
-                  <div className="table-header-section">
-                    <div className="table-header-left">
-                      <span className="table-title">Tracks</span>
-                    </div>
-                    <div className="table-header-actions">
-                      <Button
-                        type="primary"
-                        icon={<PlusOutlined />}
-                        onClick={handleAddTrack}
-                      >
-                        Add Track
-                      </Button>
-                    </div>
-                  </div>
-                  <CustomTable
-                    columns={trackColumns}
-                    dataSource={tracks}
-                    scroll={{ x: 600 }}
-                    loading={loadingTracks}
-                    pagination={{ pageSize: 20 }}
+                    columns={projectTypeColumns}
+                    dataSource={projectTypes}
+                    scroll={{ x: 1200 }}
+                    loading={loadingProjectTypes}
+                    pagination={{
+                      current: projectTypePagination.current,
+                      pageSize: projectTypePagination.pageSize,
+                      total: projectTypePagination.total,
+                      showSizeChanger: true,
+                      showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} projects`,
+                      onChange: (page, pageSize) => {
+                        setProjectTypePagination(prev => ({ ...prev, current: page, pageSize }));
+                        fetchProjectTypes(page, pageSize);
+                      },
+                      onShowSizeChange: (current, size) => {
+                        setProjectTypePagination(prev => ({ ...prev, current: 1, pageSize: size }));
+                        fetchProjectTypes(1, size);
+                      },
+                    }}
                   />
                 </div>
               ),
@@ -1335,44 +1320,59 @@ const Configurations = () => {
               ),
             },
             {
-              key: 'project-types',
-              label: 'Project Types',
+              key: 'designations',
+              label: 'Designations',
               children: (
                 <div>
                   <div className="table-header-section">
                     <div className="table-header-left">
-                      <span className="table-title">Project Types</span>
+                      <span className="table-title">Designations</span>
                     </div>
                     <div className="table-header-actions">
                       <Button
                         type="primary"
                         icon={<PlusOutlined />}
-                        onClick={handleAddProjectType}
+                        onClick={handleAddDesignation}
                       >
-                        Add New Project
+                        Add Designation
                       </Button>
                     </div>
                   </div>
                   <CustomTable
-                    columns={projectTypeColumns}
-                    dataSource={projectTypes}
-                    scroll={{ x: 1200 }}
-                    loading={loadingProjectTypes}
-                    pagination={{
-                      current: projectTypePagination.current,
-                      pageSize: projectTypePagination.pageSize,
-                      total: projectTypePagination.total,
-                      showSizeChanger: true,
-                      showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} projects`,
-                      onChange: (page, pageSize) => {
-                        setProjectTypePagination(prev => ({ ...prev, current: page, pageSize }));
-                        fetchProjectTypes(page, pageSize);
-                      },
-                      onShowSizeChange: (current, size) => {
-                        setProjectTypePagination(prev => ({ ...prev, current: 1, pageSize: size }));
-                        fetchProjectTypes(1, size);
-                      },
-                    }}
+                    columns={designationColumns}
+                    dataSource={designations}
+                    scroll={{ x: 600 }}
+                    loading={loadingDesignations}
+                    pagination={{ pageSize: 20 }}
+                  />
+                </div>
+              ),
+            },
+            {
+              key: 'tracks',
+              label: 'Tracks',
+              children: (
+                <div>
+                  <div className="table-header-section">
+                    <div className="table-header-left">
+                      <span className="table-title">Tracks</span>
+                    </div>
+                    <div className="table-header-actions">
+                      <Button
+                        type="primary"
+                        icon={<PlusOutlined />}
+                        onClick={handleAddTrack}
+                      >
+                        Add Track
+                      </Button>
+                    </div>
+                  </div>
+                  <CustomTable
+                    columns={trackColumns}
+                    dataSource={tracks}
+                    scroll={{ x: 600 }}
+                    loading={loadingTracks}
+                    pagination={{ pageSize: 20 }}
                   />
                 </div>
               ),
