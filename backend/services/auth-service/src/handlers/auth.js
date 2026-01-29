@@ -246,6 +246,15 @@ const completeInviteHandler = async (event) => {
         });
     } catch (error) {
         console.error('Complete invite error:', error);
+
+        // Return specific error messages for password policy violations
+        if (error.name === 'InvalidPasswordException') {
+            throw createError(400, error.message || 'Password does not meet requirements. Must include uppercase, lowercase, numbers, and special characters.');
+        }
+        if (error.name === 'ExpiredCodeException' || error.name === 'NotAuthorizedException') {
+            throw createError(400, 'Session expired. Please request a new invitation.');
+        }
+
         throw createError(400, 'Failed to set password');
     }
 };
