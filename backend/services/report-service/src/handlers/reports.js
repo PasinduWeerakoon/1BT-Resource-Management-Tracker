@@ -1445,6 +1445,7 @@ export const getTierBreakdownReport = async (event) => {
                 r.name as employee_name,
                 r.email,
                 COALESCE(r.tier, 'Unassigned') as tier,
+                r.tech_stack,
                 d.name as designation,
                 t.name as track,
                 p.project_name as project,
@@ -1527,7 +1528,8 @@ export const getTierBreakdownReport = async (event) => {
             projectAllocation: row.project_allocation ? `${parseFloat(row.project_allocation).toFixed(2)}%` : '0.00%',
             tier: row.tier,
             designation: row.designation,
-            track: row.track
+            track: row.track,
+            techStack: row.tech_stack
         }));
 
         return success({
