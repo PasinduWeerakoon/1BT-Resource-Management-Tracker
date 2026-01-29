@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Row, Col, Card, Button, Table, Space, Form, Input, InputNumber, Select, DatePicker, Upload, Avatar, Tooltip, Tabs, Badge, App } from 'antd';
-import { PlusOutlined, EditOutlined, EyeOutlined, UserOutlined, UploadOutlined, FilterOutlined, UpOutlined, DownOutlined, ReloadOutlined } from '@ant-design/icons';
+import { Row, Col, Card, Button, Table, Space, Form, Input, InputNumber, Select, DatePicker, Upload, Avatar, Tooltip, Tabs, Badge, App, Switch, Modal } from 'antd';
+import { PlusOutlined, EditOutlined, EyeOutlined, UserOutlined, UploadOutlined, FilterOutlined, UpOutlined, DownOutlined, ReloadOutlined, SettingOutlined } from '@ant-design/icons';
 import { Doughnut, Bar, Line } from 'react-chartjs-2';
 import { commonOptions, colors } from '@utils/chartConfig';
 import CustomModal from '@components/Modal';
@@ -38,6 +38,7 @@ const Resources = () => {
     name: '',
     track_id: undefined,
     designation_id: undefined,
+    is_intern: undefined,
   });
 
   // Default filter values for comparison
@@ -50,6 +51,7 @@ const Resources = () => {
     name: '',
     track_id: undefined,
     designation_id: undefined,
+    is_intern: undefined,
   };
 
   // Count active filters (filters that differ from defaults)
@@ -85,8 +87,11 @@ const Resources = () => {
     setSelectedEmployee(record);
     form.setFieldsValue({
       ...record,
-      joinDate: record.joinDate ? dayjs(record.joinDate) : null,
-      bod: record.bod ? dayjs(record.bod) : null,
+      // Map API field names to form field names
+      mobile: record.phone_number || record.mobile,
+      nicOrPassport: record.nic_passport || record.nic,
+      bod: record.date_of_birth ? dayjs(record.date_of_birth) : (record.bod ? dayjs(record.bod) : null),
+      joinDate: record.date_of_joining ? dayjs(record.date_of_joining) : (record.joinDate ? dayjs(record.joinDate) : null),
     });
     setIsAddEmployeeModalVisible(true);
   };
@@ -145,6 +150,12 @@ const Resources = () => {
       }
       if (filters.status && filters.status !== 'All') {
         queryParams.status = filters.status;
+      }
+      if (filters.is_intern !== undefined && filters.is_intern !== null) {
+        queryParams.is_intern = filters.is_intern;
+      }
+      if (filters.tier && filters.tier !== 'All') {
+        queryParams.tier = filters.tier;
       }
 
       const response = await resourcesService.getAll(queryParams);
@@ -211,6 +222,7 @@ const Resources = () => {
           name: employee.name,
           email: employee.email,
           mobile: employee.phone_number || employee.mobile,
+          phone_number: employee.phone_number, // Keep API field name
           tier: tier,
           position: employee.designation_name || employee.position,
           designation_id: employee.designation_id,
@@ -221,10 +233,14 @@ const Resources = () => {
           joinDate: joinDate,
           status: employee.status,
           photo: employee.photo,
-          nic: employee.nic,
+          photo_url: employee.photo_url || employee.photo, // Map photo_url
+          nic: employee.nic_passport || employee.nic, // Map nic_passport to nic for form
+          nic_passport: employee.nic_passport, // Keep API field name
+          date_of_birth: employee.date_of_birth, // Keep API field name
           address: employee.address,
-          is_intern: employee.intern_classification !== null ? employee.intern_classification : false,
+          is_intern: employee.is_intern !== undefined ? employee.is_intern : (employee.intern_classification !== null ? employee.intern_classification : false),
           intern_classification: employee.intern_classification,
+          tech_stack: employee.tech_stack, // Keep API field name
           skills: employee.skills || [],
           notice_period_end_date: employee.notice_period_end_date,
           date_of_joining: employee.date_of_joining,
@@ -269,14 +285,26 @@ const Resources = () => {
 
       if (isEditMode) {
         // Prepare API payload for update
-        // API only accepts: name, email, mobile, designation_id, status
         const updatePayload = {
           name: values.name,
           email: values.email || '',
-          mobile: values.mobile || '',
+          phone_number: values.mobile || values.phone_number || '',
           designation_id: values.designation_id,
+          date_of_birth: values.bod ? values.bod.format('YYYY-MM-DD') : values.date_of_birth || undefined,
+          nic_passport: values.nicOrPassport || values.nic_passport || '',
+          is_intern: values.is_intern !== undefined ? values.is_intern : false,
+          tier: values.tier || undefined,
+          tech_stack: values.tech_stack || undefined,
+          photo_url: values.photo_url || undefined,
           status: values.status || 'Active',
         };
+
+        // Remove undefined fields
+        Object.keys(updatePayload).forEach(key => {
+          if (updatePayload[key] === undefined || updatePayload[key] === '') {
+            delete updatePayload[key];
+          }
+        });
 
         // Call update resource API
         const response = await resourcesService.update(selectedEmployee.id, updatePayload);
@@ -290,18 +318,31 @@ const Resources = () => {
           message.error(response?.message || 'Failed to update employee');
         }
       } else {
-        // Prepare API payload
+        // Prepare API payload for create
         const apiPayload = {
+          employee_id: values.employee_id || values.employeeNumber || '',
+          employee_number: values.employeeNumber || '',
           name: values.name,
+          phone_number: values.mobile || '',
           email: values.email || '',
-          mobile: values.mobile || '',
-          nic: values.nicOrPassport || '',
           designation_id: values.designation_id,
           track_id: values.track_id,
           date_of_joining: values.joinDate ? values.joinDate.format('YYYY-MM-DD') : null,
-          status: 'Bench', // Default status is Bench as per requirement
+          date_of_birth: values.bod ? values.bod.format('YYYY-MM-DD') : null,
+          nic_passport: values.nicOrPassport || '',
           is_intern: values.is_intern || false,
+          tier: values.tier || undefined,
+          tech_stack: values.tech_stack || undefined,
+          photo_url: values.photo_url || undefined,
+          status: values.status || 'Active',
         };
+
+        // Remove undefined fields (but keep required fields even if empty)
+        Object.keys(apiPayload).forEach(key => {
+          if (apiPayload[key] === undefined) {
+            delete apiPayload[key];
+          }
+        });
 
         // Call create resource API
         const response = await resourcesService.create(apiPayload);
@@ -334,6 +375,111 @@ const Resources = () => {
     form.resetFields();
     setSelectedEmployee(null);
     setIsEditMode(false);
+  };
+
+  // Handle Account Manager Toggle
+  const handleToggleAccountManager = async (record, isAccountManager) => {
+    try {
+      const response = await resourcesService.updateAccountManager(record.id, {
+        is_account_manager: isAccountManager,
+      });
+      if (response && (response.success !== false || response.data)) {
+        message.success(isAccountManager ? 'Resource assigned as account manager' : 'Account manager status removed');
+        await fetchEmployees(pagination.current, pagination.pageSize);
+      } else {
+        message.error(response?.message || 'Failed to update account manager status');
+      }
+    } catch (error) {
+      console.error('Account manager toggle error:', error);
+      message.error(error.message || 'Failed to update account manager status');
+    }
+  };
+
+  // Handle Tier Update
+  const handleUpdateTier = async (record, newTier) => {
+    try {
+      const response = await resourcesService.updateTier(record.id, { tier: newTier });
+      if (response && (response.success !== false || response.data)) {
+        message.success('Resource tier updated successfully');
+        await fetchEmployees(pagination.current, pagination.pageSize);
+      } else {
+        message.error(response?.message || 'Failed to update tier');
+      }
+    } catch (error) {
+      console.error('Tier update error:', error);
+      message.error(error.message || 'Failed to update tier');
+    }
+  };
+
+  // Handle Tech Stack Update
+  const handleUpdateTechStack = async (record, newTechStack) => {
+    try {
+      const response = await resourcesService.updateTechStack(record.id, { tech_stack: newTechStack });
+      if (response && (response.success !== false || response.data)) {
+        message.success('Resource tech stack updated successfully');
+        await fetchEmployees(pagination.current, pagination.pageSize);
+      } else {
+        message.error(response?.message || 'Failed to update tech stack');
+      }
+    } catch (error) {
+      console.error('Tech stack update error:', error);
+      message.error(error.message || 'Failed to update tech stack');
+    }
+  };
+
+  // Handle Quick Actions (Tier and Tech Stack updates)
+  const handleQuickActions = (record) => {
+    Modal.confirm({
+      title: 'Quick Actions',
+      width: 500,
+      content: (
+        <div style={{ marginTop: 16 }}>
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Update Tier:</label>
+            <Select
+              style={{ width: '100%' }}
+              defaultValue={record.tier}
+              onChange={(value) => {
+                handleUpdateTier(record, value);
+                Modal.destroyAll();
+              }}
+            >
+              <Option value="Synergy">Synergy</Option>
+              <Option value="Tier - 1">Tier - 1</Option>
+              <Option value="Tier - 2">Tier - 2</Option>
+              <Option value="Tier - 3">Tier - 3</Option>
+              <Option value="Tier - 4">Tier - 4</Option>
+              <Option value="Intern">Intern</Option>
+            </Select>
+          </div>
+          <div>
+            <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Update Tech Stack:</label>
+            <Select
+              style={{ width: '100%' }}
+              defaultValue={record.tech_stack}
+              placeholder="Select tech stack"
+              allowClear
+              onChange={(value) => {
+                if (value !== undefined) {
+                  handleUpdateTechStack(record, value);
+                  Modal.destroyAll();
+                }
+              }}
+            >
+              <Option value=".NET">.NET</Option>
+              <Option value="Full Stack">Full Stack</Option>
+              <Option value="QA">QA</Option>
+              <Option value="BA/PM">BA/PM</Option>
+              <Option value="Data Science">Data Science</Option>
+              <Option value="Java">Java</Option>
+              <Option value="React">React</Option>
+            </Select>
+          </div>
+        </div>
+      ),
+      okText: 'Close',
+      cancelButtonProps: { style: { display: 'none' } },
+    });
   };
 
   // Filter employees based on local-only filters (tier, position, joinDateRange)
@@ -408,9 +554,22 @@ const Resources = () => {
       width: 100,
     },
     {
+      title: 'Account Manager',
+      key: 'accountManager',
+      width: 130,
+      render: (_, record) => (
+        <Switch
+          checked={record.is_account_manager || false}
+          onChange={(checked) => handleToggleAccountManager(record, checked)}
+          checkedChildren="Yes"
+          unCheckedChildren="No"
+        />
+      ),
+    },
+    {
       title: 'Actions',
       key: 'actions',
-      width: 120,
+      width: 150,
       fixed: 'right',
       render: (_, record) => (
         <Space>
@@ -427,6 +586,14 @@ const Resources = () => {
               type="text"
               icon={<EditOutlined />}
               onClick={() => handleEditEmployee(record)}
+              className="action-icon-btn"
+            />
+          </Tooltip>
+          <Tooltip title="Quick Actions">
+            <Button
+              type="text"
+              icon={<SettingOutlined />}
+              onClick={() => handleQuickActions(record)}
               className="action-icon-btn"
             />
           </Tooltip>
@@ -628,9 +795,41 @@ const Resources = () => {
                     <Option value="All">All</Option>
                     <Option value="Active">Active</Option>
                     <Option value="Inactive">Inactive</Option>
-                    <Option value="Bench">Bench</Option>
-                    <Option value="Resigned">Resigned</Option>
-                    <Option value="Terminated">Terminated</Option>
+                    <Option value="Serving Notice Period">Serving Notice Period</Option>
+                    <Option value="On Leave">On Leave</Option>
+                  </Select>
+                </div>
+              </Col>
+              <Col xs={24} sm={12} md={8} lg={6}>
+                <div className="filter-item">
+                  <label>Is Intern</label>
+                  <Select
+                    value={filters.is_intern}
+                    onChange={(value) => setFilters({ ...filters, is_intern: value })}
+                    style={{ width: '100%' }}
+                    allowClear
+                    placeholder="All"
+                  >
+                    <Option value={true}>Yes</Option>
+                    <Option value={false}>No</Option>
+                  </Select>
+                </div>
+              </Col>
+              <Col xs={24} sm={12} md={8} lg={6}>
+                <div className="filter-item">
+                  <label>Tier</label>
+                  <Select
+                    value={filters.tier}
+                    onChange={(value) => setFilters({ ...filters, tier: value })}
+                    style={{ width: '100%' }}
+                  >
+                    <Option value="All">All</Option>
+                    <Option value="Synergy">Synergy</Option>
+                    <Option value="Tier - 1">Tier - 1</Option>
+                    <Option value="Tier - 2">Tier - 2</Option>
+                    <Option value="Tier - 3">Tier - 3</Option>
+                    <Option value="Tier - 4">Tier - 4</Option>
+                    <Option value="Intern">Intern</Option>
                   </Select>
                 </div>
               </Col>
@@ -731,6 +930,17 @@ const Resources = () => {
       >
         <Form form={form} layout="vertical">
           <Row gutter={16}>
+            {!isEditMode && (
+              <Col xs={24} sm={12}>
+                <Form.Item
+                  label="Employee ID"
+                  name="employee_id"
+                  rules={[{ required: true, message: 'Employee ID is required' }]}
+                >
+                  <Input placeholder="Enter employee ID" />
+                </Form.Item>
+              </Col>
+            )}
             <Col xs={24} sm={12}>
               <Form.Item
                 label="Employee Number"
@@ -747,10 +957,12 @@ const Resources = () => {
                 rules={[{ required: true, message: 'Tier is required' }]}
               >
                 <Select placeholder="Select tier">
-                  <Option value="Tier 01">Tier 01</Option>
-                  <Option value="Tier 02">Tier 02</Option>
-                  <Option value="Tier 03">Tier 03</Option>
-                  <Option value="Tier 04">Tier 04</Option>
+                  <Option value="Synergy">Synergy</Option>
+                  <Option value="Tier - 1">Tier - 1</Option>
+                  <Option value="Tier - 2">Tier - 2</Option>
+                  <Option value="Tier - 3">Tier - 3</Option>
+                  <Option value="Tier - 4">Tier - 4</Option>
+                  <Option value="Intern">Intern</Option>
                 </Select>
               </Form.Item>
             </Col>
@@ -841,20 +1053,34 @@ const Resources = () => {
                 <Input placeholder="Enter NIC or Passport number" />
               </Form.Item>
             </Col>
-            {!isEditMode && (
-              <Col xs={24} sm={12}>
-                <Form.Item
-                  label="Is Intern"
-                  name="is_intern"
-                  initialValue={false}
-                >
-                  <Select placeholder="Select intern status">
-                    <Option value={false}>No</Option>
-                    <Option value={true}>Yes</Option>
-                  </Select>
-                </Form.Item>
-              </Col>
-            )}
+            <Col xs={24} sm={12}>
+              <Form.Item
+                label="Is Intern"
+                name="is_intern"
+                initialValue={false}
+              >
+                <Select placeholder="Select intern status">
+                  <Option value={false}>No</Option>
+                  <Option value={true}>Yes</Option>
+                </Select>
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={12}>
+              <Form.Item
+                label="Tech Stack"
+                name="tech_stack"
+              >
+                <Select placeholder="Select tech stack" allowClear>
+                  <Option value=".NET">.NET</Option>
+                  <Option value="Full Stack">Full Stack</Option>
+                  <Option value="QA">QA</Option>
+                  <Option value="BA/PM">BA/PM</Option>
+                  <Option value="Data Science">Data Science</Option>
+                  <Option value="Java">Java</Option>
+                  <Option value="React">React</Option>
+                </Select>
+              </Form.Item>
+            </Col>
             {isEditMode && (
               <Col xs={24} sm={12}>
                 <Form.Item
@@ -865,9 +1091,8 @@ const Resources = () => {
                   <Select placeholder="Select status">
                     <Option value="Active">Active</Option>
                     <Option value="Inactive">Inactive</Option>
-                    <Option value="Bench">Bench</Option>
-                    <Option value="Resigned">Resigned</Option>
-                    <Option value="Terminated">Terminated</Option>
+                    <Option value="Serving Notice Period">Serving Notice Period</Option>
+                    <Option value="On Leave">On Leave</Option>
                   </Select>
                 </Form.Item>
               </Col>

@@ -1,9 +1,10 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Row, Col, Card, Select, Badge, Button } from 'antd';
 import { FilterOutlined, UpOutlined, DownOutlined, ReloadOutlined } from '@ant-design/icons';
 import { Bar } from 'react-chartjs-2';
 import { commonOptions, colors } from '@utils/chartConfig';
 import CustomTable from '@components/Table';
+import { accountManagersService } from '@api';
 import '@styles/pages/TierBreakdownReport.scss';
 
 const { Option } = Select;
@@ -39,6 +40,39 @@ const TierBreakdownReport = () => {
     });
     return count;
   }, [filters]);
+
+  // Account managers for dropdown
+  const [accountManagers, setAccountManagers] = useState([]);
+  const [loadingAccountManagers, setLoadingAccountManagers] = useState(false);
+
+  useEffect(() => {
+    const fetchAccountManagers = async () => {
+      try {
+        setLoadingAccountManagers(true);
+        const response = await accountManagersService.getAll();
+        const data = response.data || response || [];
+        const list = Array.isArray(data)
+          ? data
+          : Array.isArray(data.data)
+            ? data.data
+            : [];
+        const formatted = list
+          .map((am) => ({
+            id: am.id,
+            name: am.name,
+          }))
+          .filter((am) => am.id && am.name);
+        setAccountManagers(formatted);
+      } catch (error) {
+        // silent fail; filters remain usable
+        // console.error('Failed to fetch account managers for TierBreakdownReport:', error);
+      } finally {
+        setLoadingAccountManagers(false);
+      }
+    };
+
+    fetchAccountManagers();
+  }, []);
 
   // Reset filters to default values
   const handleResetFilters = (e) => {
@@ -353,9 +387,19 @@ const TierBreakdownReport = () => {
                     value={filters.accountManager}
                     onChange={(value) => setFilters({ ...filters, accountManager: value })}
                     style={{ width: '100%' }}
+                    loading={loadingAccountManagers}
+                    showSearch
+                    allowClear
+                    filterOption={(input, option) =>
+                      (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                    }
                   >
                     <Option value="All">All</Option>
-                    <Option value="Randika Swaris">Randika Swaris</Option>
+                    {accountManagers.map((am) => (
+                      <Option key={am.id} value={am.name} label={am.name}>
+                        {am.name}
+                      </Option>
+                    ))}
                   </Select>
                 </div>
               </Col>

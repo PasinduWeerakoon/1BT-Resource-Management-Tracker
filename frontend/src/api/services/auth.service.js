@@ -92,8 +92,8 @@ export const authService = {
    * Invite a new user (Admin only)
    * @param {string} email - User email
    * @param {string} name - User name
-   * @param {string} role - User role (ADMIN|LEAD|USER)
-   * @returns {Promise<{success: boolean, data: {userId: string, temporaryPassword: string}}>}
+   * @param {string} role - User role (Admin|User)
+   * @returns {Promise<{success: boolean, message: string}>}
    */
   invite: async (email, name, role) => {
     const response = await apiClient.post(ENDPOINTS.AUTH.INVITE, {
@@ -101,25 +101,26 @@ export const authService = {
       name,
       role,
     });
-    return response.data;
+    // The interceptor transforms the response
+    return response.data || response;
   },
 
   /**
    * Complete invite registration
+   * Handles NEW_PASSWORD_REQUIRED challenge from Cognito
    * @param {string} email - User email
-   * @param {string} temporaryPassword - Temporary password
    * @param {string} newPassword - New password
-   * @param {string} session - Session token
-   * @returns {Promise<{success: boolean, data: {accessToken: string}}>}
+   * @param {string} session - Session token from initial login attempt
+   * @returns {Promise<{success: boolean, data: {accessToken: string, idToken: string, refreshToken: string}}>}
    */
-  completeInvite: async (email, temporaryPassword, newPassword, session) => {
+  completeInvite: async (email, newPassword, session) => {
     const response = await apiClient.post(ENDPOINTS.AUTH.COMPLETE_INVITE, {
       email,
-      temporaryPassword,
       newPassword,
       session,
     });
-    return response.data;
+    // The interceptor transforms the response
+    return response.data || response;
   },
 };
 

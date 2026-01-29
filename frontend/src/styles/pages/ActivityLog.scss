@@ -1,4 +1,4 @@
-.monthly-allocation-report-page {
+.activity-log-page {
   padding: 24px;
   background: #fff;
   min-height: 100%;
@@ -14,6 +14,23 @@
       color: #262626;
       text-transform: uppercase;
       letter-spacing: 1px;
+    }
+  }
+
+  .activity-log-tabs {
+    .ant-tabs-content-holder {
+      padding-top: 16px;
+    }
+
+    .ant-tabs-tab {
+      font-family: "Poppins", sans-serif;
+      font-weight: 500;
+    }
+
+    .ant-tabs-tab-active {
+      .ant-tabs-tab-btn {
+        font-weight: 600;
+      }
     }
   }
 
@@ -129,48 +146,55 @@
     }
   }
 
-  .period-info-card {
+  .kpi-section {
     margin-bottom: 24px;
-    border-radius: 8px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 
-    .ant-card-body {
-      padding: 16px 24px;
-    }
-
-    .period-info {
+    .ant-col {
       display: flex;
-      align-items: center;
-      gap: 16px;
-      font-family: "Poppins", sans-serif;
-
-      .period-label {
-        font-size: 14px;
-        font-weight: 600;
-        color: #262626;
-      }
-
-      .period-value {
-        font-size: 16px;
-        font-weight: 700;
-        color: #97230c;
-      }
-
-      .period-dates {
-        font-size: 13px;
-        color: #595959;
-        margin-left: auto;
-      }
     }
-  }
 
-  .view-mode-selector {
-    margin-bottom: 16px;
-    display: flex;
-    justify-content: flex-end;
+    .kpi-card {
+      text-align: center;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+      transition: all 0.3s ease;
+      border: 2px solid #f0f0f0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
 
-    .ant-radio-group {
-      font-family: "Poppins", sans-serif;
+      .ant-card-body {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        padding: 24px;
+      }
+
+      &:hover {
+        border-color: #97230c;
+        box-shadow: 0 4px 12px rgba(151, 35, 12, 0.15);
+        transform: translateY(-2px);
+      }
+
+      .kpi-value {
+        font-size: 36px;
+        font-weight: 700;
+        font-family: "Poppins", sans-serif;
+        color: #262626;
+        margin-bottom: 8px;
+        line-height: 1.2;
+      }
+
+      .kpi-label {
+        font-size: 12px;
+        font-weight: 500;
+        font-family: "Poppins", sans-serif;
+        color: #595959;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
     }
   }
 
@@ -213,6 +237,42 @@
     }
   }
 
+  .stat-card {
+    text-align: center;
+    padding: 16px 0;
+
+    .stat-value {
+      font-size: 32px;
+      font-weight: 700;
+      font-family: "Poppins", sans-serif;
+      color: #1890ff;
+      margin-bottom: 8px;
+    }
+
+    .stat-label {
+      font-size: 14px;
+      font-weight: 500;
+      font-family: "Poppins", sans-serif;
+      color: #8c8c8c;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+  }
+
+  .ant-descriptions {
+    .ant-descriptions-item-label {
+      font-weight: 600;
+      width: 200px;
+    }
+  }
+
+  .ant-modal {
+    .ant-modal-body {
+      max-height: 70vh;
+      overflow-y: auto;
+    }
+  }
+
   @media (max-width: 768px) {
     padding: 16px;
 
@@ -232,9 +292,16 @@
       }
     }
 
-    .view-mode-selector {
-      justify-content: flex-start;
-      margin-bottom: 12px;
+    .kpi-section {
+      .kpi-card {
+        .kpi-value {
+          font-size: 24px;
+        }
+
+        .kpi-label {
+          font-size: 10px;
+        }
+      }
     }
   }
 }

@@ -2,7 +2,7 @@ import React from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Layout, Menu, Dropdown, Avatar, Button, Tooltip, App } from 'antd';
-import { LogoutOutlined, SettingOutlined, MenuFoldOutlined, MenuUnfoldOutlined, TeamOutlined, UserOutlined } from '@ant-design/icons';
+import { LogoutOutlined, SettingOutlined, MenuFoldOutlined, MenuUnfoldOutlined, TeamOutlined, UserOutlined, HistoryOutlined } from '@ant-design/icons';
 import { logoutUser } from '@redux/slices/authSlice';
 import { toggleSidebar } from '@redux/slices/layoutSlice';
 import { getMenuItems } from '@navigation/menuItems';
@@ -116,6 +116,17 @@ const Sidebar = () => {
       icon: <SettingOutlined />,
       onClick: () => {
         navigate('/configurations');
+        if (isMobile) {
+          dispatch(toggleSidebar());
+        }
+      },
+    },
+    {
+      key: 'activity-log',
+      label: 'Activity Log',
+      icon: <HistoryOutlined />,
+      onClick: () => {
+        navigate('/activity-log');
         if (isMobile) {
           dispatch(toggleSidebar());
         }
