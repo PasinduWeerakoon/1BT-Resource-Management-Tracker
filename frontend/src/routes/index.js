@@ -1,4 +1,5 @@
 import Login from '@pages/Auth/Login';
+import ResetPassword from '@pages/Auth/ResetPassword';
 import Dashboard from '@pages/Dashboard';
 import Resources from '@pages/Resources';
 import Projects from '@pages/Projects';
@@ -26,6 +27,11 @@ export const routes = [
   {
     path: '/login',
     component: Login,
+    isPublic: true,
+  },
+  {
+    path: '/reset-password',
+    component: ResetPassword,
     isPublic: true,
   },
   {
