@@ -1566,3 +1566,214 @@ export const getTierBreakdownReport = async (event) => {
         return error('Failed to get tier breakdown report', err);
     }
 };
+
+/**
+ * Get External Consultants Report
+ * Returns comprehensive report of all external consultant resources
+ */
+export const getExternalConsultantsReport = async (event) => {
+    const log = logger.child({ handler: 'reports.externalConsultants' });
+    log.info('External consultants report handler v2 - column names fixed');
+
+    try {
+        // Extract query parameters
+        const queryParams = event.queryStringParameters || {};
+        const {
+            track_id,
+            tech_stack,
+            project_id,
+            project_name,
+            account_manager,
+            start_date,
+            end_date
+        } = queryParams;
+
+        // Base query for external consultants with their current allocations
+        let query = `
+            SELECT 
+                r.id as resource_id,
+                r.name as consultant_name,
+                r.email,
+                t.name as track,
+                r.tech_stack,
+                d.name as designation,
+                p.id as project_id,
+                p.project_name,
+                p.account_manager_id,
+                a.allocation_percentage,
+                a.start_date,
+                a.end_date,
+                a.is_active,
+                CASE 
+                    WHEN p.project_type = 'Client' THEN 'Billing'
+                    ELSE 'Non-Billing'
+                END as billing_status
+            FROM resources r
+            LEFT JOIN tracks t ON r.track_id = t.id
+            LEFT JOIN designations d ON r.designation_id = d.id
+            LEFT JOIN allocations a ON r.id = a.resource_id AND a.is_active = true
+            LEFT JOIN projects p ON a.project_id = p.id
+            WHERE r.is_external_consultant = true
+                AND r.status = 'Active'
+        `;
+
+        const params = [];
+        let paramCount = 0;
+
+        // Apply filters
+        if (track_id) {
+            paramCount++;
+            query += ` AND r.track_id = $${paramCount}`;
+            params.push(track_id);
+        }
+
+        if (tech_stack) {
+            paramCount++;
+            query += ` AND r.tech_stack ILIKE $${paramCount}`;
+            params.push(`%${tech_stack}%`);
+        }
+
+        if (project_id) {
+            paramCount++;
+            query += ` AND p.id = $${paramCount}`;
+            params.push(project_id);
+        }
+
+        if (project_name) {
+            paramCount++;
+            query += ` AND p.project_name ILIKE $${paramCount}`;
+            params.push(`%${project_name}%`);
+        }
+
+        if (account_manager) {
+            paramCount++;
+            query += ` AND p.account_manager_id = $${paramCount}`;
+            params.push(account_manager);
+        }
+
+        if (start_date) {
+            paramCount++;
+            query += ` AND (a.end_date >= $${paramCount} OR a.end_date IS NULL)`;
+            params.push(start_date);
+        }
+
+        if (end_date) {
+            paramCount++;
+            query += ` AND a.start_date <= $${paramCount}`;
+            params.push(end_date);
+        }
+
+        query += ` ORDER BY consultant_name, COALESCE(project_name, 'Unallocated')`;
+
+        // Execute main query
+        log.info('Executing query', { queryPreview: query.substring(0, 500), paramCount: params.length });
+        const consultantsResult = await db.query(query, params);
+
+        // Calculate summary statistics
+        const summaryQuery = `
+            SELECT 
+                COUNT(DISTINCT r.id) as total_consultants,
+                COUNT(DISTINCT CASE WHEN p.project_type = 'Client' THEN r.id END) as billing_consultants,
+                COUNT(DISTINCT CASE WHEN p.project_type != 'Client' OR p.id IS NULL THEN r.id END) as non_billing_consultants,
+                COALESCE(SUM(CASE WHEN p.project_type = 'Client' THEN a.allocation_percentage ELSE 0 END), 0) as total_billing_allocation,
+                COALESCE(SUM(CASE WHEN p.project_type != 'Client' THEN a.allocation_percentage ELSE 0 END), 0) as total_non_billing_allocation
+            FROM resources r
+            LEFT JOIN allocations a ON r.id = a.resource_id AND a.is_active = true
+            LEFT JOIN projects p ON a.project_id = p.id
+            WHERE r.is_external_consultant = true
+                AND r.status = 'Active'
+        `;
+
+        const summaryResult = await db.query(summaryQuery + (params.length > 0 ? ' AND 1=1' : ''), []);
+
+        // Group data by project for the byProject table
+        const byProjectMap = new Map();
+        const byAllocationData = [];
+
+        consultantsResult.rows.forEach(row => {
+            // Add to allocation-level data
+            byAllocationData.push({
+                key: `${row.resource_id}-${row.project_id || 'bench'}`,
+                consultantName: row.consultant_name,
+                email: row.email,
+                designation: row.designation,
+                track: row.track,
+                techStack: row.tech_stack,
+                project: row.project_name || 'Bench',
+                accountManager: row.account_manager || 'N/A',
+                allocationPercentage: row.allocation_percentage ? `${parseFloat(row.allocation_percentage).toFixed(2)}%` : '0.00%',
+                startDate: row.start_date,
+                endDate: row.end_date,
+                billingStatus: row.billing_status || 'Non-Billing'
+            });
+
+            // Aggregate by project
+            if (row.project_id) {
+                if (!byProjectMap.has(row.project_id)) {
+                    byProjectMap.set(row.project_id, {
+                        key: row.project_id,
+                        projectName: row.project_name,
+                        accountManager: row.account_manager,
+                        consultantCount: 0,
+                        totalAllocation: 0,
+                        billingStatus: row.billing_status,
+                        consultants: []
+                    });
+                }
+                const projectData = byProjectMap.get(row.project_id);
+                projectData.consultantCount++;
+                projectData.totalAllocation += parseFloat(row.allocation_percentage || 0);
+                projectData.consultants.push(row.consultant_name);
+            }
+        });
+
+        // Convert project map to array and format
+        const byProjectData = Array.from(byProjectMap.values()).map(p => ({
+            ...p,
+            totalAllocation: `${p.totalAllocation.toFixed(2)}%`,
+            consultants: p.consultants.join(', ')
+        }));
+
+        // Chart data - consultants by track
+        const trackQuery = `
+            SELECT 
+                t.name as track,
+                COUNT(DISTINCT r.id) as count
+            FROM resources r
+            LEFT JOIN tracks t ON r.track_id = t.id
+            WHERE r.is_external_consultant = true
+                AND r.status = 'Active'
+            GROUP BY t.name
+            ORDER BY count DESC
+        `;
+
+        const trackResult = await db.query(trackQuery);
+        const trackDistribution = trackResult.rows.map(row => ({
+            track: row.track || 'Unassigned',
+            count: parseInt(row.count)
+        }));
+
+        return success({
+            summary: {
+                totalConsultants: parseInt(summaryResult.rows[0]?.total_consultants || 0),
+                billingConsultants: parseInt(summaryResult.rows[0]?.billing_consultants || 0),
+                nonBillingConsultants: parseInt(summaryResult.rows[0]?.non_billing_consultants || 0),
+                totalBillingAllocation: parseFloat(summaryResult.rows[0]?.total_billing_allocation || 0).toFixed(2),
+                totalNonBillingAllocation: parseFloat(summaryResult.rows[0]?.total_non_billing_allocation || 0).toFixed(2)
+            },
+            charts: {
+                trackDistribution
+            },
+            tables: {
+                byProject: byProjectData,
+                byAllocation: byAllocationData
+            },
+            filters: queryParams,
+            generatedAt: new Date().toISOString()
+        });
+
+    } catch (err) {
+        log.error('Failed to get external consultants report', { error: err.message, stack: err.stack });
+        return error('Failed to get external consultants report', err);
+    }
+};
