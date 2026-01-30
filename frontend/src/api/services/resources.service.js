@@ -115,19 +115,6 @@ export const resourcesService = {
   },
 
   /**
-   * Get current active allocations for an employee
-   * @param {Object} params - Query parameters
-   * @param {string} params.employee_id - Employee ID (optional)
-   * @param {string} params.employee_name - Employee name (optional)
-   * @param {string} params.resource_id - Resource ID (optional)
-   * @returns {Promise<{success: boolean, data: {resource: Object, allocations: Array, total: number, total_allocation: number}}>}
-   */
-  getCurrentAllocations: async (params = {}) => {
-    const response = await apiClient.get(ENDPOINTS.RESOURCES.CURRENT_ALLOCATIONS, { params });
-    return response.data || response;
-  },
-
-  /**
    * Get resource designation history
    * @param {string} id - Resource ID
    * @returns {Promise<{success: boolean, data: Array<{designation_name: string, effective_date: string, end_date: string}>}>}

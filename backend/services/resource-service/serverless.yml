@@ -118,15 +118,6 @@ functions:
           method: GET
           authorizer: ${self:custom.authorizer}
 
-  getCurrentAllocations:
-    handler: src/handlers/resources.getCurrentAllocations
-    description: Get current active allocations for an employee by ID, employee_id, employee_name, or resource_id
-    events:
-      - httpApi:
-          path: /api/v1/resources/current-allocations
-          method: GET
-          authorizer: ${self:custom.authorizer}
-
   getDesignationHistory:
     handler: src/handlers/resources.getDesignationHistory
     description: Get designation history for a resource
