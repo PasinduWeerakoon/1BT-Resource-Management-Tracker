@@ -17,6 +17,7 @@
 #   -a, --action    Action: deploy, remove, status (default: deploy)
 #   -c, --service   Specific service (optional)
 #   -r, --region    AWS region (default: ap-southeast-1)
+#   -p, --profile   AWS profile (default: 1bt-training)
 #   -h, --help      Show this help message
 #######################################
 
@@ -27,6 +28,7 @@ STAGE=""
 ACTION="deploy"
 SERVICE=""
 REGION="ap-southeast-1"
+AWS_PROFILE="${AWS_PROFILE:-1bt-training}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Colors
@@ -84,13 +86,15 @@ Options:
                     infrastructure, shared, auth, resource, project,
                     allocation, report, document
     -r, --region    AWS region (default: ap-southeast-1)
+    -p, --profile   AWS profile (default: 1bt-training)
     -h, --help      Show this help message
 
 Examples:
-    ./deploy.sh -s dev -a deploy              # Deploy all to dev
-    ./deploy.sh -s dev -a deploy -c auth      # Deploy only auth service
-    ./deploy.sh -s prod -a status             # Check prod status
-    ./deploy.sh -s dev -a remove              # Remove all from dev
+    ./deploy.sh -s dev -a deploy                      # Deploy all to dev
+    ./deploy.sh -s dev -a deploy -c auth              # Deploy only auth service
+    ./deploy.sh -s dev -a deploy -p my-profile       # Deploy using custom AWS profile
+    ./deploy.sh -s prod -a status                     # Check prod status
+    ./deploy.sh -s dev -a remove                      # Remove all from dev
 EOF
     exit 0
 }
@@ -112,6 +116,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         -r|--region)
             REGION="$2"
+            shift 2
+            ;;
+        -p|--profile)
+            AWS_PROFILE="$2"
             shift 2
             ;;
         -h|--help)
@@ -172,13 +180,14 @@ check_prerequisites() {
     log_success "Serverless: $(npx serverless --version 2>&1 | head -1)"
     
     # Check AWS credentials
-    if ! aws sts get-caller-identity &> /dev/null; then
-        log_error "AWS credentials not configured. Run: aws configure"
+    if ! aws sts get-caller-identity --profile "$AWS_PROFILE" &> /dev/null; then
+        log_error "AWS credentials not configured for profile: $AWS_PROFILE. Run: aws configure --profile $AWS_PROFILE"
         exit 1
     fi
     
-    local account_id=$(aws sts get-caller-identity --query Account --output text)
-    local user_arn=$(aws sts get-caller-identity --query Arn --output text)
+    local account_id=$(aws sts get-caller-identity --profile "$AWS_PROFILE" --query Account --output text)
+    local user_arn=$(aws sts get-caller-identity --profile "$AWS_PROFILE" --query Arn --output text)
+    log_success "AWS Profile: $AWS_PROFILE"
     log_success "AWS Account: $account_id"
     log_success "AWS User/Role: $user_arn"
 }
@@ -194,11 +203,14 @@ deploy_service() {
         return 1
     fi
     
-    log_info "Deploying $service_name from $service_path..."
+    log_info "Deploying $service_name from $service_path using profile $AWS_PROFILE..."
     
     cd "$full_path"
     
-    if npx serverless deploy --stage "$STAGE" --region "$REGION" --verbose; then
+    # Export AWS profile for serverless framework
+    export AWS_PROFILE="$AWS_PROFILE"
+    
+    if npx serverless deploy --stage "$STAGE" --region "$REGION" --aws-profile "$AWS_PROFILE" --verbose; then
         log_success "$service_name deployed successfully"
         cd "$SCRIPT_DIR"
         return 0
@@ -224,7 +236,10 @@ remove_service() {
     
     cd "$full_path"
     
-    if npx serverless remove --stage "$STAGE" --region "$REGION" 2>&1; then
+    # Export AWS profile for serverless framework
+    export AWS_PROFILE="$AWS_PROFILE"
+    
+    if npx serverless remove --stage "$STAGE" --region "$REGION" --aws-profile "$AWS_PROFILE" 2>&1; then
         log_success "$service_name removed"
     else
         log_warn "Error removing $service_name (may not exist)"
@@ -247,7 +262,10 @@ get_service_status() {
     
     cd "$full_path"
     
-    if npx serverless info --stage "$STAGE" --region "$REGION" 2>&1; then
+    # Export AWS profile for serverless framework
+    export AWS_PROFILE="$AWS_PROFILE"
+    
+    if npx serverless info --stage "$STAGE" --region "$REGION" --aws-profile "$AWS_PROFILE" 2>&1; then
         log_success "$service_name - Deployed"
     else
         log_warn "$service_name - Not deployed"
@@ -274,6 +292,7 @@ main() {
     echo -e "Stage:  $STAGE"
     echo -e "Action: $ACTION"
     echo -e "Region: $REGION"
+    echo -e "Profile: $AWS_PROFILE"
     if [[ -n "$SERVICE" ]]; then
         echo -e "Service: $SERVICE"
     fi
@@ -307,7 +326,8 @@ main() {
                     --stack-name "onebt-infrastructure-$STAGE" \
                     --query "Stacks[0].Outputs[?OutputKey=='HttpApiEndpoint'].OutputValue" \
                     --output text \
-                    --region "$REGION" 2>/dev/null || echo "")
+                    --region "$REGION" \
+                    --profile "$AWS_PROFILE" 2>/dev/null || echo "")
                 
                 if [[ -n "$api_endpoint" && "$api_endpoint" != "None" ]]; then
                     echo -e "\n${GREEN}API Endpoint: $api_endpoint${NC}"
