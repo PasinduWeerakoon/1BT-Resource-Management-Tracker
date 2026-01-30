@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Row, Col, Card, Button, Table, Space, Form, Input, InputNumber, Select, DatePicker, Upload, Avatar, Tooltip, Tabs, Badge, App, Switch, Modal } from 'antd';
 import { PlusOutlined, EditOutlined, EyeOutlined, UserOutlined, UploadOutlined, FilterOutlined, UpOutlined, DownOutlined, ReloadOutlined, SettingOutlined } from '@ant-design/icons';
 import { Doughnut, Bar, Line } from 'react-chartjs-2';
@@ -39,6 +39,9 @@ const Resources = () => {
     track_id: undefined,
     designation_id: undefined,
   });
+
+  // Refs to prevent duplicate API calls
+  const dropdownDataFetched = useRef(false);
 
   // Default filter values for comparison
   const defaultFilters = {
@@ -87,12 +90,12 @@ const Resources = () => {
   const handleEditEmployee = (record) => {
     setIsEditMode(true);
     setSelectedEmployee(record);
-    
+
     // Extract tag IDs from tags array
-    const tagIds = record.tags && Array.isArray(record.tags) 
+    const tagIds = record.tags && Array.isArray(record.tags)
       ? record.tags.map(tag => tag.id || tag).filter(Boolean)
       : [];
-    
+
     form.setFieldsValue({
       ...record,
       // Map API field names to form field names
@@ -124,7 +127,7 @@ const Resources = () => {
     try {
       setLoadingAllocations(true);
       const response = await resourcesService.getAllocations(employeeId);
-      
+
       // Handle response structure after interceptor transformation
       let allocationsData = [];
 
@@ -221,6 +224,10 @@ const Resources = () => {
   // Fetch designations, tracks, and tags on component mount
   useEffect(() => {
     const fetchDropdownData = async () => {
+      // Prevent duplicate calls
+      if (dropdownDataFetched.current) return;
+      dropdownDataFetched.current = true;
+
       try {
         const [designationsRes, tracksRes, tagsRes] = await Promise.all([
           designationsService.getAll(),
@@ -254,6 +261,9 @@ const Resources = () => {
 
   // Fetch employees from API
   const fetchEmployees = async (page = 1, limit = 20) => {
+    // Prevent duplicate calls if already fetching
+    if (fetchingEmployees) return;
+
     try {
       setFetchingEmployees(true);
 
@@ -397,19 +407,13 @@ const Resources = () => {
     }
   };
 
-  // Fetch employees on component mount
+  // Fetch employees on component mount and when filters change
   useEffect(() => {
-    fetchEmployees(1, 20);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Fetch employees when API-supported filters change
-  useEffect(() => {
-    // Reset to page 1 when filters change
+    // Reset to page 1 when filters change (but not on initial mount)
     setPagination(prev => ({ ...prev, current: 1 }));
     fetchEmployees(1, pagination.pageSize);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters.name, filters.employeeNumber, filters.track_id, filters.designation_id, filters.status]);
+  }, [filters.name, filters.employeeNumber, filters.track_id, filters.designation_id, filters.status, filters.tier]);
 
   // Handle Add/Edit Employee Submit
   const handleEmployeeSubmit = async () => {
@@ -629,24 +633,8 @@ const Resources = () => {
     });
   };
 
-  // Filter employees based on local-only filters (tier, position, joinDateRange)
-  // API handles: search, track_id, designation_id, status
-  const filteredEmployees = useMemo(() => {
-    return employees.filter(employee => {
-      // Client-side filters (not supported by API)
-      if (filters.tier !== 'All' && employee.tier !== filters.tier) return false;
-      if (filters.position !== 'All' && employee.position !== filters.position) return false;
-      if (filters.joinDateRange && filters.joinDateRange.length === 2) {
-        const joinDate = dayjs(employee.joinDate);
-        const startDate = filters.joinDateRange[0];
-        const endDate = filters.joinDateRange[1];
-        if (!joinDate.isBetween(startDate, endDate, 'day', '[]')) return false;
-      }
-      return true;
-    });
-  }, [employees, filters.tier, filters.position, filters.joinDateRange]);
-
-  // Get unique values for filter dropdowns
+  // All filters are now handled by the backend API
+  // No need for client-side filtering
 
   // Table columns
   const columns = [
@@ -977,7 +965,7 @@ const Resources = () => {
         </div>
         <CustomTable
           columns={columns}
-          dataSource={filteredEmployees}
+          dataSource={employees}
           scroll={{ x: 1000 }}
           loading={fetchingEmployees}
           pagination={{
