@@ -12,8 +12,8 @@
 // Import from Lambda Layer (mounted at /opt/nodejs)
 import * as db from '/opt/nodejs/database/index.js';
 import { getDrizzle, withTransaction } from '/opt/nodejs/database/drizzle.js';
-import { resources, allocations, projects, designations, tracks, users, clients } from '/opt/nodejs/database/schema.js';
-import { eq, and, isNull, ilike, or, sql, desc } from 'drizzle-orm';
+import { resources, allocations, projects, designations, tracks, users, clients, tags, resourceTags } from '/opt/nodejs/database/schema.js';
+import { eq, and, isNull, ilike, or, sql, desc, inArray } from 'drizzle-orm';
 import logger from '/opt/nodejs/logger/index.js';
 import { success, error, notFound, validationError, conflict } from '/opt/nodejs/utils/response.js';
 import { validate, resourceSchemas } from '/opt/nodejs/validation/index.js';
@@ -135,10 +135,10 @@ export const list = async (event) => {
 
         // Validate query parameters
         const validated = validate(queryParams, resourceSchemas.list);
-        const { page, limit, search, track_id, designation_id, status, intern_classification } = validated;
+        const { page, limit, search, track_id, designation_id, status, tier, employee_number, name } = validated;
         const offset = (page - 1) * limit;
 
-        log.info('Listing resources', { page, limit, filters: { search, track_id, status } });
+        log.info('Listing resources', { page, limit, filters: { search, track_id, designation_id, status, tier, employee_number, name } });
 
         // Build dynamic query
         let whereClause = 'WHERE r.deleted_at IS NULL';
@@ -173,9 +173,21 @@ export const list = async (event) => {
             paramIndex++;
         }
 
-        if (intern_classification) {
-            whereClause += ` AND r.intern_classification = $${paramIndex}`;
-            params.push(intern_classification);
+        if (tier) {
+            whereClause += ` AND r.tier = $${paramIndex}`;
+            params.push(tier);
+            paramIndex++;
+        }
+
+        if (employee_number) {
+            whereClause += ` AND r.employee_number ILIKE $${paramIndex}`;
+            params.push(`%${employee_number}%`);
+            paramIndex++;
+        }
+
+        if (name) {
+            whereClause += ` AND r.name ILIKE $${paramIndex}`;
+            params.push(`%${name}%`);
             paramIndex++;
         }
 
@@ -188,17 +200,30 @@ export const list = async (event) => {
         const countResult = await db.query(countQuery, params);
         const total = parseInt(countResult.rows[0].total);
 
-        // Get paginated results with joins
+        // Get paginated results with joins and tags
         const dataQuery = `
             SELECT 
                 r.*,
                 d.name as designation_name,
                 d.level as designation_level,
-                t.name as track_name
+                t.name as track_name,
+                COALESCE(
+                    json_agg(
+                        DISTINCT json_build_object(
+                            'id', tg.id,
+                            'name', tg.name,
+                            'description', tg.description
+                        )
+                    ) FILTER (WHERE tg.id IS NOT NULL),
+                    '[]'::json
+                ) as tags
             FROM resources r
             LEFT JOIN designations d ON r.designation_id = d.id
             LEFT JOIN tracks t ON r.track_id = t.id
+            LEFT JOIN resource_tags rt ON r.id = rt.resource_id
+            LEFT JOIN tags tg ON rt.tag_id = tg.id
             ${whereClause}
+            GROUP BY r.id, d.name, d.level, t.name
             ORDER BY r.name ASC
             LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
         `;
@@ -206,8 +231,26 @@ export const list = async (event) => {
 
         const result = await db.query(dataQuery, params);
 
+        // Transform tags from JSON array to proper format
+        const transformedData = result.rows.map(row => {
+            let tagsArray = [];
+            try {
+                if (row.tags && typeof row.tags === 'string') {
+                    tagsArray = JSON.parse(row.tags);
+                } else if (Array.isArray(row.tags)) {
+                    tagsArray = row.tags;
+                }
+            } catch (e) {
+                log.warn('Failed to parse tags', { error: e.message });
+            }
+            return {
+                ...row,
+                tags: tagsArray.filter(tag => tag.id) // Remove null entries
+            };
+        });
+
         return success({
-            data: result.rows,
+            data: transformedData,
             pagination: {
                 page,
                 limit,
@@ -240,54 +283,56 @@ export const getById = async (event) => {
 
         const drizzle = await getDrizzle();
 
-        // Using Drizzle with leftJoin for related data
-        // Map to snake_case for API response consistency
-        const result = await drizzle
-            .select({
-                // Resource fields (map schema camelCase to API snake_case)
-                id: resources.id,
-                employee_id: resources.employeeId,
-                employee_number: resources.employeeNumber,
-                name: resources.name,
-                phone_number: resources.phoneNumber,
-                email: resources.email,
-                address: resources.address,
-                designation_id: resources.designationId,
-                track_id: resources.trackId,
-                intern_classification: resources.internClassification,
-                skills: resources.skills,
-                date_of_joining: resources.dateOfJoining,
-                date_of_birth: resources.dateOfBirth,
-                nic_passport: resources.nicPassport,
-                is_intern: resources.isIntern,
-                tier: resources.tier,
-                tech_stack: resources.techStack,
-                photo_url: resources.photoUrl,
-                status: resources.status,
-                version: resources.version,
-                created_at: resources.createdAt,
-                updated_at: resources.updatedAt,
-                created_by: resources.createdBy,
-                updated_by: resources.updatedBy,
-                deleted_at: resources.deletedAt,
-                // Joined fields
-                designation_name: designations.name,
-                designation_level: designations.level,
-                track_name: tracks.name
-            })
-            .from(resources)
-            .leftJoin(designations, eq(resources.designationId, designations.id))
-            .leftJoin(tracks, eq(resources.trackId, tracks.id))
-            .where(and(
-                eq(resources.id, id),
-                isNull(resources.deletedAt)
-            ));
+        // Get resource with tags using raw SQL for better control
+        const resourceQuery = `
+            SELECT 
+                r.*,
+                d.name as designation_name,
+                d.level as designation_level,
+                t.name as track_name,
+                COALESCE(
+                    json_agg(
+                        DISTINCT json_build_object(
+                            'id', tg.id,
+                            'name', tg.name,
+                            'description', tg.description
+                        )
+                    ) FILTER (WHERE tg.id IS NOT NULL),
+                    '[]'::json
+                ) as tags
+            FROM resources r
+            LEFT JOIN designations d ON r.designation_id = d.id
+            LEFT JOIN tracks t ON r.track_id = t.id
+            LEFT JOIN resource_tags rt ON r.id = rt.resource_id
+            LEFT JOIN tags tg ON rt.tag_id = tg.id
+            WHERE r.id = $1 AND r.deleted_at IS NULL
+            GROUP BY r.id, d.name, d.level, t.name
+            LIMIT 1
+        `;
 
-        if (result.length === 0) {
+        const result = await db.query(resourceQuery, [id]);
+
+        if (result.rows.length === 0) {
             return notFound('Resource not found');
         }
 
-        return success(result[0]);
+        // Transform tags from JSON array to proper format
+        const resource = result.rows[0];
+        let tagsArray = [];
+        try {
+            if (resource.tags && typeof resource.tags === 'string') {
+                tagsArray = JSON.parse(resource.tags);
+            } else if (Array.isArray(resource.tags)) {
+                tagsArray = resource.tags;
+            }
+        } catch (e) {
+            log.warn('Failed to parse tags', { error: e.message });
+        }
+
+        return success({
+            ...resource,
+            tags: tagsArray.filter(tag => tag.id) // Remove null entries
+        });
 
     } catch (err) {
         log.error('Failed to get resource', { id, error: err.message });
@@ -357,8 +402,8 @@ export const create = async (event) => {
             userId = '00000000-0000-0000-0000-000000000000';
         }
 
-        // Use transaction to ensure resource creation and bench allocation are atomic
-        // If either fails, both are rolled back
+        // Use transaction to ensure resource creation, tags, and bench allocation are atomic
+        // If any fails, all are rolled back
         const result = await withTransaction(async (tx) => {
             // Insert resource using Drizzle (use camelCase properties from schema)
             const [newResource] = await tx
@@ -378,6 +423,7 @@ export const create = async (event) => {
                     dateOfBirth: validated.date_of_birth || null,
                     nicPassport: validated.nic_passport || null,
                     isIntern: validated.is_intern || false,
+                    employeeType: validated.employee_type || 'Internal',
                     tier: validated.tier || null,
                     techStack: validated.tech_stack || null,
                     photoUrl: validated.photo_url || null,
@@ -387,6 +433,29 @@ export const create = async (event) => {
                 .returning();
 
             log.info('Resource created in transaction', { id: newResource.id });
+
+            // Handle tags if provided
+            if (validated.tag_ids && Array.isArray(validated.tag_ids) && validated.tag_ids.length > 0) {
+                // Validate that all tag IDs exist
+                const existingTags = await tx
+                    .select({ id: tags.id })
+                    .from(tags)
+                    .where(inArray(tags.id, validated.tag_ids));
+
+                if (existingTags.length !== validated.tag_ids.length) {
+                    throw new Error('One or more tag IDs are invalid');
+                }
+
+                // Insert resource tags
+                const tagInserts = validated.tag_ids.map(tagId => ({
+                    resourceId: newResource.id,
+                    tagId: tagId,
+                    createdBy: userId
+                }));
+
+                await tx.insert(resourceTags).values(tagInserts);
+                log.info('Resource tags created', { resourceId: newResource.id, tagCount: tagInserts.length });
+            }
 
             // Auto-assign 100% to Bench project (within same transaction)
             const benchAllocation = await createInitialBenchAllocation(tx, newResource.id, userId, log);
@@ -497,6 +566,7 @@ export const update = async (event) => {
             date_of_birth: 'dateOfBirth',
             nic_passport: 'nicPassport',
             is_intern: 'isIntern',
+            employee_type: 'employeeType',
             tech_stack: 'techStack',
             photo_url: 'photoUrl',
             // Direct mappings (same name)
@@ -508,8 +578,8 @@ export const update = async (event) => {
             status: 'status'
         };
 
-        // Build update object for Drizzle (exclude version from update)
-        const { version, ...updateData } = validated;
+        // Build update object for Drizzle (exclude version and tag_ids from update)
+        const { version, tag_ids, ...updateData } = validated;
 
         // Filter out undefined values and map to camelCase
         const updateValues = {};
@@ -520,25 +590,67 @@ export const update = async (event) => {
             }
         }
 
-        if (Object.keys(updateValues).length === 0) {
-            return success(existing);
-        }
-
-        // Add version increment and updated_by
-        updateValues.version = sql`${resources.version} + 1`;
-        updateValues.updatedAt = new Date();
-        updateValues.updatedBy = userId;
-
-        // Perform update using transaction for atomicity
+        // Perform update using transaction for atomicity (includes tags update)
         const [updatedResource] = await withTransaction(async (tx) => {
-            return tx
-                .update(resources)
-                .set(updateValues)
+            // Update resource if there are fields to update
+            if (Object.keys(updateValues).length > 0) {
+                // Add version increment and updated_by
+                updateValues.version = sql`${resources.version} + 1`;
+                updateValues.updatedAt = new Date();
+                updateValues.updatedBy = userId;
+
+                await tx
+                    .update(resources)
+                    .set(updateValues)
+                    .where(and(
+                        eq(resources.id, id),
+                        isNull(resources.deletedAt)
+                    ));
+            }
+
+            // Handle tags update if provided
+            if (tag_ids !== undefined) {
+                // Delete existing tags
+                await tx
+                    .delete(resourceTags)
+                    .where(eq(resourceTags.resourceId, id));
+
+                // Insert new tags if provided
+                if (Array.isArray(tag_ids) && tag_ids.length > 0) {
+                    // Validate that all tag IDs exist
+                    const existingTags = await tx
+                        .select({ id: tags.id })
+                        .from(tags)
+                        .where(inArray(tags.id, tag_ids));
+
+                    if (existingTags.length !== tag_ids.length) {
+                        throw new Error('One or more tag IDs are invalid');
+                    }
+
+                    // Insert resource tags
+                    const tagInserts = tag_ids.map(tagId => ({
+                        resourceId: id,
+                        tagId: tagId,
+                        createdBy: userId
+                    }));
+
+                    await tx.insert(resourceTags).values(tagInserts);
+                    log.info('Resource tags updated', { resourceId: id, tagCount: tagInserts.length });
+                } else {
+                    log.info('Resource tags cleared', { resourceId: id });
+                }
+            }
+
+            // Fetch updated resource with tags
+            const result = await tx
+                .select()
+                .from(resources)
                 .where(and(
                     eq(resources.id, id),
                     isNull(resources.deletedAt)
-                ))
-                .returning();
+                ));
+
+            return result;
         });
 
         // Send audit event for resource update (outside transaction)
