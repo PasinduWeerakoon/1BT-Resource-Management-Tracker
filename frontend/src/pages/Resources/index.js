@@ -5,6 +5,7 @@ import { Doughnut, Bar, Line } from 'react-chartjs-2';
 import { commonOptions, colors } from '@utils/chartConfig';
 import CustomModal from '@components/Modal';
 import CustomTable from '@components/Table';
+import CurrentAllocationsModal from '@components/CurrentAllocationsModal';
 import { resourcesService, designationsService, tracksService } from '@api';
 import dayjs from 'dayjs';
 import '@styles/pages/Resources.scss';
@@ -19,6 +20,8 @@ const Resources = () => {
   const [isEditMode, setIsEditMode] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [isProfileModalVisible, setIsProfileModalVisible] = useState(false);
+  const [isCurrentAllocationsModalVisible, setIsCurrentAllocationsModalVisible] = useState(false);
+  const [selectedEmployeeForAllocations, setSelectedEmployeeForAllocations] = useState(null);
   const [filtersExpanded, setFiltersExpanded] = useState(false);
   const [loading, setLoading] = useState(false);
   const [fetchingEmployees, setFetchingEmployees] = useState(false);
@@ -524,6 +527,21 @@ const Resources = () => {
       dataIndex: 'name',
       key: 'name',
       width: 200,
+      render: (name, record) => (
+        <a
+          onClick={() => {
+            setSelectedEmployeeForAllocations({
+              employeeId: record.employeeId,
+              employeeName: name,
+              resourceId: record.id,
+            });
+            setIsCurrentAllocationsModalVisible(true);
+          }}
+          style={{ cursor: 'pointer', color: '#1890ff' }}
+        >
+          {name}
+        </a>
+      ),
     },
     {
       title: 'Tier',
@@ -1361,6 +1379,16 @@ const Resources = () => {
           />
         </CustomModal>
       )}
+      <CurrentAllocationsModal
+        visible={isCurrentAllocationsModalVisible}
+        onClose={() => {
+          setIsCurrentAllocationsModalVisible(false);
+          setSelectedEmployeeForAllocations(null);
+        }}
+        employeeId={selectedEmployeeForAllocations?.employeeId}
+        employeeName={selectedEmployeeForAllocations?.employeeName}
+        resourceId={selectedEmployeeForAllocations?.resourceId}
+      />
     </div>
   );
 };

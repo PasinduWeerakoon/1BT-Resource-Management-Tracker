@@ -29,6 +29,7 @@ export const ENDPOINTS = {
     UPDATE: (id) => `${BASE_URL}/resources/${id}`,
     DELETE: (id) => `${BASE_URL}/resources/${id}`,
     ALLOCATIONS: (id) => `${BASE_URL}/resources/${id}/allocations`,
+    CURRENT_ALLOCATIONS: `${BASE_URL}/resources/current-allocations`,
     DESIGNATION_HISTORY: (id) => `${BASE_URL}/resources/${id}/designation-history`,
     ACCOUNT_MANAGER: (id) => `${BASE_URL}/resources/${id}/account-manager`,
     TIER: (id) => `${BASE_URL}/resources/${id}/tier`,

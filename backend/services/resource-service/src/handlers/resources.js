@@ -13,7 +13,7 @@
 import * as db from '/opt/nodejs/database/index.js';
 import { getDrizzle, withTransaction } from '/opt/nodejs/database/drizzle.js';
 import { resources, allocations, projects, designations, tracks, users, clients, billingStatuses } from '/opt/nodejs/database/schema.js';
-import { eq, and, isNull, ilike, or, sql, desc } from 'drizzle-orm';
+import { eq, and, isNull, ilike, or, sql, desc, gte, lte } from 'drizzle-orm';
 import logger from '/opt/nodejs/logger/index.js';
 import { success, error, notFound, validationError, conflict } from '/opt/nodejs/utils/response.js';
 import { validate, resourceSchemas } from '/opt/nodejs/validation/index.js';
@@ -698,6 +698,117 @@ export const getAllocations = async (event) => {
     } catch (err) {
         log.error('Failed to get resource allocations', { id, error: err.message });
         return error('Failed to get resource allocations', err);
+    }
+};
+
+/**
+ * Get current allocations for an employee by ID, employee_id, employee_name, or resource_id
+ * Returns only active allocations with project and billing details
+ */
+export const getCurrentAllocations = async (event) => {
+    const log = logger.child({ handler: 'resources.getCurrentAllocations' });
+    const queryParams = event.queryStringParameters || {};
+    const { employee_id, employee_name, resource_id } = queryParams;
+
+    try {
+        log.info('Getting current allocations', { employee_id, employee_name, resource_id });
+
+        if (!employee_id && !employee_name && !resource_id) {
+            return validationError([{
+                message: 'Either employee_id, employee_name, or resource_id is required',
+                path: ['query']
+            }]);
+        }
+
+        const drizzle = await getDrizzle();
+
+        // Find resource by employee_id, employee_name, or resource_id
+        let resourceCondition;
+        if (resource_id) {
+            resourceCondition = eq(resources.id, resource_id);
+        } else if (employee_id) {
+            resourceCondition = eq(resources.employeeId, employee_id);
+        } else if (employee_name) {
+            resourceCondition = ilike(resources.name, `%${employee_name}%`);
+        }
+
+        // Get resource(s) - handle case where name might match multiple
+        const resourceResult = await drizzle
+            .select({
+                id: resources.id,
+                name: resources.name,
+                employeeId: resources.employeeId,
+                employeeNumber: resources.employeeNumber,
+                email: resources.email
+            })
+            .from(resources)
+            .where(and(
+                resourceCondition,
+                isNull(resources.deletedAt)
+            ))
+            .limit(1);
+
+        if (resourceResult.length === 0) {
+            return notFound('Resource not found');
+        }
+
+        const resource = resourceResult[0];
+
+        // Get current active allocations only (is_active = true and end_date is null or >= today)
+        const currentDate = new Date().toISOString().split('T')[0];
+        
+        const allocationsResult = await drizzle
+            .select({
+                id: allocations.id,
+                project_id: allocations.projectId,
+                allocation_percentage: allocations.allocationPercentage,
+                billing_percentage: sql`COALESCE(CAST(${allocations.billingPercentage} AS DECIMAL), 100)`.as('billing_percentage'),
+                billing_status_id: allocations.billingStatusId,
+                start_date: allocations.startDate,
+                end_date: allocations.endDate,
+                is_active: allocations.isActive,
+                notes: allocations.notes,
+                // Joined fields from projects
+                project_name: projects.projectName,
+                project_code: projects.projectCode,
+                project_type: projects.projectType,
+                // Joined field from clients
+                client_name: clients.clientName,
+                // Joined fields from billing_statuses
+                billing_status_name: billingStatuses.name,
+                billing_status_color: billingStatuses.color
+            })
+            .from(allocations)
+            .leftJoin(projects, eq(allocations.projectId, projects.id))
+            .leftJoin(clients, eq(projects.clientId, clients.id))
+            .leftJoin(billingStatuses, eq(allocations.billingStatusId, billingStatuses.id))
+            .where(and(
+                eq(allocations.resourceId, resource.id),
+                eq(allocations.isActive, true),
+                or(
+                    isNull(allocations.endDate),
+                    gte(allocations.endDate, currentDate)
+                ),
+                lte(allocations.startDate, currentDate)
+            ))
+            .orderBy(desc(allocations.startDate));
+
+        return success({
+            resource: {
+                id: resource.id,
+                name: resource.name,
+                employee_id: resource.employeeId,
+                employee_number: resource.employeeNumber,
+                email: resource.email
+            },
+            allocations: allocationsResult,
+            total: allocationsResult.length,
+            total_allocation: allocationsResult.reduce((sum, a) => sum + parseFloat(a.allocation_percentage || 0), 0)
+        });
+
+    } catch (err) {
+        log.error('Failed to get current allocations', { employee_id, employee_name, resource_id, error: err.message });
+        return error('Failed to get current allocations', err);
     }
 };
 

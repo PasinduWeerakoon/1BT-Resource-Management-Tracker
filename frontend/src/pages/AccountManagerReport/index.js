@@ -20,6 +20,7 @@ import { Doughnut, Bar } from 'react-chartjs-2';
 import { commonOptions, colors } from '@utils/chartConfig';
 import CustomTable from '@components/Table';
 import CustomModal from '@components/Modal';
+import CurrentAllocationsModal from '@components/CurrentAllocationsModal';
 import { projectsService, clientsService, allocationsService, resourcesService, accountManagersService, reportsService, billingStatusesService } from '@api';
 import { showErrorToast, showSuccessToast, showWarningToast } from '@utils/toast.utils';
 import '@styles/pages/AccountManagerReport.scss';
@@ -78,6 +79,8 @@ const AccountManagerReport = () => {
     const [selectedResourceName, setSelectedResourceName] = useState('');
     const [accountManagersList, setAccountManagersList] = useState([]);
     const [loadingAccountManagers, setLoadingAccountManagers] = useState(false);
+    const [isCurrentAllocationsModalVisible, setIsCurrentAllocationsModalVisible] = useState(false);
+    const [selectedEmployeeForAllocations, setSelectedEmployeeForAllocations] = useState(null);
     const [billingStatuses, setBillingStatuses] = useState([]);
     const [loadingBillingStatuses, setLoadingBillingStatuses] = useState(false);
     const [projectsForFilter, setProjectsForFilter] = useState([]);
@@ -1847,6 +1850,20 @@ const AccountManagerReport = () => {
             dataIndex: 'employeeName',
             key: 'employeeName',
             width: 180,
+            render: (name, record) => (
+                <a
+                    onClick={() => {
+                        setSelectedEmployeeForAllocations({
+                            employeeName: name,
+                            resourceId: record.resource_id,
+                        });
+                        setIsCurrentAllocationsModalVisible(true);
+                    }}
+                    style={{ cursor: 'pointer', color: '#1890ff' }}
+                >
+                    {name}
+                </a>
+            ),
         },
         {
             title: 'Project',
@@ -3757,6 +3774,18 @@ const AccountManagerReport = () => {
                     loading={loadingResourceAllocations}
                 />
             </CustomModal>
+
+            {/* Current Allocations Modal */}
+            <CurrentAllocationsModal
+                visible={isCurrentAllocationsModalVisible}
+                onClose={() => {
+                    setIsCurrentAllocationsModalVisible(false);
+                    setSelectedEmployeeForAllocations(null);
+                }}
+                employeeId={selectedEmployeeForAllocations?.employeeId}
+                employeeName={selectedEmployeeForAllocations?.employeeName}
+                resourceId={selectedEmployeeForAllocations?.resourceId}
+            />
         </div>
     );
 };
