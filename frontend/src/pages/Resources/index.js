@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Row, Col, Card, Button, Table, Space, Form, Input, InputNumber, Select, DatePicker, Upload, Avatar, Tooltip, Tabs, Badge, App, Switch, Modal } from 'antd';
+import { Row, Col, Card, Button, Table, Space, Form, Input, InputNumber, Select, DatePicker, Upload, Avatar, Tooltip, Tabs, Badge, Tag, App, Switch, Modal } from 'antd';
 import { PlusOutlined, EditOutlined, EyeOutlined, UserOutlined, UploadOutlined, FilterOutlined, UpOutlined, DownOutlined, ReloadOutlined, SettingOutlined } from '@ant-design/icons';
 import { Doughnut, Bar, Line } from 'react-chartjs-2';
 import { commonOptions, colors } from '@utils/chartConfig';
@@ -294,52 +294,77 @@ const Resources = () => {
 
       // Handle response structure after interceptor transformation
       // API returns: {success: true, data: {data: [...], pagination: {...}}}
-      // Interceptor: response.data = response.data.data || response.data
-      // For resources API: response.data = {data: [...], pagination: {...}}
+      // Interceptor transforms to: {data: {data: [...], pagination: {...}}, success: true}
       // Service returns: response.data || response
-      // So we get: {data: [...], pagination: {...}}
+      // So we get: {data: [...], pagination: {...}} OR {success: true, data: {data: [...], pagination: {...}}}
 
       let employeesData = [];
       let paginationData = {};
 
       if (response) {
-        // Most likely case: response = {data: [...], pagination: {...}}
-        if (response.data && Array.isArray(response.data)) {
+        // Debug logging
+        console.log('Raw API Response:', JSON.stringify(response, null, 2));
+        
+        // Case 1: response = {data: [...], pagination: {...}} (most common after interceptor + service)
+        if (response.data && Array.isArray(response.data) && response.pagination) {
           employeesData = response.data;
-          paginationData = response.pagination || {};
+          paginationData = response.pagination;
+          console.log('Matched Case 1: Direct data array with pagination');
         }
-        // Case: response = {success: true, data: {data: [...], pagination: {...}}}
-        else if (response.data && response.data.data && Array.isArray(response.data.data)) {
+        // Case 2: response = {success: true, data: {data: [...], pagination: {...}}}
+        else if (response.success && response.data && response.data.data && Array.isArray(response.data.data)) {
           employeesData = response.data.data;
           paginationData = response.data.pagination || {};
+          console.log('Matched Case 2: Nested with success flag');
         }
-        // Case: response is the data object directly {data: [...], pagination: {...}}
+        // Case 3: response.data is an object with data and pagination (nested structure)
+        else if (response.data && typeof response.data === 'object' && !Array.isArray(response.data) && response.data.data && Array.isArray(response.data.data)) {
+          employeesData = response.data.data;
+          paginationData = response.data.pagination || {};
+          console.log('Matched Case 3: Nested data object');
+        }
+        // Case 4: response is the data object directly {data: [...], pagination: {...}}
         else if (response.pagination && response.data && Array.isArray(response.data)) {
           employeesData = response.data;
           paginationData = response.pagination;
+          console.log('Matched Case 4: Direct with pagination');
+        }
+        // Fallback: response.data is an array (no pagination)
+        else if (response.data && Array.isArray(response.data)) {
+          employeesData = response.data;
+          paginationData = response.pagination || {};
+          console.log('Matched Fallback: Array in data field');
         }
         // Fallback: response is an array
         else if (Array.isArray(response)) {
           employeesData = response;
           paginationData = {};
+          console.log('Matched Fallback: Direct array');
+        } else {
+          console.error('No matching case for response structure:', response);
         }
+      } else {
+        console.error('Response is null or undefined');
       }
+
+      console.log('Extracted employeesData length:', employeesData.length);
+      console.log('Extracted paginationData:', paginationData);
 
       // Ensure pagination has default values
       paginationData = {
-        total: paginationData.total || 0,
+        total: paginationData.total || employeesData.length || 0,
         page: paginationData.page || page,
         limit: paginationData.limit || limit,
-        totalPages: paginationData.totalPages || 0,
+        totalPages: paginationData.totalPages || Math.ceil((paginationData.total || employeesData.length) / (paginationData.limit || limit)),
       };
 
 
       // Transform employees data to match table format
       const transformedEmployees = employeesData.map((employee) => {
-        // Format tier from designation_level (1-4) to "Tier 01" format
-        const tier = employee.designation_level
+        // Use tier from API if available, otherwise format from designation_level
+        const tier = employee.tier || (employee.designation_level
           ? `Tier ${String(employee.designation_level).padStart(2, '0')}`
-          : null;
+          : null);
 
         // Format date_of_joining from ISO string to YYYY-MM-DD
         const joinDate = employee.date_of_joining
@@ -383,6 +408,13 @@ const Resources = () => {
         };
       });
 
+      console.log('Setting employees:', transformedEmployees.length);
+      console.log('Setting pagination:', {
+        current: paginationData.page || page,
+        pageSize: paginationData.limit || limit,
+        total: paginationData.total || 0,
+      });
+      
       setEmployees(transformedEmployees);
       setPagination({
         current: paginationData.page || page,
@@ -397,19 +429,13 @@ const Resources = () => {
     }
   };
 
-  // Fetch employees on component mount
-  useEffect(() => {
-    fetchEmployees(1, 20);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Fetch employees when API-supported filters change
+  // Fetch employees on component mount and when filters change
   useEffect(() => {
     // Reset to page 1 when filters change
     setPagination(prev => ({ ...prev, current: 1 }));
-    fetchEmployees(1, pagination.pageSize);
+    fetchEmployees(1, 20);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters.name, filters.employeeNumber, filters.track_id, filters.designation_id, filters.status]);
+  }, [filters.name, filters.employeeNumber, filters.track_id, filters.designation_id, filters.status, filters.tier]);
 
   // Handle Add/Edit Employee Submit
   const handleEmployeeSubmit = async () => {
@@ -629,13 +655,13 @@ const Resources = () => {
     });
   };
 
-  // Filter employees based on local-only filters (tier, position, joinDateRange)
-  // API handles: search, track_id, designation_id, status
+  // Filter employees based on local-only filters (position, joinDateRange)
+  // API handles: search, track_id, designation_id, status, tier
   const filteredEmployees = useMemo(() => {
-    return employees.filter(employee => {
+    console.log('Filtering employees:', employees.length);
+    const filtered = employees.filter(employee => {
       // Client-side filters (not supported by API)
-      if (filters.tier !== 'All' && employee.tier !== filters.tier) return false;
-      if (filters.position !== 'All' && employee.position !== filters.position) return false;
+      if (filters.position && filters.position !== 'All' && employee.position !== filters.position) return false;
       if (filters.joinDateRange && filters.joinDateRange.length === 2) {
         const joinDate = dayjs(employee.joinDate);
         const startDate = filters.joinDateRange[0];
@@ -644,7 +670,9 @@ const Resources = () => {
       }
       return true;
     });
-  }, [employees, filters.tier, filters.position, filters.joinDateRange]);
+    console.log('Filtered employees:', filtered.length);
+    return filtered;
+  }, [employees, filters.position, filters.joinDateRange]);
 
   // Get unique values for filter dropdowns
 
@@ -681,6 +709,38 @@ const Resources = () => {
       key: 'tech_stack',
       width: 150,
       render: (techStack) => techStack || '-',
+    },
+    {
+      title: 'Employee Type',
+      dataIndex: 'employee_type',
+      key: 'employee_type',
+      width: 130,
+      render: (type) => (
+        <Badge
+          status={type === 'Internal' ? 'success' : 'warning'}
+          text={type || 'Internal'}
+        />
+      ),
+    },
+    {
+      title: 'Tags',
+      dataIndex: 'tags',
+      key: 'tags',
+      width: 200,
+      render: (tags) => {
+        if (!tags || !Array.isArray(tags) || tags.length === 0) {
+          return <span style={{ color: '#999' }}>-</span>;
+        }
+        return (
+          <Space size={[0, 8]} wrap>
+            {tags.map((tag) => (
+              <Tag key={tag.id || tag} color="green">
+                {tag.name || tag}
+              </Tag>
+            ))}
+          </Space>
+        );
+      },
     },
     {
       title: 'Join Date',
