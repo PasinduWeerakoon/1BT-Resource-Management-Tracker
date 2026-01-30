@@ -882,6 +882,119 @@ const migrations = [
 
             logger.info('Migration 013 completed: project_types table created');
         }
+    },
+    {
+        id: '014_allocation_totals',
+        name: 'Allocation Totals on Resources',
+        up: async (client) => {
+            // Add total_allocation and total_billing columns to resources
+            await client.query(`
+                                ALTER TABLE resources
+                                ADD COLUMN IF NOT EXISTS total_allocation DECIMAL(5,2) NOT NULL DEFAULT 0,
+                                ADD COLUMN IF NOT EXISTS total_billing DECIMAL(5,2) NOT NULL DEFAULT 0;
+                        `);
+
+            // Index for quick overallocation queries
+            await client.query(`
+                                CREATE INDEX IF NOT EXISTS idx_resources_total_allocation
+                                ON resources(total_allocation) WHERE status = 'Active';
+                        `);
+
+            // Add is_billable_track to tracks
+            await client.query(`
+                                ALTER TABLE tracks
+                                ADD COLUMN IF NOT EXISTS is_billable_track BOOLEAN NOT NULL DEFAULT false;
+                        `);
+
+            // Update existing tracks to set is_billable_track
+            await client.query(`
+                                UPDATE tracks SET is_billable_track = true WHERE name IN ('FS', '.Net', 'DS', 'UI/UX', 'QA', 'PM/BA');
+                        `);
+
+            // Backfill existing resource totals
+            await client.query(`
+                                WITH allocation_totals AS (
+                                    SELECT 
+                                        a.resource_id,
+                                        COALESCE(SUM(CASE WHEN p.is_bench_project = false THEN a.allocation_percentage ELSE 0 END), 0) as total_alloc,
+                                        COALESCE(SUM(CASE WHEN p.is_bench_project = false THEN a.billing_percentage ELSE 0 END), 0) as total_bill
+                                    FROM allocations a
+                                    JOIN projects p ON a.project_id = p.id
+                                    WHERE a.is_active = true
+                                        AND (a.end_date IS NULL OR a.end_date >= CURRENT_DATE)
+                                        AND a.start_date <= CURRENT_DATE
+                                    GROUP BY a.resource_id
+                                )
+                                UPDATE resources r
+                                SET 
+                                    total_allocation = COALESCE(at.total_alloc, 0),
+                                    total_billing = COALESCE(at.total_bill, 0)
+                                FROM allocation_totals at
+                                WHERE r.id = at.resource_id;
+                        `);
+
+            // Create function to update resource allocation totals
+            await client.query(`
+                                CREATE OR REPLACE FUNCTION update_resource_allocation_totals(p_resource_id UUID)
+                                RETURNS void AS $$
+                                BEGIN
+                                    UPDATE resources
+                                    SET 
+                                        total_allocation = COALESCE((
+                                            SELECT SUM(a.allocation_percentage)
+                                            FROM allocations a
+                                            JOIN projects p ON a.project_id = p.id
+                                            WHERE a.resource_id = p_resource_id
+                                                AND a.is_active = true
+                                                AND p.is_bench_project = false
+                                                AND (a.end_date IS NULL OR a.end_date >= CURRENT_DATE)
+                                                AND a.start_date <= CURRENT_DATE
+                                        ), 0),
+                                        total_billing = COALESCE((
+                                            SELECT SUM(a.billing_percentage)
+                                            FROM allocations a
+                                            JOIN projects p ON a.project_id = p.id
+                                            WHERE a.resource_id = p_resource_id
+                                                AND a.is_active = true
+                                                AND p.is_bench_project = false
+                                                AND (a.end_date IS NULL OR a.end_date >= CURRENT_DATE)
+                                                AND a.start_date <= CURRENT_DATE
+                                        ), 0),
+                                        updated_at = CURRENT_TIMESTAMP
+                                    WHERE id = p_resource_id;
+                                END;
+                                $$ LANGUAGE plpgsql;
+                        `);
+
+            // Create trigger function
+            await client.query(`
+                                CREATE OR REPLACE FUNCTION trigger_update_resource_totals()
+                                RETURNS TRIGGER AS $$
+                                BEGIN
+                                    IF (TG_OP = 'INSERT' OR TG_OP = 'UPDATE') THEN
+                                        PERFORM update_resource_allocation_totals(NEW.resource_id);
+                                        RETURN NEW;
+                                    END IF;
+                                    IF (TG_OP = 'DELETE') THEN
+                                        PERFORM update_resource_allocation_totals(OLD.resource_id);
+                                        RETURN OLD;
+                                    END IF;
+                                    RETURN NULL;
+                                END;
+                                $$ LANGUAGE plpgsql;
+                        `);
+
+            // Create the trigger on allocations table
+            await client.query(`
+                                DROP TRIGGER IF EXISTS allocations_update_resource_totals ON allocations;
+                                CREATE TRIGGER allocations_update_resource_totals
+                                AFTER INSERT OR UPDATE OR DELETE ON allocations
+                                FOR EACH ROW
+                                EXECUTE FUNCTION trigger_update_resource_totals();
+                        `);
+
+            logger.info('Migration 014 completed: Allocation totals and is_billable_track added, triggers created');
+        }
     }
 ];
 

@@ -266,7 +266,9 @@ const updateResourceTotals = async (resourceId) => {
 
 ## 3. Proposed Enhancements
 
-### 3.1 Short-Stay Bench Cleanup (< 24 hours)
+### 3.1 Short-Stay Bench Cleanup (< 24 hours) ✅
+
+**Status**: Implemented in `allocation-service/src/handlers/allocations.js`
 
 **Problem**: Resource allocated to Bench, then allocated to a project within 24 hours creates meaningless Bench records that pollute history.
 
@@ -417,7 +419,9 @@ After job runs:
 
 ---
 
-### 3.5 Overlapping Date Conflict Detection
+### 3.5 Overlapping Date Conflict Detection ✅
+
+**Status**: Implemented in `allocation-service/src/handlers/allocations.js`
 
 **Problem**: Same resource could be allocated to the same project with overlapping date ranges, causing duplicate records.
 
@@ -570,7 +574,9 @@ When allocation ends (end_date = today, via scheduled job):
 
 ---
 
-### 3.11 Rollover Protection (Bench ≥ 0)
+### 3.11 Rollover Protection (Bench ≥ 0) ✅
+
+**Status**: Fully implemented with logging in `allocation-service/src/handlers/allocations.js`
 
 **Problem**: Mathematical edge case where Bench percentage could theoretically go negative.
 
@@ -664,37 +670,37 @@ CREATE INDEX idx_snapshots_date ON resource_utilization_snapshots(snapshot_date)
 
 ## 4. Implementation Priority
 
-### Phase 1: Critical (Implement First)
+### Phase 1: Critical (Implement First) ✅ COMPLETE
 
-| #    | Enhancement                         | Priority | Complexity | Business Value          |
-| ---- | ----------------------------------- | -------- | ---------- | ----------------------- |
-| 3.1  | Short-Stay Bench Cleanup            | **HIGH** | Low        | Cleaner data, better UX |
-| 3.5  | Overlapping Date Conflict Detection | **HIGH** | Low        | Data integrity          |
-| 3.11 | Rollover Protection (Bench ≥ 0)     | **HIGH** | Low        | Bug prevention          |
+| #    | Enhancement                         | Priority | Complexity | Business Value          | Status  |
+| ---- | ----------------------------------- | -------- | ---------- | ----------------------- | ------- |
+| 3.1  | Short-Stay Bench Cleanup            | **HIGH** | Low        | Cleaner data, better UX | ✅ Done |
+| 3.5  | Overlapping Date Conflict Detection | **HIGH** | Low        | Data integrity          | ✅ Done |
+| 3.11 | Rollover Protection (Bench ≥ 0)     | **HIGH** | Low        | Bug prevention          | ✅ Done |
 
 ### Phase 2: High Value (Implement Second)
 
-| #   | Enhancement                    | Priority   | Complexity | Business Value   |
-| --- | ------------------------------ | ---------- | ---------- | ---------------- |
-| 3.2 | Overallocation Severity Levels | **HIGH**   | Medium     | Risk management  |
-| 3.3 | Auto End Date from Project     | **HIGH**   | Low        | Data consistency |
-| 3.6 | Resource Status Restrictions   | **MEDIUM** | Low        | Business rules   |
+| #   | Enhancement                    | Priority   | Complexity | Business Value   | Status     |
+| --- | ------------------------------ | ---------- | ---------- | ---------------- | ---------- |
+| 3.2 | Overallocation Severity Levels | **HIGH**   | Medium     | Risk management  | ⏳ Pending |
+| 3.3 | Auto End Date from Project     | **HIGH**   | Low        | Data consistency | ⏳ Pending |
+| 3.6 | Resource Status Restrictions   | **MEDIUM** | Low        | Business rules   | ⏳ Pending |
 
 ### Phase 3: Optimization (Implement Later)
 
-| #    | Enhancement                      | Priority   | Complexity | Business Value     |
-| ---- | -------------------------------- | ---------- | ---------- | ------------------ |
-| 3.4  | Gap Detection & Auto-Bench Fill  | **MEDIUM** | Medium     | Accurate reporting |
-| 3.8  | Project Capacity Tracking        | **MEDIUM** | Low        | Resource planning  |
-| 3.10 | Auto-Transition Billing Status   | **MEDIUM** | Medium     | Automation         |
-| 3.12 | Historical Utilization Snapshots | **MEDIUM** | Medium     | Analytics          |
+| #    | Enhancement                      | Priority   | Complexity | Business Value     | Status     |
+| ---- | -------------------------------- | ---------- | ---------- | ------------------ | ---------- |
+| 3.4  | Gap Detection & Auto-Bench Fill  | **MEDIUM** | Medium     | Accurate reporting | ⏳ Pending |
+| 3.8  | Project Capacity Tracking        | **MEDIUM** | Low        | Resource planning  | ⏳ Pending |
+| 3.10 | Auto-Transition Billing Status   | **MEDIUM** | Medium     | Automation         | ⏳ Pending |
+| 3.12 | Historical Utilization Snapshots | **MEDIUM** | Medium     | Analytics          | ⏳ Pending |
 
 ### Phase 4: Nice-to-Have
 
-| #   | Enhancement                    | Priority | Complexity | Business Value |
-| --- | ------------------------------ | -------- | ---------- | -------------- |
-| 3.7 | Minimum Allocation Threshold   | **LOW**  | Low        | Data quality   |
-| 3.9 | Allocation Duration Validation | **LOW**  | Low        | Data quality   |
+| #   | Enhancement                    | Priority | Complexity | Business Value | Status     |
+| --- | ------------------------------ | -------- | ---------- | -------------- | ---------- |
+| 3.7 | Minimum Allocation Threshold   | **LOW**  | Low        | Data quality   | ⏳ Pending |
+| 3.9 | Allocation Duration Validation | **LOW**  | Low        | Data quality   | ⏳ Pending |
 
 ---
 
