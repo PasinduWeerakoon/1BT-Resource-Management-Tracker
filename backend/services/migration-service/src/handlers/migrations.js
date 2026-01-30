@@ -1036,25 +1036,6 @@ const migrations = [
 
             logger.info('Migration 015 completed: resource_utilization_snapshots table created');
         }
-    },
-    {
-        id: '016_external_consultant_flag',
-        name: 'Add External Consultant Flag to Resources',
-        up: async (client) => {
-            // Add is_external_consultant column to resources table
-            await client.query(`
-                ALTER TABLE resources
-                ADD COLUMN IF NOT EXISTS is_external_consultant BOOLEAN NOT NULL DEFAULT false;
-            `);
-
-            // Create index for quick filtering of external consultants
-            await client.query(`
-                CREATE INDEX IF NOT EXISTS idx_resources_external_consultant 
-                ON resources(is_external_consultant) WHERE is_external_consultant = true AND deleted_at IS NULL;
-            `);
-
-            logger.info('Migration 016 completed: is_external_consultant flag added to resources');
-        }
     }
 ];
 
