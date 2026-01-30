@@ -1,0 +1,20 @@
+{
+  "name": "onebt-configuration-service",
+  "version": "1.0.0",
+  "description": "Configuration and Master Data Management Service",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "drizzle-orm": "^0.36.4",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "serverless-offline": "^13.0.0"
+  }
+}
+

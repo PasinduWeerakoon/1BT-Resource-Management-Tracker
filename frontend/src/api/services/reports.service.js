@@ -143,6 +143,26 @@ export const reportsService = {
     });
     return response.data || response;
   },
+
+  /**
+   * Get external consultants report
+   * Comprehensive report of all external consultant resources with allocations
+   * @param {Object} params - Query parameters
+   * @param {string} params.track_id - Filter by track ID (optional)
+   * @param {string} params.tech_stack - Filter by tech stack (optional)
+   * @param {string} params.project_id - Filter by project ID (optional)
+   * @param {string} params.project_name - Filter by project name (optional)
+   * @param {string} params.account_manager - Filter by account manager ID (optional)
+   * @param {string} params.start_date - Filter by start date YYYY-MM-DD (optional)
+   * @param {string} params.end_date - Filter by end date YYYY-MM-DD (optional)
+   * @returns {Promise<{success: boolean, summary: {totalConsultants: number, billingConsultants: number, nonBillingConsultants: number, totalBillingAllocation: string, totalNonBillingAllocation: string}, charts: {trackDistribution: Array<{track: string, count: number}>}, tables: {byProject: Array, byAllocation: Array}, filters: Object, generatedAt: string}>}
+   */
+  getExternalConsultants: async (params = {}) => {
+    const response = await apiClient.get(ENDPOINTS.REPORTS.EXTERNAL_CONSULTANTS, {
+      params,
+    });
+    return response.data || response;
+  },
 };
 
 export default reportsService;

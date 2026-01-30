@@ -136,6 +136,7 @@ export const ENDPOINTS = {
     NON_BILLING: `${BASE_URL}/reports/non-billing`,
     PRE_SALE: `${BASE_URL}/reports/pre-sale`,
     TIER_BREAKDOWN: `${BASE_URL}/reports/tier-breakdown`,
+    EXTERNAL_CONSULTANTS: `${BASE_URL}/reports/external-consultants`,
   },
 
   // Audit Logs

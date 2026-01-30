@@ -30,6 +30,7 @@
     "deploy:infra": "cd infrastructure && npx serverless deploy --stage dev",
     "deploy:auth": "cd services/auth-service && npx serverless deploy --stage dev",
     "deploy:resource": "cd services/resource-service && npx serverless deploy --stage dev",
+    "deploy:configuration": "cd services/configuration-service && npx serverless deploy --stage dev",
     "deploy:project": "cd services/project-service && npx serverless deploy --stage dev",
     "deploy:allocation": "cd services/allocation-service && npx serverless deploy --stage dev",
     "deploy:report": "cd services/report-service && npx serverless deploy --stage dev",

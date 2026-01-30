@@ -41,13 +41,14 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # Service definitions (order matters for deployment)
-declare -a SERVICE_ORDER=("infrastructure" "shared" "auth" "resource" "project" "allocation" "report" "document")
+declare -a SERVICE_ORDER=("infrastructure" "shared" "auth" "resource" "configuration" "project" "allocation" "report" "document")
 
 declare -A SERVICE_PATHS=(
     ["infrastructure"]="infrastructure"
     ["shared"]="shared"
     ["auth"]="services/auth-service"
     ["resource"]="services/resource-service"
+    ["configuration"]="services/configuration-service"
     ["project"]="services/project-service"
     ["allocation"]="services/allocation-service"
     ["report"]="services/report-service"
@@ -59,6 +60,7 @@ declare -A SERVICE_DESCRIPTIONS=(
     ["shared"]="Shared Lambda Layer"
     ["auth"]="Authentication Service"
     ["resource"]="Resource Management Service"
+    ["configuration"]="Configuration & Master Data Service"
     ["project"]="Project & Client Service"
     ["allocation"]="Allocation Service"
     ["report"]="Reporting Service"
@@ -83,8 +85,8 @@ Options:
     -s, --stage     Deployment stage: dev, qa, uat, prod (required)
     -a, --action    Action to perform: deploy, remove, status (default: deploy)
     -c, --service   Specific service to target (optional):
-                    infrastructure, shared, auth, resource, project,
-                    allocation, report, document
+                    infrastructure, shared, auth, resource, configuration,
+                    project, allocation, report, document
     -r, --region    AWS region (default: ap-southeast-1)
     -p, --profile   AWS profile (default: 1bt-training)
     -h, --help      Show this help message

@@ -41,6 +41,7 @@ SERVICES=(
     "migration-service"
     "auth-service"
     "resource-service"
+    "configuration-service"
     "project-service"
     "allocation-service"
     "report-service"
