@@ -696,7 +696,13 @@ export const update = async (event) => {
         const body = JSON.parse(event.body || '{}');
         const validated = validate(body, resourceSchemas.update);
 
-        log.info('Updating resource', { id });
+        log.info('Updating resource', { 
+            id, 
+            raw_body: body,
+            validated: validated,
+            employee_type_in_body: body.employee_type,
+            employee_type_in_validated: validated.employee_type
+        });
 
         const drizzle = await getDrizzle();
 
@@ -778,7 +784,12 @@ export const update = async (event) => {
         log.info('Update values prepared', { 
             originalKeys: Object.keys(updateData),
             updateKeys: Object.keys(updateValues),
-            updateValues: updateValues
+            updateValues: updateValues,
+            employee_type_raw: updateData.employee_type,
+            employeeType_mapped: updateValues.employeeType,
+            has_employee_type: 'employee_type' in updateData,
+            employee_type_value: updateData.employee_type,
+            employee_type_undefined: updateData.employee_type === undefined
         });
 
         // Perform update using transaction for atomicity (includes tags update)
@@ -840,6 +851,12 @@ export const update = async (event) => {
                     eq(resources.id, id),
                     isNull(resources.deletedAt)
                 ));
+
+            log.info('Resource updated in DB', {
+                resourceId: id,
+                employeeType: result[0]?.employeeType,
+                employee_type_in_db: result[0]?.employeeType
+            });
 
             return result;
         });
