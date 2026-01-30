@@ -1101,6 +1101,32 @@ const migrations = [
 
             logger.info('Migration 017 completed: tags and resource_tags tables created');
         }
+    },
+    {
+        id: '018_employee_type_column',
+        name: 'Add Employee Type Column to Resources',
+        up: async (client) => {
+            // Add employee_type column to resources table
+            await client.query(`
+                ALTER TABLE resources 
+                ADD COLUMN IF NOT EXISTS employee_type VARCHAR(50) DEFAULT 'Internal';
+            `);
+
+            // Update existing external consultants
+            await client.query(`
+                UPDATE resources 
+                SET employee_type = 'External' 
+                WHERE is_external_consultant = true;
+            `);
+
+            // Create index for efficient filtering by employee type
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS idx_resources_employee_type 
+                ON resources(employee_type);
+            `);
+
+            logger.info('Migration 018 completed: employee_type column added to resources');
+        }
     }
 ];
 
