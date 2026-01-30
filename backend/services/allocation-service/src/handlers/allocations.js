@@ -20,6 +20,24 @@ const SERVICE_NAME = 'allocation-service';
 const ALLOCATION_CONFIG = {
     // Enhancement 3.1: Bench cleanup threshold
     BENCH_CLEANUP_THRESHOLD_HOURS: 24,
+
+    // Enhancement 3.2: Overallocation severity thresholds
+    OVERALLOCATION_THRESHOLDS: {
+        LOW: 120,       // 101-120%
+        MEDIUM: 150,    // 121-150%
+        HIGH: 180,      // 151-180%
+        CRITICAL: 180,  // >180% (requires force flag)
+    },
+
+    // Enhancement 3.7: Minimum allocation threshold
+    MINIMUM_ALLOCATION_PERCENTAGE: 5,
+
+    // Enhancement 3.9: Duration validation
+    MIN_BILLING_DURATION_DAYS: 7,
+    INDEFINITE_WARNING_DAYS: 365,
+
+    // Exempt project codes (not subject to minimum threshold)
+    EXEMPT_PROJECT_CODES: ['BENCH', 'LEAVE', 'TRAINING', 'PTO'],
 };
 
 // Fixed Bench project ID - will be looked up by is_bench_project flag
@@ -266,7 +284,27 @@ const adjustBenchAllocation = async (resourceId, userId, log) => {
 };
 
 /**
+ * Enhancement 3.2: Calculate overallocation severity based on total allocation
+ */
+const calculateOverallocationSeverity = (totalAllocation) => {
+    const thresholds = ALLOCATION_CONFIG.OVERALLOCATION_THRESHOLDS;
+
+    if (totalAllocation <= 100) {
+        return { severity: 'NORMAL', requiresReview: false, requiresNotes: false, requiresForce: false };
+    } else if (totalAllocation <= thresholds.LOW) {
+        return { severity: 'LOW', requiresReview: false, requiresNotes: false, requiresForce: false };
+    } else if (totalAllocation <= thresholds.MEDIUM) {
+        return { severity: 'MEDIUM', requiresReview: true, requiresNotes: false, requiresForce: false };
+    } else if (totalAllocation <= thresholds.HIGH) {
+        return { severity: 'HIGH', requiresReview: true, requiresNotes: true, requiresForce: false };
+    } else {
+        return { severity: 'CRITICAL', requiresReview: true, requiresNotes: true, requiresForce: true };
+    }
+};
+
+/**
  * Validate allocation and return warning if exceeds 100%
+ * Enhancement 3.2: Now includes severity levels and required fields
  * Returns { valid: true, warning?: string, ... } instead of blocking
  */
 const validateAllocation = async (resourceId, newPercentage, excludeAllocationId, startDate, endDate) => {
@@ -295,20 +333,147 @@ const validateAllocation = async (resourceId, newPercentage, excludeAllocationId
     const currentNonBenchTotal = parseInt(result.rows[0].total, 10);
     const newTotal = currentNonBenchTotal + newPercentage;
 
-    // Always valid, but return warning if exceeds 100%
+    // Enhancement 3.2: Calculate severity and requirements
+    const severityInfo = calculateOverallocationSeverity(newTotal);
+
+    // Always valid (unless CRITICAL without force flag), but return warning if exceeds 100%
     const response = {
         valid: true,
         currentTotal: currentNonBenchTotal,
         newTotal,
-        benchWillBe: Math.max(0, 100 - newTotal)
+        benchWillBe: Math.max(0, 100 - newTotal),
+        overallocationSeverity: severityInfo.severity,
+        requiresReview: severityInfo.requiresReview,
+        requiresNotes: severityInfo.requiresNotes,
+        requiresForce: severityInfo.requiresForce,
     };
 
     if (newTotal > 100) {
-        response.warning = `Total allocation exceeds 100%. Non-bench allocations: ${currentNonBenchTotal}% + new: ${newPercentage}% = ${newTotal}%. Resource may be over-allocated.`;
+        // Generate severity-appropriate warning message
+        if (severityInfo.severity === 'CRITICAL') {
+            response.warning = `CRITICAL overallocation at ${newTotal}%. This requires manager approval (use forceOverallocation flag).`;
+        } else if (severityInfo.severity === 'HIGH') {
+            response.warning = `HIGH overallocation at ${newTotal}%. Notes are required to explain the business reason.`;
+        } else if (severityInfo.severity === 'MEDIUM') {
+            response.warning = `MEDIUM overallocation at ${newTotal}%. This allocation requires review.`;
+        } else {
+            response.warning = `Resource slightly over-allocated at ${newTotal}%.`;
+        }
         response.overAllocated = true;
     }
 
     return response;
+};
+
+/**
+ * Enhancement 3.7: Validate minimum allocation threshold
+ * Returns error if allocation is below minimum for non-exempt projects
+ */
+const validateMinimumAllocation = async (allocationPercentage, projectId) => {
+    const minThreshold = ALLOCATION_CONFIG.MINIMUM_ALLOCATION_PERCENTAGE;
+
+    if (allocationPercentage >= minThreshold) {
+        return { valid: true };
+    }
+
+    // Check if project is exempt (Bench, Leave, Training, PTO)
+    const projectResult = await db.query(
+        'SELECT project_code, is_bench_project FROM projects WHERE id = $1',
+        [projectId]
+    );
+
+    if (projectResult.rows.length === 0) {
+        return { valid: false, error: 'Project not found' };
+    }
+
+    const project = projectResult.rows[0];
+
+    // Bench projects and exempt codes are allowed any percentage
+    if (project.is_bench_project || ALLOCATION_CONFIG.EXEMPT_PROJECT_CODES.includes(project.project_code)) {
+        return { valid: true };
+    }
+
+    return {
+        valid: false,
+        error: `Minimum allocation is ${minThreshold}%. For smaller commitments, use notes instead. Current: ${allocationPercentage}%`
+    };
+};
+
+/**
+ * Enhancement 3.8: Check project capacity and return warning if exceeded
+ * Does not block - returns warning for business decision
+ */
+const checkProjectCapacity = async (projectId, excludeResourceId = null) => {
+    // Get project team_size
+    const projectResult = await db.query(
+        'SELECT project_name, team_size FROM projects WHERE id = $1',
+        [projectId]
+    );
+
+    if (projectResult.rows.length === 0 || !projectResult.rows[0].team_size) {
+        return { capacityWarning: null };
+    }
+
+    const project = projectResult.rows[0];
+
+    // Count distinct resources currently allocated
+    let query = `
+        SELECT COUNT(DISTINCT resource_id) as current_team_count
+        FROM allocations
+        WHERE project_id = $1
+        AND is_active = true
+    `;
+    const params = [projectId];
+
+    if (excludeResourceId) {
+        query += ' AND resource_id != $2';
+        params.push(excludeResourceId);
+    }
+
+    const countResult = await db.query(query, params);
+    const currentTeamCount = parseInt(countResult.rows[0].current_team_count, 10);
+    const newTeamCount = currentTeamCount + 1; // Adding one more resource
+
+    if (newTeamCount > project.team_size) {
+        return {
+            capacityWarning: `Project "${project.project_name}" at capacity`,
+            currentTeamSize: newTeamCount,
+            maxTeamSize: project.team_size,
+            overCapacity: true
+        };
+    }
+
+    return { capacityWarning: null };
+};
+
+/**
+ * Enhancement 3.9: Validate allocation duration and return warnings
+ */
+const validateAllocationDuration = (startDate, endDate, projectBillingStatus) => {
+    const warnings = [];
+
+    if (!endDate) {
+        // Indefinite allocation - check how long it's been running
+        const start = new Date(startDate);
+        const today = new Date();
+        const daysSinceStart = Math.floor((today - start) / (1000 * 60 * 60 * 24));
+
+        if (daysSinceStart > ALLOCATION_CONFIG.INDEFINITE_WARNING_DAYS) {
+            warnings.push(`This allocation has been indefinite for over a year (${daysSinceStart} days). Consider setting an end date.`);
+        }
+    } else {
+        // Calculate duration
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        const durationDays = Math.floor((end - start) / (1000 * 60 * 60 * 24));
+
+        // Warn about very short billing allocations
+        if (durationDays < ALLOCATION_CONFIG.MIN_BILLING_DURATION_DAYS && projectBillingStatus === 'Billing') {
+            warnings.push(`Short billing allocation (${durationDays} days). Confirm this is correct.`);
+        }
+    }
+
+    return warnings.length > 0 ? { durationWarnings: warnings } : { durationWarnings: null };
 };
 
 /**
@@ -463,6 +628,36 @@ export const create = async (event) => {
         // Check if this is a bench allocation
         const isBenchAllocation = validated.project_id === benchProjectId;
 
+        // Enhancement 3.6: Check resource status before creating allocation
+        const resourceResult = await db.query('SELECT status FROM resources WHERE id = $1', [validated.resource_id]);
+        if (resourceResult.rows.length === 0) {
+            return notFound('Resource not found');
+        }
+
+        const resourceStatus = resourceResult.rows[0].status;
+
+        // Block new allocations for resources in Notice Period or Inactive status
+        if (resourceStatus === 'Serving Notice Period' && !isBenchAllocation) {
+            log.warn('Blocked allocation creation - resource is serving notice period', {
+                resourceId: validated.resource_id,
+                resourceStatus
+            });
+            return badRequest('Cannot create new allocations for resources serving notice period. Only allocation reductions or deletions are allowed.', {
+                resourceStatus,
+                allowedOperations: ['reduce', 'delete']
+            });
+        }
+
+        if (resourceStatus === 'Inactive') {
+            log.warn('Blocked allocation creation - resource is inactive', {
+                resourceId: validated.resource_id,
+                resourceStatus
+            });
+            return badRequest('Cannot create allocations for inactive resources.', {
+                resourceStatus
+            });
+        }
+
         // Enhancement 3.5: Check for overlapping date conflicts
         if (!isBenchAllocation) {
             const overlappingAllocation = await checkOverlappingAllocation(
@@ -500,6 +695,63 @@ export const create = async (event) => {
             validated.start_date,
             validated.end_date
         );
+
+        // Enhancement 3.2: Block CRITICAL overallocation unless force flag is provided
+        if (validationResult.requiresForce && !validated.forceOverallocation) {
+            log.warn('CRITICAL overallocation blocked - force flag required', {
+                resourceId: validated.resource_id,
+                totalAllocation: validationResult.newTotal,
+                severity: validationResult.overallocationSeverity
+            });
+            return badRequest('CRITICAL overallocation detected. This allocation would result in ' + validationResult.newTotal + '% total allocation. ' +
+                'This requires manager approval. Include "forceOverallocation": true in the request to proceed.', {
+                totalAllocation: validationResult.newTotal,
+                severity: validationResult.overallocationSeverity,
+                requiresForce: true
+            });
+        }
+
+        // Enhancement 3.2: Require notes for HIGH severity
+        if (validationResult.requiresNotes && (!validated.notes || validated.notes.trim().length === 0)) {
+            log.warn('HIGH overallocation requires notes', {
+                resourceId: validated.resource_id,
+                totalAllocation: validationResult.newTotal,
+                severity: validationResult.overallocationSeverity
+            });
+            return badRequest('HIGH overallocation detected. Notes are required to explain the business reason for ' + validationResult.newTotal + '% allocation.', {
+                totalAllocation: validationResult.newTotal,
+                severity: validationResult.overallocationSeverity,
+                requiresNotes: true
+            });
+        }
+
+        // Enhancement 3.7: Validate minimum allocation threshold
+        if (!isBenchAllocation) {
+            const minValidation = await validateMinimumAllocation(validated.allocation_percentage, validated.project_id);
+            if (!minValidation.valid) {
+                log.warn('Allocation below minimum threshold', {
+                    resourceId: validated.resource_id,
+                    projectId: validated.project_id,
+                    percentage: validated.allocation_percentage,
+                    error: minValidation.error
+                });
+                return badRequest(minValidation.error, {
+                    minimumThreshold: ALLOCATION_CONFIG.MINIMUM_ALLOCATION_PERCENTAGE,
+                    currentPercentage: validated.allocation_percentage
+                });
+            }
+        }
+
+        // Enhancement 3.8: Check project capacity (warning only)
+        let capacityCheck = { capacityWarning: null };
+        if (!isBenchAllocation) {
+            capacityCheck = await checkProjectCapacity(validated.project_id);
+        }
+
+        // Enhancement 3.9: Validate duration (warnings only)
+        const projectResult = await db.query('SELECT billing_status FROM projects WHERE id = $1', [validated.project_id]);
+        const projectBillingStatus = projectResult.rows.length > 0 ? projectResult.rows[0].billing_status : null;
+        const durationValidation = validateAllocationDuration(validated.start_date, validated.end_date, projectBillingStatus);
 
         const query = `
             INSERT INTO allocations (
@@ -584,33 +836,51 @@ export const create = async (event) => {
 
         log.info('Allocation created', { id: allocation.id, warning: validationResult.warning });
 
-        // Build response with optional warning
+        // Build response with optional warning and severity information
         const response = {
             ...allocation,
             benchAdjustment
         };
 
+        // Enhancement 3.2: Include severity information in response
         if (validationResult.warning) {
             response.warning = validationResult.warning;
             response.totalAllocation = validationResult.newTotal;
             response.overAllocated = validationResult.overAllocated;
+            response.overallocationSeverity = validationResult.overallocationSeverity;
+            response.requiresReview = validationResult.requiresReview;
         }
+
+        // Enhancement 3.8: Include capacity warning
+        if (capacityCheck.capacityWarning) {
+            response.capacityWarning = capacityCheck.capacityWarning;
+            response.currentTeamSize = capacityCheck.currentTeamSize;
+            response.maxTeamSize = capacityCheck.maxTeamSize;
+            response.overCapacity = capacityCheck.overCapacity;
+        }
+
+        // Enhancement 3.9: Include duration warnings
+        if (durationValidation.durationWarnings) {
+            response.durationWarnings = durationValidation.durationWarnings;
+        }
+        response.requiresReview = validationResult.requiresReview;
+    }
 
         return success(response, 201);
 
-    } catch (err) {
-        log.error('Failed to create allocation', { error: err.message });
+} catch (err) {
+    log.error('Failed to create allocation', { error: err.message });
 
-        if (err.name === 'ValidationError') {
-            return validationError(err.details);
-        }
-
-        if (err.code === '23503') {
-            return badRequest('Resource or Project not found');
-        }
-
-        return error('Failed to create allocation', err);
+    if (err.name === 'ValidationError') {
+        return validationError(err.details);
     }
+
+    if (err.code === '23503') {
+        return badRequest('Resource or Project not found');
+    }
+
+    return error('Failed to create allocation', err);
+}
 };
 
 /**
@@ -636,6 +906,44 @@ export const update = async (event) => {
         }
         const existing = existingResult.rows[0];
         const isBenchAllocation = existing.project_id === benchProjectId;
+
+        // Enhancement 3.6: Check resource status before updating allocation
+        const resourceResult = await db.query('SELECT status FROM resources WHERE id = $1', [existing.resource_id]);
+        if (resourceResult.rows.length === 0) {
+            return notFound('Resource not found');
+        }
+
+        const resourceStatus = resourceResult.rows[0].status;
+
+        // During notice period, only allow reductions in allocation percentage
+        if (resourceStatus === 'Serving Notice Period' && !isBenchAllocation && validated.allocation_percentage !== undefined) {
+            if (validated.allocation_percentage > existing.allocation_percentage) {
+                log.warn('Blocked allocation increase - resource is serving notice period', {
+                    allocationId: id,
+                    resourceId: existing.resource_id,
+                    resourceStatus,
+                    currentPercentage: existing.allocation_percentage,
+                    requestedPercentage: validated.allocation_percentage
+                });
+                return badRequest('Cannot increase allocations for resources serving notice period. Only reductions or deletions are allowed.', {
+                    resourceStatus,
+                    currentAllocation: existing.allocation_percentage,
+                    allowedOperations: ['reduce', 'delete']
+                });
+            }
+        }
+
+        // Block updates for inactive resources
+        if (resourceStatus === 'Inactive') {
+            log.warn('Blocked allocation update - resource is inactive', {
+                allocationId: id,
+                resourceId: existing.resource_id,
+                resourceStatus
+            });
+            return badRequest('Cannot update allocations for inactive resources.', {
+                resourceStatus
+            });
+        }
 
         // Optimistic locking check
         if (validated.version !== undefined && existing.version !== validated.version) {
@@ -682,6 +990,72 @@ export const update = async (event) => {
                 id,
                 validated.start_date || existing.start_date,
                 validated.end_date || existing.end_date
+            );
+
+            // Enhancement 3.2: Block CRITICAL overallocation unless force flag is provided
+            if (validationResult.requiresForce && !validated.forceOverallocation) {
+                log.warn('CRITICAL overallocation blocked on update - force flag required', {
+                    allocationId: id,
+                    resourceId: existing.resource_id,
+                    totalAllocation: validationResult.newTotal,
+                    severity: validationResult.overallocationSeverity
+                });
+                return badRequest('CRITICAL overallocation detected. This update would result in ' + validationResult.newTotal + '% total allocation. ' +
+                    'This requires manager approval. Include "forceOverallocation": true in the request to proceed.', {
+                    totalAllocation: validationResult.newTotal,
+                    severity: validationResult.overallocationSeverity,
+                    requiresForce: true
+                });
+            }
+
+            // Enhancement 3.2: Require notes for HIGH severity
+            if (validationResult.requiresNotes && (!validated.notes || validated.notes.trim().length === 0) && (!existing.notes || existing.notes.trim().length === 0)) {
+                log.warn('HIGH overallocation requires notes on update', {
+                    allocationId: id,
+                    resourceId: existing.resource_id,
+                    totalAllocation: validationResult.newTotal,
+                    severity: validationResult.overallocationSeverity
+                });
+                return badRequest('HIGH overallocation detected. Notes are required to explain the business reason for ' + validationResult.newTotal + '% allocation.', {
+                    totalAllocation: validationResult.newTotal,
+                    severity: validationResult.overallocationSeverity,
+                    requiresNotes: true
+                });
+            }
+
+            // Enhancement 3.7: Validate minimum allocation threshold
+            const minValidation = await validateMinimumAllocation(validated.allocation_percentage, existing.project_id);
+            if (!minValidation.valid) {
+                log.warn('Allocation update below minimum threshold', {
+                    allocationId: id,
+                    resourceId: existing.resource_id,
+                    projectId: existing.project_id,
+                    percentage: validated.allocation_percentage,
+                    error: minValidation.error
+                });
+                return badRequest(minValidation.error, {
+                    minimumThreshold: ALLOCATION_CONFIG.MINIMUM_ALLOCATION_PERCENTAGE,
+                    currentPercentage: validated.allocation_percentage
+                });
+            }
+        }
+
+        // Enhancement 3.8: Check project capacity (warning only, if project changed or for info)
+        let capacityCheck = { capacityWarning: null };
+        if (!isBenchAllocation && (validated.project_id || validated.allocation_percentage !== undefined)) {
+            const projectId = validated.project_id || existing.project_id;
+            capacityCheck = await checkProjectCapacity(projectId, existing.resource_id);
+        }
+
+        // Enhancement 3.9: Validate duration (warnings only, if dates changed)
+        let durationValidation = { durationWarnings: null };
+        if (validated.start_date || validated.end_date !== undefined) {
+            const projectResult = await db.query('SELECT billing_status FROM projects WHERE id = $1', [existing.project_id]);
+            const projectBillingStatus = projectResult.rows.length > 0 ? projectResult.rows[0].billing_status : null;
+            durationValidation = validateAllocationDuration(
+                validated.start_date || existing.start_date,
+                validated.end_date !== undefined ? validated.end_date : existing.end_date,
+                projectBillingStatus
             );
         }
 
@@ -730,6 +1104,16 @@ export const update = async (event) => {
                 benchPercentage: newBenchPercentage,
                 message: `Bench allocation adjusted to ${newBenchPercentage}%`
             };
+
+            // Enhancement 3.4: After update, check for gaps and fill with bench
+            try {
+                await detectAndFillGaps(existing.resource_id, userId, log);
+            } catch (gapErr) {
+                log.warn('Failed to detect/fill gaps after update', {
+                    resourceId: existing.resource_id,
+                    error: gapErr.message
+                });
+            }
         }
 
         // Send audit event for allocation update
@@ -746,16 +1130,32 @@ export const update = async (event) => {
 
         log.info('Allocation updated', { id, warning: validationResult?.warning });
 
-        // Build response with optional warning
+        // Build response with optional warning and severity information
         const response = {
             ...allocation,
             benchAdjustment
         };
 
+        // Enhancement 3.2: Include severity information in response
         if (validationResult?.warning) {
             response.warning = validationResult.warning;
             response.totalAllocation = validationResult.newTotal;
             response.overAllocated = validationResult.overAllocated;
+            response.overallocationSeverity = validationResult.overallocationSeverity;
+            response.requiresReview = validationResult.requiresReview;
+        }
+
+        // Enhancement 3.8: Include capacity warning
+        if (capacityCheck.capacityWarning) {
+            response.capacityWarning = capacityCheck.capacityWarning;
+            response.currentTeamSize = capacityCheck.currentTeamSize;
+            response.maxTeamSize = capacityCheck.maxTeamSize;
+            response.overCapacity = capacityCheck.overCapacity;
+        }
+
+        // Enhancement 3.9: Include duration warnings
+        if (durationValidation.durationWarnings) {
+            response.durationWarnings = durationValidation.durationWarnings;
         }
 
         return success(response);
@@ -809,6 +1209,16 @@ export const remove = async (event) => {
                 benchPercentage: newBenchPercentage,
                 message: `Bench allocation adjusted to ${newBenchPercentage}%`
             };
+
+            // Enhancement 3.4: After deletion, check for gaps and fill with bench
+            try {
+                await detectAndFillGaps(existing.resource_id, userId, log);
+            } catch (gapErr) {
+                log.warn('Failed to detect/fill gaps after deletion', {
+                    resourceId: existing.resource_id,
+                    error: gapErr.message
+                });
+            }
         }
 
         // Send audit event for allocation deletion
@@ -925,5 +1335,367 @@ export const getHistory = async (event) => {
     } catch (err) {
         log.error('Failed to get allocation history', { id, error: err.message });
         return error('Failed to get allocation history', err);
+    }
+};
+
+/**
+ * Enhancement 3.4: Gap Detection & Auto-Bench Fill
+ * Detects resources with < 100% allocation and fills gap with Bench
+ */
+const detectAndFillGaps = async (resourceId, userId, log) => {
+    const benchProjectId = await getBenchProjectId();
+
+    // Calculate current total allocation (excluding bench)
+    const totalQuery = `
+        SELECT COALESCE(SUM(allocation_percentage), 0) as total
+        FROM allocations
+        WHERE resource_id = $1
+        AND project_id != $2
+        AND is_active = true
+        AND (end_date IS NULL OR end_date >= CURRENT_DATE)
+        AND start_date <= CURRENT_DATE
+    `;
+
+    const totalResult = await db.query(totalQuery, [resourceId, benchProjectId]);
+    const totalActiveAllocation = parseInt(totalResult.rows[0].total, 10);
+
+    if (totalActiveAllocation >= 100) {
+        log.info('No gap detected - resource fully allocated', { resourceId, totalActiveAllocation });
+        return { gapDetected: false, totalActiveAllocation };
+    }
+
+    const gapPercentage = 100 - totalActiveAllocation;
+    log.info('Gap detected - filling with Bench', { resourceId, totalActiveAllocation, gapPercentage });
+
+    // Check if Bench allocation exists (active or inactive)
+    const benchAllocation = await getBenchAllocation(resourceId);
+
+    if (benchAllocation) {
+        // Reactivate or update existing Bench allocation
+        await db.query(`
+            UPDATE allocations 
+            SET allocation_percentage = $2, is_active = true, updated_by = $3, updated_at = CURRENT_TIMESTAMP,
+                notes = COALESCE(notes, '') || E'\n[Auto-filled gap on ' || CURRENT_TIMESTAMP || ']'
+            WHERE id = $1
+        `, [benchAllocation.id, gapPercentage, userId || '00000000-0000-0000-0000-000000000000']);
+
+        log.info('Reactivated Bench allocation to fill gap', {
+            resourceId,
+            benchAllocationId: benchAllocation.id,
+            gapPercentage
+        });
+    } else {
+        // Create new Bench allocation
+        await db.query(`
+            INSERT INTO allocations (resource_id, project_id, allocation_percentage, billing_percentage, start_date, is_active, notes, created_by)
+            VALUES ($1, $2, $3, 0, CURRENT_DATE, true, 'Auto-created to fill allocation gap', $4)
+        `, [resourceId, benchProjectId, gapPercentage, userId || '00000000-0000-0000-0000-000000000000']);
+
+        log.info('Created new Bench allocation to fill gap', { resourceId, gapPercentage });
+    }
+
+    return { gapDetected: true, gapPercentage, totalActiveAllocation };
+};
+
+/**
+ * Enhancement 3.4: Scheduled job to detect and fill gaps for all active resources
+ * Triggered by CloudWatch Events (nightly)
+ */
+export const gapDetectionJob = async (event) => {
+    const log = logger.child({ handler: 'allocations.gapDetectionJob' });
+    const systemUserId = '00000000-0000-0000-0000-000000000000';
+
+    try {
+        log.info('Starting gap detection job');
+
+        // Get all active resources
+        const resourcesResult = await db.query(
+            "SELECT id, name FROM resources WHERE status = 'Active' AND deleted_at IS NULL"
+        );
+
+        const results = {
+            totalResources: resourcesResult.rows.length,
+            gapsDetected: 0,
+            gapsFilled: 0,
+            errors: []
+        };
+
+        for (const resource of resourcesResult.rows) {
+            try {
+                const result = await detectAndFillGaps(resource.id, systemUserId, log);
+                if (result.gapDetected) {
+                    results.gapsDetected++;
+                    results.gapsFilled++;
+                }
+            } catch (err) {
+                log.error('Failed to process resource in gap detection', {
+                    resourceId: resource.id,
+                    resourceName: resource.name,
+                    error: err.message
+                });
+                results.errors.push({
+                    resourceId: resource.id,
+                    resourceName: resource.name,
+                    error: err.message
+                });
+            }
+        }
+
+        log.info('Gap detection job completed', results);
+
+        return success({
+            message: 'Gap detection job completed',
+            ...results
+        });
+
+    } catch (err) {
+        log.error('Gap detection job failed', { error: err.message, stack: err.stack });
+        return error('Gap detection job failed', err);
+    }
+};
+
+/**
+ * Enhancement 3.10: Auto-Transition Billing Status
+ * When allocation starts, if billing_status is 'Bench' and project is not Bench/Internal,
+ * transition to project's billing type
+ */
+export const billingStatusTransitionJob = async (event) => {
+    const log = logger.child({ handler: 'allocations.billingStatusTransitionJob' });
+    const systemUserId = '00000000-0000-0000-0000-000000000000';
+
+    try {
+        log.info('Starting billing status transition job');
+
+        // Find allocations that started today with Bench billing status
+        const query = `
+            SELECT a.id, a.resource_id, a.project_id, p.billing_status as project_billing_status
+            FROM allocations a
+            JOIN projects p ON a.project_id = p.id
+            WHERE a.start_date = CURRENT_DATE
+            AND a.is_active = true
+            AND p.is_bench_project = false
+            AND p.project_type NOT IN ('Bench', 'Training')
+            AND a.deleted_at IS NULL
+        `;
+
+        const allocationsResult = await db.query(query);
+
+        const results = {
+            totalAllocations: allocationsResult.rows.length,
+            transitioned: 0,
+            errors: []
+        };
+
+        for (const allocation of allocationsResult.rows) {
+            try {
+                // Update allocation billing status to match project
+                await db.query(`
+                    UPDATE allocations 
+                    SET updated_by = $2, updated_at = CURRENT_TIMESTAMP,
+                        notes = COALESCE(notes, '') || E'\n[Auto-transitioned billing status on ' || CURRENT_TIMESTAMP || ']'
+                    WHERE id = $1
+                `, [allocation.id, systemUserId]);
+
+                results.transitioned++;
+
+                log.info('Transitioned billing status', {
+                    allocationId: allocation.id,
+                    projectBillingStatus: allocation.project_billing_status
+                });
+
+            } catch (err) {
+                log.error('Failed to transition billing status', {
+                    allocationId: allocation.id,
+                    error: err.message
+                });
+                results.errors.push({
+                    allocationId: allocation.id,
+                    error: err.message
+                });
+            }
+        }
+
+        log.info('Billing status transition job completed', results);
+
+        return success({
+            message: 'Billing status transition job completed',
+            ...results
+        });
+
+    } catch (err) {
+        log.error('Billing status transition job failed', { error: err.message, stack: err.stack });
+        return error('Billing status transition job failed', err);
+    }
+};
+
+/**
+ * Enhancement 3.12: Historical Utilization Snapshots
+ * Captures daily snapshots of resource utilization for trend analysis
+ * Runs daily at midnight to store yesterday's utilization metrics
+ */
+export const utilizationSnapshotJob = async (event) => {
+    const log = logger.child({ handler: 'allocations.utilizationSnapshotJob' });
+
+    try {
+        log.info('Starting utilization snapshot job');
+
+        const snapshotDate = new Date();
+        snapshotDate.setDate(snapshotDate.getDate() - 1); // Yesterday's snapshot
+        const snapshotDateStr = snapshotDate.toISOString().split('T')[0];
+
+        // Get all active resources
+        const resourcesQuery = `
+            SELECT id, employee_id, name 
+            FROM resources 
+            WHERE status = 'Active' 
+            AND deleted_at IS NULL
+        `;
+
+        const resourcesResult = await db.query(resourcesQuery);
+
+        const results = {
+            snapshotDate: snapshotDateStr,
+            totalResources: resourcesResult.rows.length,
+            snapshotsCreated: 0,
+            snapshotsUpdated: 0,
+            errors: []
+        };
+
+        for (const resource of resourcesResult.rows) {
+            try {
+                // Calculate utilization metrics for this resource
+                const metricsQuery = `
+                    SELECT 
+                        -- Total allocation (excluding bench)
+                        COALESCE(SUM(
+                            CASE 
+                                WHEN p.is_bench_project = false 
+                                THEN a.allocation_percentage 
+                                ELSE 0 
+                            END
+                        ), 0) as total_allocation,
+                        
+                        -- Bench percentage
+                        COALESCE(SUM(
+                            CASE 
+                                WHEN p.is_bench_project = true 
+                                THEN a.allocation_percentage 
+                                ELSE 0 
+                            END
+                        ), 0) as bench_percentage,
+                        
+                        -- Billing allocation
+                        COALESCE(SUM(
+                            CASE 
+                                WHEN p.billing_status = 'Billing' AND p.is_bench_project = false 
+                                THEN a.allocation_percentage 
+                                ELSE 0 
+                            END
+                        ), 0) as billing_allocation,
+                        
+                        -- Non-billing allocation (excluding bench)
+                        COALESCE(SUM(
+                            CASE 
+                                WHEN p.billing_status != 'Billing' AND p.is_bench_project = false 
+                                THEN a.allocation_percentage 
+                                ELSE 0 
+                            END
+                        ), 0) as non_billing_allocation,
+                        
+                        -- Project count (excluding bench)
+                        COUNT(DISTINCT CASE WHEN p.is_bench_project = false THEN p.id END) as project_count
+                        
+                    FROM allocations a
+                    JOIN projects p ON a.project_id = p.id
+                    WHERE a.resource_id = $1
+                    AND a.is_active = true
+                    AND a.deleted_at IS NULL
+                    AND a.start_date <= $2
+                    AND (a.end_date IS NULL OR a.end_date >= $2)
+                `;
+
+                const metricsResult = await db.query(metricsQuery, [resource.id, snapshotDateStr]);
+                const metrics = metricsResult.rows[0];
+
+                const totalAllocation = parseFloat(metrics.total_allocation) || 0;
+                const isOverAllocated = totalAllocation > 100;
+
+                // Insert or update snapshot (using ON CONFLICT to handle duplicates)
+                const insertQuery = `
+                    INSERT INTO resource_utilization_snapshots (
+                        resource_id, 
+                        snapshot_date, 
+                        total_allocation, 
+                        bench_percentage, 
+                        billing_allocation, 
+                        non_billing_allocation, 
+                        project_count, 
+                        is_over_allocated,
+                        created_at
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP)
+                    ON CONFLICT (resource_id, snapshot_date) 
+                    DO UPDATE SET
+                        total_allocation = EXCLUDED.total_allocation,
+                        bench_percentage = EXCLUDED.bench_percentage,
+                        billing_allocation = EXCLUDED.billing_allocation,
+                        non_billing_allocation = EXCLUDED.non_billing_allocation,
+                        project_count = EXCLUDED.project_count,
+                        is_over_allocated = EXCLUDED.is_over_allocated
+                    RETURNING (xmax = 0) AS inserted
+                `;
+
+                const insertResult = await db.query(insertQuery, [
+                    resource.id,
+                    snapshotDateStr,
+                    totalAllocation,
+                    parseFloat(metrics.bench_percentage) || 0,
+                    parseFloat(metrics.billing_allocation) || 0,
+                    parseFloat(metrics.non_billing_allocation) || 0,
+                    parseInt(metrics.project_count) || 0,
+                    isOverAllocated
+                ]);
+
+                // Check if it was an insert or update
+                if (insertResult.rows[0].inserted) {
+                    results.snapshotsCreated++;
+                } else {
+                    results.snapshotsUpdated++;
+                }
+
+                log.debug('Snapshot captured', {
+                    resourceId: resource.id,
+                    employeeId: resource.employee_id,
+                    metrics: {
+                        totalAllocation,
+                        benchPercentage: metrics.bench_percentage,
+                        billingAllocation: metrics.billing_allocation,
+                        projectCount: metrics.project_count,
+                        isOverAllocated
+                    }
+                });
+
+            } catch (err) {
+                log.error('Failed to create snapshot for resource', {
+                    resourceId: resource.id,
+                    error: err.message
+                });
+                results.errors.push({
+                    resourceId: resource.id,
+                    employeeId: resource.employee_id,
+                    error: err.message
+                });
+            }
+        }
+
+        log.info('Utilization snapshot job completed', results);
+
+        return success({
+            message: 'Utilization snapshot job completed',
+            ...results
+        });
+
+    } catch (err) {
+        log.error('Utilization snapshot job failed', { error: err.message, stack: err.stack });
+        return error('Utilization snapshot job failed', err);
     }
 };

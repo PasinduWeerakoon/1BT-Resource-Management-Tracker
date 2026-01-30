@@ -126,3 +126,33 @@ functions:
           path: /api/v1/allocations/history/{resourceId}
           method: GET
           authorizer: ${self:custom.authorizer}
+
+  # ==================== SCHEDULED JOBS ====================
+  gapDetectionJob:
+    handler: src/handlers/allocations.gapDetectionJob
+    description: Nightly job to detect and fill allocation gaps with Bench
+    timeout: 300
+    events:
+      - schedule:
+          rate: cron(0 2 * * ? *) # Run daily at 2:00 AM UTC
+          description: Enhancement 3.4 - Gap Detection & Auto-Bench Fill
+          enabled: true
+
+  billingStatusTransitionJob:
+    handler: src/handlers/allocations.billingStatusTransitionJob
+    description: Daily job to auto-transition billing status based on project type
+    timeout: 300
+    events:
+      - schedule:
+          rate: cron(0 3 * * ? *) # Run daily at 3:00 AM UTC
+          description: Enhancement 3.10 - Auto-Transition Billing Status
+          enabled: true
+  utilizationSnapshotJob:
+    handler: src/handlers/allocations.utilizationSnapshotJob
+    description: Daily job to capture historical utilization snapshots
+    timeout: 300
+    events:
+      - schedule:
+          rate: cron(0 0 * * ? *) # Run daily at midnight UTC
+          description: Enhancement 3.12 - Historical Utilization Snapshots
+          enabled: true

@@ -266,9 +266,11 @@ const updateResourceTotals = async (resourceId) => {
 
 ## 3. Proposed Enhancements
 
-### 3.1 Short-Stay Bench Cleanup (< 24 hours) ✅
+### Phase 1: Core Reliability ✅ IMPLEMENTED
 
-**Status**: Implemented in `allocation-service/src/handlers/allocations.js`
+#### 3.1 Short-Stay Bench Cleanup (< 24 hours) ✅
+
+**Status**: ✅ Implemented in `allocation-service/src/handlers/allocations.js`
 
 **Problem**: Resource allocated to Bench, then allocated to a project within 24 hours creates meaningless Bench records that pollute history.
 
@@ -305,7 +307,11 @@ const BENCH_CLEANUP_THRESHOLD_HOURS = 24;
 
 ---
 
-### 3.2 Overallocation Severity Levels
+### Phase 2: High Value ✅ IMPLEMENTED
+
+#### 3.2 Overallocation Severity Levels ✅
+
+**Status**: ✅ Implemented in `allocation-service/src/handlers/allocations.js`
 
 **Problem**: Current system treats all overallocation equally. A 101% allocation is very different from 180%.
 
@@ -335,14 +341,16 @@ const BENCH_CLEANUP_THRESHOLD_HOURS = 24;
 
 **Configuration**:
 
-```javascript
+````javascript
 const OVERALLOCATION_THRESHOLDS = {
   LOW: 120,
   MEDIUM: 150,
   HIGH: 180,
   CRITICAL: 180, // Above this requires force flag
 };
-```
+```# 3.3 Auto End Date from Project ✅
+
+**Status**: ✅ Implemented in `project-service/src/handlers/projects.js`
 
 ---
 
@@ -352,17 +360,19 @@ const OVERALLOCATION_THRESHOLDS = {
 
 **Proposed Logic**:
 
-```
+````
+
 When project.end_date is SET or UPDATED:
-  FOR each active allocation to that project:
-    IF allocation.end_date IS NULL:
-      SET allocation.end_date = project.end_date
-      LOG: "Auto-set end date from project"
+FOR each active allocation to that project:
+IF allocation.end_date IS NULL:
+SET allocation.end_date = project.end_date
+LOG: "Auto-set end date from project"
 
     ELSE IF allocation.end_date > project.end_date:
       SET allocation.end_date = project.end_date
       LOG: "Adjusted end date to match project end"
-```
+
+````
 
 **Trigger Points**:
 
@@ -378,11 +388,15 @@ When project.end_date is SET or UPDATED:
   "previousEndDate": null,
   "newEndDate": "2026-03-31"
 }
-```
+````
 
 ---
 
-### 3.4 Gap Detection & Auto-Bench Fill
+### Phase 3: Proactive Management ✅ COMPLETED
+
+#### 3.4 Gap Detection & Auto-Bench Fill ✅
+
+**Status**: ✅ Implemented in `allocation-service/src/handlers/allocations.js` with scheduled Lambda job
 
 **Problem**: Resource has allocations that end, leaving gaps where they have 0% total allocation.
 
@@ -407,7 +421,7 @@ FOR each active resource:
 
 **Example**:
 
-```
+````
 Resource had:
   - Project A: 60% (ended yesterday)
   - Project B: 40% (ongoing)
@@ -415,9 +429,9 @@ Resource had:
 After job runs:
   - Bench: 60% (auto-created)
   - Project B: 40%
-```
+```# 3.5 Overlapping Date Conflict Detection ✅
 
----
+**Status**: ✅
 
 ### 3.5 Overlapping Date Conflict Detection ✅
 
@@ -427,23 +441,25 @@ After job runs:
 
 **Proposed Logic**:
 
-```
+````
+
 On CREATE or UPDATE allocation:
 
-  existingAllocation = SELECT FROM allocations
-    WHERE resource_id = :resourceId
-    AND project_id = :projectId
-    AND id != :currentId (for updates)
-    AND is_active = true
-    AND date_ranges_overlap(start_date, end_date, :newStartDate, :newEndDate)
+existingAllocation = SELECT FROM allocations
+WHERE resource_id = :resourceId
+AND project_id = :projectId
+AND id != :currentId (for updates)
+AND is_active = true
+AND date_ranges_overlap(start_date, end_date, :newStartDate, :newEndDate)
 
-  IF existingAllocation EXISTS:
-    RETURN error(409, "Conflicting allocation exists", {
-      existingAllocationId: existingAllocation.id,
-      existingDateRange: { start: existingAllocation.start_date, end: existingAllocation.end_date },
-      requestedDateRange: { start: newStartDate, end: newEndDate }
-    })
-```
+IF existingAllocation EXISTS:
+RETURN error(409, "Conflicting allocation exists", {
+existingAllocationId: existingAllocation.id,
+existingDateRange: { start: existingAllocation.start_date, end: existingAllocation.end_date },
+requestedDateRange: { start: newStartDate, end: newEndDate }
+})
+
+````
 
 **Date Overlap Function**:
 
@@ -454,11 +470,13 @@ CREATE FUNCTION date_ranges_overlap(start1 DATE, end1 DATE, start2 DATE, end2 DA
 RETURNS BOOLEAN AS $$
   SELECT (start1 <= COALESCE(end2, '9999-12-31') AND start2 <= COALESCE(end1, '9999-12-31'))
 $$ LANGUAGE SQL;
-```
+````
 
 ---
 
-### 3.6 Resource Status-Based Allocation Restrictions
+#### 3.6 Resource Status-Based Allocation Restrictions ✅
+
+**Status**: ✅ Implemented in `allocation-service/src/handlers/allocations.js` and `resource-service/src/handlers/resources.js`
 
 **Problem**: Resources in certain statuses shouldn't have certain allocation operations.
 
@@ -484,20 +502,31 @@ When resource.status changes to 'Inactive':
 
 ---
 
-### 3.7 Minimum Allocation Threshold
+### Phase 4: Quality & Compliance ✅ COMPLETED
+
+#### 3.7 Minimum Allocation Threshold ✅
+
+**Status**: ✅ Implemented in `allocation-service/src/handlers/allocations.js`
 
 **Problem**: Allocations like 1% or 2% are practically meaningless but create noise in reports.
 
-**Proposed Logic**:
+**Implemented Logic**:
 
-```
+```javascript
 const MINIMUM_ALLOCATION_PERCENTAGE = 5;
+const EXEMPT_PROJECT_CODES = ["BENCH", "LEAVE", "TRAINING", "PTO"];
 
-On CREATE or UPDATE allocation:
-  IF allocation_percentage < MINIMUM_ALLOCATION_PERCENTAGE
-  AND project.is_bench_project = false
-  AND project.project_code NOT IN ('LEAVE', 'TRAINING'):
-    RETURN validationError("Minimum allocation is 5%. For smaller commitments, use notes instead.")
+const validateMinimumAllocation = async (allocationPercentage, projectId) => {
+  if (allocationPercentage < MINIMUM_ALLOCATION_PERCENTAGE) {
+    const project = await getProject(projectId);
+
+    if (!EXEMPT_PROJECT_CODES.includes(project.project_code.toUpperCase())) {
+      throw new Error(
+        "Minimum allocation is 5%. For smaller commitments, use notes instead.",
+      );
+    }
+  }
+};
 ```
 
 **Exceptions**:
@@ -506,93 +535,147 @@ On CREATE or UPDATE allocation:
 - Leave/PTO project (can be any percentage)
 - Training project (can be any percentage)
 
+**API Response**: Returns 400 error with validation message when threshold not met for non-exempt projects.
+
 ---
 
-### 3.8 Project Capacity Tracking
+#### 3.8 Project Capacity Tracking ✅
+
+**Status**: ✅ Implemented in `allocation-service/src/handlers/allocations.js`
 
 **Problem**: Projects have `team_size` defined but it's not enforced during allocation.
 
-**Proposed Logic**:
+**Implemented Logic**:
 
-```
-On CREATE allocation:
-  currentTeamCount = SELECT COUNT(DISTINCT resource_id)
-                     FROM allocations
-                     WHERE project_id = :projectId AND is_active = true
+```javascript
+const checkProjectCapacity = async (projectId, excludeResourceId) => {
+  const project = await getProject(projectId);
+  if (!project.team_size) return null;
 
-  IF currentTeamCount >= project.team_size:
-    RETURN success with warning: {
-      ...allocationData,
-      capacityWarning: "Project at capacity",
-      currentTeamSize: currentTeamCount,
+  const countQuery = `
+    SELECT COUNT(DISTINCT resource_id) as team_count
+    FROM allocations
+    WHERE project_id = $1 AND is_active = true
+    ${excludeResourceId ? "AND resource_id != $2" : ""}
+  `;
+
+  const result = await query(countQuery, [projectId, excludeResourceId]);
+  const currentTeamSize = parseInt(result.rows[0].team_count);
+
+  if (currentTeamSize >= project.team_size) {
+    return {
+      capacityWarning: "Project at or over capacity",
+      currentTeamSize: currentTeamSize + 1,
       maxTeamSize: project.team_size,
-      overCapacity: true
-    }
+      overCapacity: true,
+    };
+  }
+
+  return null;
+};
 ```
+
+**API Response**: Returns success (200) with capacity warning fields when team size is exceeded.
 
 **Note**: This is a warning, not a block. Business may intentionally exceed capacity.
 
 ---
 
-### 3.9 Allocation Duration Validation
+#### 3.9 Allocation Duration Validation ✅
+
+**Status**: ✅ Implemented in `allocation-service/src/handlers/allocations.js`
 
 **Problem**: Allocations created for unreasonably short or long periods may indicate data entry errors.
 
-**Proposed Logic**:
+**Implemented Logic**:
 
-```
+```javascript
 const MIN_BILLING_DURATION_DAYS = 7;
 const INDEFINITE_WARNING_DAYS = 365;
 
-On CREATE or UPDATE allocation:
-  duration = end_date - start_date (or "indefinite" if no end_date)
+const validateAllocationDuration = (
+  startDate,
+  endDate,
+  projectBillingStatus,
+) => {
+  const warnings = [];
 
-  IF duration < MIN_BILLING_DURATION_DAYS AND billing_status = 'Billing':
-    RETURN warning: "Short billing allocation ({duration} days). Confirm this is correct."
+  if (endDate) {
+    const durationDays = Math.ceil(
+      (new Date(endDate) - new Date(startDate)) / (1000 * 60 * 60 * 24),
+    );
 
-  IF end_date IS NULL AND duration_since_start > INDEFINITE_WARNING_DAYS:
-    RETURN warning: "This allocation has been indefinite for over a year. Consider setting an end date."
+    if (
+      durationDays < MIN_BILLING_DURATION_DAYS &&
+      projectBillingStatus === "Billing"
+    ) {
+      warnings.push(
+        `Short billing allocation (${durationDays} days). Confirm this is correct.`,
+      );
+    }
+  } else {
+    const daysSinceStart = Math.ceil(
+      (new Date() - new Date(startDate)) / (1000 * 60 * 60 * 24),
+    );
+
+    if (daysSinceStart > INDEFINITE_WARNING_DAYS) {
+      warnings.push(
+        `This allocation has been indefinite for over a year (${daysSinceStart} days). Consider setting an end date.`,
+      );
+    }
+  }
+
+  return warnings.length > 0 ? warnings : null;
+};
 ```
+
+**API Response**: Returns success (200) with duration warnings when validation triggers.
 
 ---
 
-### 3.10 Auto-Transition Billing Status
+#### 3.10 Auto-Transition Billing Status ✅
+
+**Status**: ✅ Implemented in `allocation-service/src/handlers/allocations.js` with scheduled Lambda job
 
 **Problem**: Billing status sometimes needs to change automatically based on project or date changes.
 
 **Proposed Logic**:
 
 ```
+
 When allocation starts (start_date = today, via scheduled job):
-  IF billing_status = 'Bench' AND project.project_type NOT IN ('Bench', 'Internal'):
-    SET billing_status = project.billing_type  -- 'Billing' or 'Non-Billing'
-    LOG: "Auto-transitioned billing status based on project type"
+IF billing_status = 'Bench' AND project.project_type NOT IN ('Bench', 'Internal'):
+SET billing_status = project.billing_type -- 'Billing' or 'Non-Billing'
+LOG: "Auto-transitioned billing status based on project type"
 
 When allocation ends (end_date = today, via scheduled job):
-  -- Handled by Gap Detection (3.4) which creates Bench allocation
+-- Handled by Gap Detection (3.4) which creates Bench allocation
+
 ```
 
 ---
 
-### 3.11 Rollover Protection (Bench ≥ 0) ✅
+#### 3.11 Rollover Protection (Bench ≥ 0) ✅
 
-**Status**: Fully implemented with logging in `allocation-service/src/handlers/allocations.js`
+**Status**: ✅ Fully implemented with logging in `allocation-service/src/handlers/allocations.js`
 
 **Problem**: Mathematical edge case where Bench percentage could theoretically go negative.
 
 **Proposed Logic**:
 
 ```
+
 Function adjustBenchAllocation(resourceId):
-  nonBenchTotal = SUM(non-bench active allocations)
-  newBenchPercentage = MAX(0, 100 - nonBenchTotal)  // NEVER negative
+nonBenchTotal = SUM(non-bench active allocations)
+newBenchPercentage = MAX(0, 100 - nonBenchTotal) // NEVER negative
 
-  IF newBenchPercentage = 0:
-    DEACTIVATE bench allocation (is_active = false)
-  ELSE:
-    UPDATE bench allocation to newBenchPercentage
+IF newBenchPercentage = 0:
+DEACTIVATE bench allocation (is_active = false)
+ELSE:
+UPDATE bench allocation to newBenchPercentage
 
-  RETURN newBenchPercentage
+RETURN newBenchPercentage
+
 ```
 
 **Current Implementation**: ✅ Already handles this with `Math.max(0, 100 - nonBenchTotal)`
@@ -614,42 +697,55 @@ if (newBenchPercentage < 0) {
 
 ---
 
-### 3.12 Historical Utilization Snapshots
+### Phase 5: Analytics & Reporting ✅ COMPLETED
+
+#### 3.12 Historical Utilization Snapshots ✅
+
+**Status**: ✅ Implemented in `allocation-service/src/handlers/allocations.js` with scheduled Lambda job
 
 **Problem**: No historical view of resource utilization trends over time.
 
-**Proposed Logic**:
+**Implemented Logic**:
 
-```
-Daily scheduled job (e.g., 1:00 AM):
-  FOR each active resource:
-    snapshot = {
-      resource_id: resource.id,
-      snapshot_date: today,
-      total_allocation: SUM(active allocations),
-      bench_percentage: bench allocation percentage,
-      billing_allocation: SUM(allocations WHERE billing_status = 'Billing'),
-      non_billing_allocation: SUM(allocations WHERE billing_status != 'Billing'),
-      project_count: COUNT(DISTINCT active projects),
+```javascript
+export const utilizationSnapshotJob = async (event) => {
+  // Runs daily at midnight UTC
+  // Captures yesterday's utilization snapshot for each active resource
+
+  const snapshotDate = new Date();
+  snapshotDate.setDate(snapshotDate.getDate() - 1); // Yesterday
+
+  for (const resource of activeResources) {
+    // Calculate metrics from allocations
+    const metrics = {
+      total_allocation: SUM(non-bench allocations),
+      bench_percentage: SUM(bench allocations),
+      billing_allocation: SUM(billing allocations),
+      non_billing_allocation: SUM(non-billing allocations, excluding bench),
+      project_count: COUNT(DISTINCT projects, excluding bench),
       is_over_allocated: total_allocation > 100
-    }
+    };
 
-    INSERT INTO resource_utilization_snapshots(snapshot)
+    // Insert or update snapshot (using ON CONFLICT)
+    INSERT INTO resource_utilization_snapshots
+    ON CONFLICT (resource_id, snapshot_date) DO UPDATE;
+  }
+};
 ```
 
-**New Table**:
+**Database Table** (Migration 015):
 
 ```sql
 CREATE TABLE resource_utilization_snapshots (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  resource_id UUID NOT NULL REFERENCES resources(id),
+  resource_id UUID NOT NULL REFERENCES resources(id) ON DELETE CASCADE,
   snapshot_date DATE NOT NULL,
-  total_allocation DECIMAL(5,2) NOT NULL,
-  bench_percentage DECIMAL(5,2) NOT NULL,
-  billing_allocation DECIMAL(5,2) NOT NULL,
-  non_billing_allocation DECIMAL(5,2) NOT NULL,
-  project_count INTEGER NOT NULL,
-  is_over_allocated BOOLEAN NOT NULL,
+  total_allocation DECIMAL(5,2) NOT NULL DEFAULT 0,
+  bench_percentage DECIMAL(5,2) NOT NULL DEFAULT 0,
+  billing_allocation DECIMAL(5,2) NOT NULL DEFAULT 0,
+  non_billing_allocation DECIMAL(5,2) NOT NULL DEFAULT 0,
+  project_count INTEGER NOT NULL DEFAULT 0,
+  is_over_allocated BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
 
   CONSTRAINT unique_resource_date UNIQUE (resource_id, snapshot_date)
@@ -657,50 +753,53 @@ CREATE TABLE resource_utilization_snapshots (
 
 CREATE INDEX idx_snapshots_resource ON resource_utilization_snapshots(resource_id);
 CREATE INDEX idx_snapshots_date ON resource_utilization_snapshots(snapshot_date);
+CREATE INDEX idx_snapshots_resource_date ON resource_utilization_snapshots(resource_id, snapshot_date DESC);
 ```
+
+**Scheduled Job**: Runs daily at midnight UTC (cron: `0 0 * * ? *`)
 
 **Benefits**:
 
-- Trend analysis for dashboards
-- Bench time reporting
-- Utilization efficiency metrics
-- Historical data for audits
-
----
-
-## 4. Implementation Priority
-
-### Phase 1: Critical (Implement First) ✅ COMPLETE
+- **Trend analysis**: Track resource utilization patterns over time
+- **Bench time reporting**: Historical view of bench allocation
+- **Utilization efficiency metrics**: Measure billing vs non-billing allocation trends
+- **Historical data for audits**: Immutable record of daily snapshots
+- **Dashboard analytics**: Enable time-series charts and trend visualizations
 
 | #    | Enhancement                         | Priority | Complexity | Business Value          | Status  |
 | ---- | ----------------------------------- | -------- | ---------- | ----------------------- | ------- |
 | 3.1  | Short-Stay Bench Cleanup            | **HIGH** | Low        | Cleaner data, better UX | ✅ Done |
 | 3.5  | Overlapping Date Conflict Detection | **HIGH** | Low        | Data integrity          | ✅ Done |
-| 3.11 | Rollover Protection (Bench ≥ 0)     | **HIGH** | Low        | Bug prevention          | ✅ Done |
+| 3.11 | Rollover Protection                 | **HIGH** | Low        | Prevent negative values | ✅ Done |
 
-### Phase 2: High Value (Implement Second)
+### Phase 2: High Value ✅ COMPLETED
 
-| #   | Enhancement                    | Priority   | Complexity | Business Value   | Status     |
-| --- | ------------------------------ | ---------- | ---------- | ---------------- | ---------- |
-| 3.2 | Overallocation Severity Levels | **HIGH**   | Medium     | Risk management  | ⏳ Pending |
-| 3.3 | Auto End Date from Project     | **HIGH**   | Low        | Data consistency | ⏳ Pending |
-| 3.6 | Resource Status Restrictions   | **MEDIUM** | Low        | Business rules   | ⏳ Pending |
+| #   | Enhancement                             | Priority   | Complexity | Business Value            | Status  |
+| --- | --------------------------------------- | ---------- | ---------- | ------------------------- | ------- |
+| 3.2 | Overallocation Severity Levels          | **HIGH**   | Medium     | Better decision support   | ✅ Done |
+| 3.3 | Auto End Date from Project              | **HIGH**   | Medium     | Data accuracy             | ✅ Done |
+| 3.6 | Resource Status-Based Allocation Restr. | **MEDIUM** | Medium     | Business rule enforcement | ✅ Done |
 
-### Phase 3: Optimization (Implement Later)
+### Phase 3: Proactive Management ✅ COMPLETED
 
-| #    | Enhancement                      | Priority   | Complexity | Business Value     | Status     |
-| ---- | -------------------------------- | ---------- | ---------- | ------------------ | ---------- |
-| 3.4  | Gap Detection & Auto-Bench Fill  | **MEDIUM** | Medium     | Accurate reporting | ⏳ Pending |
-| 3.8  | Project Capacity Tracking        | **MEDIUM** | Low        | Resource planning  | ⏳ Pending |
-| 3.10 | Auto-Transition Billing Status   | **MEDIUM** | Medium     | Automation         | ⏳ Pending |
-| 3.12 | Historical Utilization Snapshots | **MEDIUM** | Medium     | Analytics          | ⏳ Pending |
+| #    | Enhancement                | Priority   | Complexity | Business Value       | Status  |
+| ---- | -------------------------- | ---------- | ---------- | -------------------- | ------- |
+| 3.4  | Gap Detection & Auto-Bench | **HIGH**   | Medium     | Accurate utilization | ✅ Done |
+| 3.10 | Auto-Transition Billing    | **MEDIUM** | Low        | Automation           | ✅ Done |
 
-### Phase 4: Nice-to-Have
+### Phase 4: Quality & Compliance ✅ COMPLETED
 
-| #   | Enhancement                    | Priority | Complexity | Business Value | Status     |
-| --- | ------------------------------ | -------- | ---------- | -------------- | ---------- |
-| 3.7 | Minimum Allocation Threshold   | **LOW**  | Low        | Data quality   | ⏳ Pending |
-| 3.9 | Allocation Duration Validation | **LOW**  | Low        | Data quality   | ⏳ Pending |
+| #   | Enhancement                    | Priority   | Complexity | Business Value    | Status  |
+| --- | ------------------------------ | ---------- | ---------- | ----------------- | ------- |
+| 3.7 | Minimum Allocation Threshold   | **LOW**    | Low        | Data quality      | ✅ Done |
+| 3.8 | Project Capacity Tracking      | **MEDIUM** | Low        | Resource planning | ✅ Done |
+| 3.9 | Allocation Duration Validation | **LOW**    | Low        | Data quality      | ✅ Done |
+
+### Phase 5: Analytics & Reporting ✅ COMPLETED
+
+| #    | Enhancement                      | Priority   | Complexity | Business Value | Status  |
+| ---- | -------------------------------- | ---------- | ---------- | -------------- | ------- |
+| 3.12 | Historical Utilization Snapshots | **MEDIUM** | Medium     | Analytics      | ✅ Done |
 
 ---
 

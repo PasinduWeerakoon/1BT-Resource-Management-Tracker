@@ -25,6 +25,72 @@ const SERVICE_NAME = 'resource-service';
 let BENCH_PROJECT_ID = null;
 
 /**
+ * Enhancement 3.6: Auto-end all allocations when resource becomes inactive
+ */
+const autoEndAllocationsOnInactive = async (resourceId, userId, log) => {
+    try {
+        // Find all active allocations for this resource
+        const activeAllocations = await db.query(`
+            SELECT id, project_id, allocation_percentage, end_date 
+            FROM allocations 
+            WHERE resource_id = $1 
+            AND is_active = true
+        `, [resourceId]);
+
+        if (activeAllocations.rows.length === 0) {
+            return { ended: 0, message: 'No active allocations to end' };
+        }
+
+        const today = new Date().toISOString().split('T')[0];
+        let ended = 0;
+
+        for (const allocation of activeAllocations.rows) {
+            // Set end date to today and deactivate
+            await db.query(`
+                UPDATE allocations 
+                SET end_date = $1::date,
+                    is_active = false,
+                    updated_by = $2,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = $3
+            `, [today, userId || '00000000-0000-0000-0000-000000000000', allocation.id]);
+
+            // Log to allocation change history
+            await db.query(`
+                INSERT INTO allocation_change_history (
+                    allocation_id, change_type, changed_by, changed_fields, old_values, new_values, notes
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
+            `, [
+                allocation.id,
+                'UPDATED',
+                userId || '00000000-0000-0000-0000-000000000000',
+                JSON.stringify(['end_date', 'is_active']),
+                JSON.stringify({ end_date: allocation.end_date, is_active: true }),
+                JSON.stringify({ end_date: today, is_active: false }),
+                'Auto-ended: Resource became inactive'
+            ]);
+
+            ended++;
+        }
+
+        log.info('Auto-ended allocations due to resource inactive status', {
+            resourceId,
+            endedCount: ended
+        });
+
+        return {
+            ended,
+            message: `Auto-ended ${ended} allocation(s) due to resource becoming inactive`
+        };
+    } catch (err) {
+        log.error('Failed to auto-end allocations on inactive', { resourceId, error: err.message });
+        // Don't fail the resource update if this fails
+        return { ended: 0, error: err.message };
+    }
+};
+
+/**
  * Get the Bench project ID (from database by is_bench_project flag)
  * Uses Drizzle ORM for type-safe queries
  */
@@ -585,6 +651,12 @@ export const update = async (event) => {
                 .returning();
         });
 
+        // Enhancement 3.6: Auto-end all allocations if status changed to Inactive
+        let allocationEnded = null;
+        if (validated.status === 'Inactive' && existing.status !== 'Inactive') {
+            allocationEnded = await autoEndAllocationsOnInactive(id, userId, log);
+        }
+
         // Send audit event for resource update (outside transaction)
         await audit.update(
             event,
@@ -593,12 +665,19 @@ export const update = async (event) => {
             updatedResource.name,
             existing,
             updatedResource,
-            SERVICE_NAME
+            SERVICE_NAME,
+            { allocationEnded }
         );
 
-        log.info('Resource updated', { id });
+        log.info('Resource updated', { id, allocationEnded });
 
-        return success(updatedResource);
+        // Include allocation ended info in response
+        const response = { ...updatedResource };
+        if (allocationEnded && allocationEnded.ended > 0) {
+            response.allocationEnded = allocationEnded;
+        }
+
+        return success(response);
 
     } catch (err) {
         log.error('Failed to update resource', { id, error: err.message });

@@ -995,6 +995,47 @@ const migrations = [
 
             logger.info('Migration 014 completed: Allocation totals and is_billable_track added, triggers created');
         }
+    },
+    {
+        id: '015_utilization_snapshots',
+        name: 'Historical Utilization Snapshots',
+        up: async (client) => {
+            // Create resource_utilization_snapshots table
+            await client.query(`
+                CREATE TABLE IF NOT EXISTS resource_utilization_snapshots (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    resource_id UUID NOT NULL REFERENCES resources(id) ON DELETE CASCADE,
+                    snapshot_date DATE NOT NULL,
+                    total_allocation DECIMAL(5,2) NOT NULL DEFAULT 0,
+                    bench_percentage DECIMAL(5,2) NOT NULL DEFAULT 0,
+                    billing_allocation DECIMAL(5,2) NOT NULL DEFAULT 0,
+                    non_billing_allocation DECIMAL(5,2) NOT NULL DEFAULT 0,
+                    project_count INTEGER NOT NULL DEFAULT 0,
+                    is_over_allocated BOOLEAN NOT NULL DEFAULT false,
+                    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                    
+                    CONSTRAINT unique_resource_date UNIQUE (resource_id, snapshot_date)
+                );
+            `);
+
+            // Create indexes for efficient querying
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS idx_snapshots_resource 
+                ON resource_utilization_snapshots(resource_id);
+            `);
+
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS idx_snapshots_date 
+                ON resource_utilization_snapshots(snapshot_date);
+            `);
+
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS idx_snapshots_resource_date 
+                ON resource_utilization_snapshots(resource_id, snapshot_date DESC);
+            `);
+
+            logger.info('Migration 015 completed: resource_utilization_snapshots table created');
+        }
     }
 ];
 
