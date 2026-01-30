@@ -30,6 +30,7 @@ export const tracks = pgTable('tracks', {
     name: varchar('name', { length: 50 }).notNull().unique(),
     description: text('description'),
     isActive: boolean('is_active').default(true),
+    isBillableTrack: boolean('is_billable_track').default(false), // Whether resources in this track should have auto-bench allocation
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
     createdBy: uuid('created_by'),
@@ -96,6 +97,8 @@ export const resources = pgTable('resources', {
     photoUrl: varchar('photo_url', { length: 500 }),
     status: resourceStatusEnum('status').notNull().default('Active'),
     noticePeriodEndDate: date('notice_period_end_date'),
+    totalAllocation: decimal('total_allocation', { precision: 5, scale: 2 }).default(sql`0`), // Sum of all active non-bench allocations
+    totalBilling: decimal('total_billing', { precision: 5, scale: 2 }).default(sql`0`), // Sum of all active billing percentages
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
     version: integer('version').notNull().default(1),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

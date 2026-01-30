@@ -25,6 +25,72 @@ const SERVICE_NAME = 'resource-service';
 let BENCH_PROJECT_ID = null;
 
 /**
+ * Enhancement 3.6: Auto-end all allocations when resource becomes inactive
+ */
+const autoEndAllocationsOnInactive = async (resourceId, userId, log) => {
+    try {
+        // Find all active allocations for this resource
+        const activeAllocations = await db.query(`
+            SELECT id, project_id, allocation_percentage, end_date 
+            FROM allocations 
+            WHERE resource_id = $1 
+            AND is_active = true
+        `, [resourceId]);
+
+        if (activeAllocations.rows.length === 0) {
+            return { ended: 0, message: 'No active allocations to end' };
+        }
+
+        const today = new Date().toISOString().split('T')[0];
+        let ended = 0;
+
+        for (const allocation of activeAllocations.rows) {
+            // Set end date to today and deactivate
+            await db.query(`
+                UPDATE allocations 
+                SET end_date = $1::date,
+                    is_active = false,
+                    updated_by = $2,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = $3
+            `, [today, userId || '00000000-0000-0000-0000-000000000000', allocation.id]);
+
+            // Log to allocation change history
+            await db.query(`
+                INSERT INTO allocation_change_history (
+                    allocation_id, change_type, changed_by, changed_fields, old_values, new_values, notes
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
+            `, [
+                allocation.id,
+                'UPDATED',
+                userId || '00000000-0000-0000-0000-000000000000',
+                JSON.stringify(['end_date', 'is_active']),
+                JSON.stringify({ end_date: allocation.end_date, is_active: true }),
+                JSON.stringify({ end_date: today, is_active: false }),
+                'Auto-ended: Resource became inactive'
+            ]);
+
+            ended++;
+        }
+
+        log.info('Auto-ended allocations due to resource inactive status', {
+            resourceId,
+            endedCount: ended
+        });
+
+        return {
+            ended,
+            message: `Auto-ended ${ended} allocation(s) due to resource becoming inactive`
+        };
+    } catch (err) {
+        log.error('Failed to auto-end allocations on inactive', { resourceId, error: err.message });
+        // Don't fail the resource update if this fails
+        return { ended: 0, error: err.message };
+    }
+};
+
+/**
  * Get the Bench project ID (from database by is_bench_project flag)
  * Uses Drizzle ORM for type-safe queries
  */
@@ -74,15 +140,55 @@ const getBenchProjectId = async () => {
 };
 
 /**
+ * Check if a track is a billable track (should have auto-bench allocation)
+ * Only Dev (FS, .Net, DS, UI/UX), QA, and PM/BA tracks should auto-bench
+ * @param {object} tx - Drizzle transaction context
+ * @param {string} trackId - The track ID to check
+ * @returns {boolean} - Whether the track is billable
+ */
+const isBillableTrack = async (tx, trackId) => {
+    try {
+        const result = await tx
+            .select({ isBillableTrack: tracks.isBillableTrack, name: tracks.name })
+            .from(tracks)
+            .where(eq(tracks.id, trackId));
+
+        if (result.length === 0) {
+            return false;
+        }
+
+        // If is_billable_track column is set, use it
+        if (result[0].isBillableTrack !== null) {
+            return result[0].isBillableTrack;
+        }
+
+        // Fallback: check track name for backwards compatibility
+        const billableTracks = ['FS', '.Net', 'DS', 'UI/UX', 'QA', 'PM/BA'];
+        return billableTracks.includes(result[0].name);
+    } catch {
+        return false;
+    }
+};
+
+/**
  * Create initial bench allocation for a new resource at 100%
+ * Only applies to billable tracks (Dev, QA, PM/BA)
  * Uses Drizzle ORM - can accept transaction context (tx) for atomic operations
  * @param {object} tx - Drizzle transaction context (or regular drizzle instance)
  * @param {string} resourceId - The resource ID to allocate
+ * @param {string} trackId - The track ID of the resource
  * @param {string} userId - The user creating the allocation
  * @param {object} log - Logger instance
  */
-const createInitialBenchAllocation = async (tx, resourceId, userId, log) => {
+const createInitialBenchAllocation = async (tx, resourceId, trackId, userId, log) => {
     try {
+        // Check if this track should have auto-bench allocation
+        const shouldAutoBench = await isBillableTrack(tx, trackId);
+        if (!shouldAutoBench) {
+            log.info('Track is not billable, skipping auto-bench allocation', { resourceId, trackId });
+            return null;
+        }
+
         const benchProjectId = await getBenchProjectId();
 
         if (!benchProjectId) {
@@ -108,6 +214,7 @@ const createInitialBenchAllocation = async (tx, resourceId, userId, log) => {
                 resourceId: resourceId,
                 projectId: benchProjectId,
                 allocationPercentage: '100',
+                billingPercentage: '0', // Bench is non-billing
                 startDate: new Date().toISOString().split('T')[0], // YYYY-MM-DD format
                 isActive: true,
                 notes: 'Auto-created bench allocation for new resource',
@@ -309,8 +416,52 @@ export const getById = async (event) => {
             GROUP BY r.id, d.name, d.level, t.name
             LIMIT 1
         `;
+        // Using Drizzle with leftJoin for related data
+        // Map to snake_case for API response consistency
+        const result = await drizzle
+            .select({
+                // Resource fields (map schema camelCase to API snake_case)
+                id: resources.id,
+                employee_id: resources.employeeId,
+                employee_number: resources.employeeNumber,
+                name: resources.name,
+                phone_number: resources.phoneNumber,
+                email: resources.email,
+                address: resources.address,
+                designation_id: resources.designationId,
+                track_id: resources.trackId,
+                intern_classification: resources.internClassification,
+                skills: resources.skills,
+                date_of_joining: resources.dateOfJoining,
+                date_of_birth: resources.dateOfBirth,
+                nic_passport: resources.nicPassport,
+                is_intern: resources.isIntern,
+                tier: resources.tier,
+                tech_stack: resources.techStack,
+                photo_url: resources.photoUrl,
+                status: resources.status,
+                total_allocation: resources.totalAllocation,
+                total_billing: resources.totalBilling,
+                version: resources.version,
+                created_at: resources.createdAt,
+                updated_at: resources.updatedAt,
+                created_by: resources.createdBy,
+                updated_by: resources.updatedBy,
+                deleted_at: resources.deletedAt,
+                // Joined fields
+                designation_name: designations.name,
+                designation_level: designations.level,
+                track_name: tracks.name
+            })
+            .from(resources)
+            .leftJoin(designations, eq(resources.designationId, designations.id))
+            .leftJoin(tracks, eq(resources.trackId, tracks.id))
+            .where(and(
+                eq(resources.id, id),
+                isNull(resources.deletedAt)
+            ));
 
-        const result = await db.query(resourceQuery, [id]);
+        // const result = await db.query(resourceQuery, [id]);
 
         if (result.rows.length === 0) {
             return notFound('Resource not found');
@@ -458,7 +609,8 @@ export const create = async (event) => {
             }
 
             // Auto-assign 100% to Bench project (within same transaction)
-            const benchAllocation = await createInitialBenchAllocation(tx, newResource.id, userId, log);
+            // Only creates bench allocation for billable tracks (FS, .Net, DS, UI/UX, QA, PM/BA)
+            const benchAllocation = await createInitialBenchAllocation(tx, newResource.id, validated.track_id, userId, log);
 
             return { newResource, benchAllocation };
         });
@@ -653,6 +805,12 @@ export const update = async (event) => {
             return result;
         });
 
+        // Enhancement 3.6: Auto-end all allocations if status changed to Inactive
+        let allocationEnded = null;
+        if (validated.status === 'Inactive' && existing.status !== 'Inactive') {
+            allocationEnded = await autoEndAllocationsOnInactive(id, userId, log);
+        }
+
         // Send audit event for resource update (outside transaction)
         await audit.update(
             event,
@@ -661,12 +819,19 @@ export const update = async (event) => {
             updatedResource.name,
             existing,
             updatedResource,
-            SERVICE_NAME
+            SERVICE_NAME,
+            { allocationEnded }
         );
 
-        log.info('Resource updated', { id });
+        log.info('Resource updated', { id, allocationEnded });
 
-        return success(updatedResource);
+        // Include allocation ended info in response
+        const response = { ...updatedResource };
+        if (allocationEnded && allocationEnded.ended > 0) {
+            response.allocationEnded = allocationEnded;
+        }
+
+        return success(response);
 
     } catch (err) {
         log.error('Failed to update resource', { id, error: err.message });
