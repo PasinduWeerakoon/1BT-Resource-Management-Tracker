@@ -1,5 +1,47 @@
 const path = require('path');
+const webpack = require('webpack');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
+const fs = require('fs');
+
+// Load .env file if it exists
+const loadEnvFile = () => {
+  const envPath = path.resolve(__dirname, '.env');
+  const env = {};
+  
+  if (fs.existsSync(envPath)) {
+    try {
+      const envFile = fs.readFileSync(envPath, 'utf8');
+      envFile.split('\n').forEach((line) => {
+        const trimmedLine = line.trim();
+        // Skip empty lines and comments
+        if (trimmedLine && !trimmedLine.startsWith('#')) {
+          const [key, ...valueParts] = trimmedLine.split('=');
+          if (key && valueParts.length > 0) {
+            const value = valueParts.join('=').trim();
+            // Remove quotes if present
+            env[key.trim()] = value.replace(/^["']|["']$/g, '');
+          }
+        }
+      });
+      // Debug: Log loaded env vars (only in development)
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('📄 Loaded .env file from:', envPath);
+        console.log('📦 Environment variables from .env:', env);
+      }
+    } catch (error) {
+      console.warn('⚠️  Warning: Could not read .env file:', error.message);
+    }
+  } else {
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('ℹ️  No .env file found at:', envPath);
+    }
+  }
+  
+  return env;
+};
+
+// Load environment variables from .env file
+const envVars = loadEnvFile();
 
 // Custom plugin to filter Sass deprecation warnings
 class SuppressSassWarningsPlugin {
@@ -82,6 +124,12 @@ module.exports = {
     new HtmlWebpackPlugin({
       template: './public/index.html',
       filename: 'index.html',
+    }),
+    new webpack.DefinePlugin({
+      // NODE_ENV is automatically set by webpack based on --mode flag, so we don't define it here
+      // 'process.env.NODE_ENV' is handled by webpack automatically
+      'process.env.REACT_APP_ENV': JSON.stringify(envVars.REACT_APP_ENV || process.env.REACT_APP_ENV || 'qa'),
+      'process.env.REACT_APP_API_BASE_URL': JSON.stringify(envVars.REACT_APP_API_BASE_URL || process.env.REACT_APP_API_BASE_URL || ''),
     }),
     new SuppressSassWarningsPlugin(),
   ],

@@ -1,10 +1,11 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Row, Col, Card, Select, Badge, Button } from 'antd';
 import { FilterOutlined, UpOutlined, DownOutlined, ReloadOutlined } from '@ant-design/icons';
 import { Bar } from 'react-chartjs-2';
 import { commonOptions, colors } from '@utils/chartConfig';
 import CustomTable from '@components/Table';
-import { accountManagersService } from '@api';
+import { accountManagersService, reportsService, projectsService, tracksService } from '@api';
+import { showErrorToast } from '@utils/toast.utils';
 import '@styles/pages/TierBreakdownReport.scss';
 
 const { Option } = Select;
@@ -17,7 +18,6 @@ const TierBreakdownReport = () => {
     accountManager: 'All',
     track: 'All',
     techStack: 'All',
-    designation: 'All',
   });
 
   // Default filter values for comparison
@@ -27,7 +27,6 @@ const TierBreakdownReport = () => {
     accountManager: 'All',
     track: 'All',
     techStack: 'All',
-    designation: 'All',
   };
 
   // Count active filters (filters that differ from defaults)
@@ -41,10 +40,25 @@ const TierBreakdownReport = () => {
     return count;
   }, [filters]);
 
-  // Account managers for dropdown
+  // Filter options for dropdowns
   const [accountManagers, setAccountManagers] = useState([]);
   const [loadingAccountManagers, setLoadingAccountManagers] = useState(false);
+  const [projects, setProjects] = useState([]);
+  const [loadingProjects, setLoadingProjects] = useState(false);
+  const [tracks, setTracks] = useState([]);
+  const [loadingTracks, setLoadingTracks] = useState(false);
+  const [techStacks, setTechStacks] = useState([]);
 
+  // Report data
+  const [tierData, setTierData] = useState([]);
+  const [employeeData, setEmployeeData] = useState([]);
+  const [totalEmployees, setTotalEmployees] = useState(0);
+  const [loadingReport, setLoadingReport] = useState(false);
+
+  // Refs to prevent duplicate API calls
+  const fetchReportInProgressRef = useRef(false);
+
+  // Fetch filter options on mount
   useEffect(() => {
     const fetchAccountManagers = async () => {
       try {
@@ -65,34 +79,172 @@ const TierBreakdownReport = () => {
         setAccountManagers(formatted);
       } catch (error) {
         // silent fail; filters remain usable
-        // console.error('Failed to fetch account managers for TierBreakdownReport:', error);
+        console.error('Failed to fetch account managers:', error);
       } finally {
         setLoadingAccountManagers(false);
       }
     };
 
+    const fetchProjects = async () => {
+      try {
+        setLoadingProjects(true);
+        const response = await projectsService.getAll({ limit: 100 });
+        let projectsData = [];
+
+        if (response) {
+          if (Array.isArray(response.data)) {
+            projectsData = response.data;
+          } else if (response.data && response.data.data && Array.isArray(response.data.data)) {
+            projectsData = response.data.data;
+          } else if (response.data && Array.isArray(response.data)) {
+            projectsData = response.data;
+          }
+        }
+
+        const formatted = projectsData
+          .map((project) => ({
+            id: project.id,
+            name: project.project_name || project.name,
+          }))
+          .filter((project) => project.id && project.name);
+
+        setProjects(formatted);
+      } catch (error) {
+        console.error('Failed to fetch projects:', error);
+      } finally {
+        setLoadingProjects(false);
+      }
+    };
+
+    const fetchTracks = async () => {
+      try {
+        setLoadingTracks(true);
+        const response = await tracksService.getAll({ limit: 100 });
+        let tracksData = [];
+
+        if (response) {
+          if (Array.isArray(response.data)) {
+            tracksData = response.data;
+          } else if (response.data && response.data.data && Array.isArray(response.data.data)) {
+            tracksData = response.data.data;
+          }
+        }
+
+        const formatted = tracksData
+          .map((track) => ({
+            id: track.id,
+            name: track.name,
+          }))
+          .filter((track) => track.id && track.name);
+
+        setTracks(formatted);
+      } catch (error) {
+        console.error('Failed to fetch tracks:', error);
+      } finally {
+        setLoadingTracks(false);
+      }
+    };
+
     fetchAccountManagers();
+    fetchProjects();
+    fetchTracks();
   }, []);
+
+  // Fetch tier breakdown report
+  const fetchTierBreakdownReport = async () => {
+    if (fetchReportInProgressRef.current) {
+      return;
+    }
+
+    try {
+      fetchReportInProgressRef.current = true;
+      setLoadingReport(true);
+
+      // Build query params from filters
+      const params = {};
+      if (filters.tier && filters.tier !== 'All') {
+        params.tier = filters.tier;
+      }
+      if (filters.projectName && filters.projectName !== 'All') {
+        params.project_name = filters.projectName;
+      }
+      if (filters.accountManager && filters.accountManager !== 'All') {
+        params.account_manager = filters.accountManager;
+      }
+      if (filters.track && filters.track !== 'All') {
+        params.track = filters.track;
+      }
+      if (filters.techStack && filters.techStack !== 'All') {
+        params.tech_stack = filters.techStack;
+      }
+
+      const response = await reportsService.getTierBreakdown(params);
+
+      // Handle response structure
+      let reportData = null;
+      if (response) {
+        if (response.data) {
+          reportData = response.data;
+        } else if (response.summary || response.tierDistribution) {
+          reportData = response;
+        }
+      }
+
+      if (reportData) {
+        // Update tier distribution for chart
+        if (reportData.tierDistribution && Array.isArray(reportData.tierDistribution)) {
+          setTierData(reportData.tierDistribution);
+        }
+
+        // Update employee details for table
+        if (reportData.employeeDetails && Array.isArray(reportData.employeeDetails)) {
+          setEmployeeData(reportData.employeeDetails);
+
+          // Extract unique tech stacks from employee details for filter dropdown
+          // Only extract on initial load (when no filters are applied) to get all available tech stacks
+          const hasNoFilters = filters.projectName === 'All' &&
+            filters.tier === 'All' &&
+            filters.accountManager === 'All' &&
+            filters.track === 'All' &&
+            filters.techStack === 'All';
+
+          if (hasNoFilters && reportData.employeeDetails.length > 0) {
+            const uniqueTechStacks = [...new Set(
+              reportData.employeeDetails
+                .map((employee) => employee.techStack || employee.tech_stack)
+                .filter((techStack) => techStack && techStack.trim() !== '')
+            )].sort();
+
+            if (uniqueTechStacks.length > 0) {
+              setTechStacks(uniqueTechStacks.map((techStack) => ({ name: techStack })));
+            }
+          }
+        }
+
+        // Update total employees
+        if (reportData.summary && reportData.summary.totalEmployees !== undefined) {
+          setTotalEmployees(reportData.summary.totalEmployees);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch tier breakdown report:', error);
+      showErrorToast(error?.response?.data?.message || error?.message || 'Failed to load tier breakdown report');
+    } finally {
+      setLoadingReport(false);
+      fetchReportInProgressRef.current = false;
+    }
+  };
+
+  // Fetch report on mount and when any filter changes
+  useEffect(() => {
+    fetchTierBreakdownReport();
+  }, [filters.tier, filters.projectName, filters.accountManager, filters.track, filters.techStack]);
 
   // Reset filters to default values
   const handleResetFilters = (e) => {
     e.stopPropagation();
     setFilters({ ...defaultFilters });
   };
-
-  // KPI Data
-  const totalEmployees = 114;
-
-  // Tier distribution data
-  const tierData = [
-    { tier: '0', count: 5 },
-    { tier: '1', count: 2 },
-    { tier: '2', count: 20 },
-    { tier: '3', count: 9 },
-    { tier: '4', count: 43 },
-    { tier: '5', count: 27 },
-    { tier: '99', count: 8 },
-  ];
 
   // Employee Details Table Columns
   const employeeColumns = [
@@ -127,141 +279,6 @@ const TierBreakdownReport = () => {
       width: 160,
     },
   ];
-
-  // Mock employee data
-  const employeeData = [
-    {
-      key: '1',
-      employeeName: 'Akeel Aliyar',
-      project: 'Healthfinder',
-      billingStatus: 'Non-Billing',
-      billingPercentage: '0.00%',
-      projectAllocation: '100.00%',
-    },
-    {
-      key: '2',
-      employeeName: 'Amaniya Faizal',
-      project: 'Bench',
-      billingStatus: 'Bench',
-      billingPercentage: '0.00%',
-      projectAllocation: '100.00%',
-    },
-    {
-      key: '3',
-      employeeName: 'Amir Hafi',
-      project: 'Seer Insights',
-      billingStatus: 'Billing',
-      billingPercentage: '100.00%',
-      projectAllocation: '100.00%',
-    },
-    {
-      key: '4',
-      employeeName: 'Anudi Divarathne',
-      project: 'Seer Home Page',
-      billingStatus: 'Billing',
-      billingPercentage: '100.00%',
-      projectAllocation: '100.00%',
-    },
-    {
-      key: '5',
-      employeeName: 'Anudi Divarathne',
-      project: 'Seer Insights V2',
-      billingStatus: 'Billing',
-      billingPercentage: '50.00%',
-      projectAllocation: '50.00%',
-    },
-    {
-      key: '6',
-      employeeName: 'Anushka Wickramaratne',
-      project: 'IGBC Support',
-      billingStatus: 'Billing',
-      billingPercentage: '100.00%',
-      projectAllocation: '100.00%',
-    },
-    {
-      key: '7',
-      employeeName: 'Athula Chandrawansha',
-      project: 'HR Solution',
-      billingStatus: 'Billing',
-      billingPercentage: '75.00%',
-      projectAllocation: '80.00%',
-    },
-    {
-      key: '8',
-      employeeName: 'Avanthi Amunugama',
-      project: 'Presale',
-      billingStatus: 'Presale',
-      billingPercentage: '0.00%',
-      projectAllocation: '100.00%',
-    },
-    {
-      key: '9',
-      employeeName: 'Avanthi Amunugama',
-      project: 'Seer Rom In Port',
-      billingStatus: 'Training',
-      billingPercentage: '0.00%',
-      projectAllocation: '20.00%',
-    },
-    {
-      key: '10',
-      employeeName: 'Chamalka Gamaralalage',
-      project: 'Ideapoint',
-      billingStatus: 'Billing',
-      billingPercentage: '100.00%',
-      projectAllocation: '100.00%',
-    },
-    {
-      key: '11',
-      employeeName: 'Chamath Randula',
-      project: 'MillionSpaces',
-      billingStatus: 'Billing',
-      billingPercentage: '100.00%',
-      projectAllocation: '100.00%',
-    },
-    {
-      key: '12',
-      employeeName: 'Chaminda Pragnarathne',
-      project: 'Bench',
-      billingStatus: 'Bench',
-      billingPercentage: '0.00%',
-      projectAllocation: '100.00%',
-    },
-    {
-      key: '13',
-      employeeName: 'Chanka Sonnadara',
-      project: 'Healthfinder',
-      billingStatus: 'Non-Billing',
-      billingPercentage: '0.00%',
-      projectAllocation: '100.00%',
-    },
-    {
-      key: '14',
-      employeeName: 'Charith Bandara',
-      project: 'MillionSpaces',
-      billingStatus: 'Training',
-      billingPercentage: '0.00%',
-      projectAllocation: '50.00%',
-    },
-    {
-      key: '15',
-      employeeName: 'Charith Bandara',
-      project: 'Bench',
-      billingStatus: 'Bench',
-      billingPercentage: '0.00%',
-      projectAllocation: '50.00%',
-    },
-    {
-      key: '16',
-      employeeName: 'Charith Jayasankha',
-      project: 'Seer Insights',
-      billingStatus: 'Billing',
-      billingPercentage: '100.00%',
-      projectAllocation: '100.00%',
-    },
-  ];
-
-  // Calculate max count for bar chart scaling
-  const maxCount = Math.max(...tierData.map(item => item.count));
 
   // Chart.js data for bar chart
   const barChartData = {
@@ -354,10 +371,19 @@ const TierBreakdownReport = () => {
                     value={filters.projectName}
                     onChange={(value) => setFilters({ ...filters, projectName: value })}
                     style={{ width: '100%' }}
+                    loading={loadingProjects}
+                    showSearch
+                    allowClear
+                    filterOption={(input, option) =>
+                      (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                    }
                   >
                     <Option value="All">All</Option>
-                    <Option value="Healthfinder">Healthfinder</Option>
-                    <Option value="MillionSpaces">MillionSpaces</Option>
+                    {projects.map((project) => (
+                      <Option key={project.id} value={project.name} label={project.name}>
+                        {project.name}
+                      </Option>
+                    ))}
                   </Select>
                 </div>
               </Col>
@@ -368,15 +394,16 @@ const TierBreakdownReport = () => {
                     value={filters.tier}
                     onChange={(value) => setFilters({ ...filters, tier: value })}
                     style={{ width: '100%' }}
+                    loading={loadingReport}
                   >
                     <Option value="All">All</Option>
-                    <Option value="0">Tier 0</Option>
+                    <Option value="0">Tier 0 (Synergy)</Option>
                     <Option value="1">Tier 1</Option>
                     <Option value="2">Tier 2</Option>
                     <Option value="3">Tier 3</Option>
                     <Option value="4">Tier 4</Option>
                     <Option value="5">Tier 5</Option>
-                    <Option value="99">Tier 99</Option>
+                    <Option value="99">Tier 99 (Intern)</Option>
                   </Select>
                 </div>
               </Col>
@@ -410,12 +437,19 @@ const TierBreakdownReport = () => {
                     value={filters.track}
                     onChange={(value) => setFilters({ ...filters, track: value })}
                     style={{ width: '100%' }}
+                    loading={loadingTracks}
+                    showSearch
+                    allowClear
+                    filterOption={(input, option) =>
+                      (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                    }
                   >
                     <Option value="All">All</Option>
-                    <Option value="Dev">Dev</Option>
-                    <Option value="QA">QA</Option>
-                    <Option value="PM">PM</Option>
-                    <Option value="BA">BA</Option>
+                    {tracks.map((track) => (
+                      <Option key={track.id} value={track.name} label={track.name}>
+                        {track.name}
+                      </Option>
+                    ))}
                   </Select>
                 </div>
               </Col>
@@ -426,26 +460,18 @@ const TierBreakdownReport = () => {
                     value={filters.techStack}
                     onChange={(value) => setFilters({ ...filters, techStack: value })}
                     style={{ width: '100%' }}
+                    showSearch
+                    allowClear
+                    filterOption={(input, option) =>
+                      (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                    }
                   >
                     <Option value="All">All</Option>
-                    <Option value=".NET">.NET</Option>
-                    <Option value="Full Stack">Full Stack</Option>
-                    <Option value="QA">QA</Option>
-                  </Select>
-                </div>
-              </Col>
-              <Col xs={24} sm={12} md={8} lg={6}>
-                <div className="filter-item">
-                  <label>Designation</label>
-                  <Select
-                    value={filters.designation}
-                    onChange={(value) => setFilters({ ...filters, designation: value })}
-                    style={{ width: '100%' }}
-                  >
-                    <Option value="All">All</Option>
-                    <Option value="ASE">ASE</Option>
-                    <Option value="SE">SE</Option>
-                    <Option value="STL">STL</Option>
+                    {techStacks.map((techStack) => (
+                      <Option key={techStack.name} value={techStack.name} label={techStack.name}>
+                        {techStack.name}
+                      </Option>
+                    ))}
                   </Select>
                 </div>
               </Col>
@@ -471,16 +497,23 @@ const TierBreakdownReport = () => {
           <Card
             className="chart-card"
             title="No Of Employees by Tier"
+            loading={loadingReport}
           >
             <div className="chart-container">
-              <Bar data={barChartData} options={barChartOptions} />
+              {tierData.length > 0 ? (
+                <Bar data={barChartData} options={barChartOptions} />
+              ) : (
+                <div style={{ textAlign: 'center', padding: '40px' }}>
+                  No data available
+                </div>
+              )}
             </div>
           </Card>
         </Col>
 
         {/* Right Column - Employee Details Table */}
         <Col xs={24} lg={12}>
-          <Card className="table-card" title="Employee Details">
+          <Card className="table-card" title="Employee Details" loading={loadingReport}>
             <CustomTable
               columns={employeeColumns}
               dataSource={employeeData}

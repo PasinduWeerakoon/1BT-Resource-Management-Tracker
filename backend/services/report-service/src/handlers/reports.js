@@ -201,6 +201,17 @@ export const getBenchReport = async (event) => {
                 WHERE is_active = true 
                 AND (end_date IS NULL OR end_date >= CURRENT_DATE)
                 GROUP BY resource_id
+            ),
+            bench_allocations AS (
+                SELECT 
+                    a.resource_id,
+                    a.allocation_percentage as bench_allocation
+                FROM allocations a
+                INNER JOIN projects p ON a.project_id = p.id
+                WHERE a.is_active = true 
+                AND (a.end_date IS NULL OR a.end_date >= CURRENT_DATE)
+                AND p.is_bench_project = true
+                AND p.deleted_at IS NULL
             )
             SELECT 
                 r.id,
@@ -210,6 +221,7 @@ export const getBenchReport = async (event) => {
                 t.name as track,
                 COALESCE(ra.total_allocation, 0) as current_allocation,
                 (100 - COALESCE(ra.total_allocation, 0)) as available_capacity,
+                COALESCE(ba.bench_allocation, 0) as bench_allocation_percentage,
                 r.date_of_joining,
                 r.intern_classification,
                 CASE WHEN r.date_of_joining IS NOT NULL 
@@ -217,6 +229,7 @@ export const getBenchReport = async (event) => {
                      ELSE NULL END as days_in_company
             FROM resources r
             LEFT JOIN resource_allocations ra ON r.id = ra.resource_id
+            LEFT JOIN bench_allocations ba ON r.id = ba.resource_id
             LEFT JOIN designations d ON r.designation_id = d.id
             LEFT JOIN tracks t ON r.track_id = t.id
             WHERE r.status = 'Active'
@@ -321,51 +334,275 @@ export const getUtilizationReport = async (event) => {
 
 /**
  * Get intern report
+ * Returns all interns with their current projects, total intern count, and intern percentage
+ * Supports filters: project_name, account_manager, track, tech_stack
  */
 export const getInternReport = async (event) => {
     const log = logger.child({ handler: 'reports.getInternReport' });
 
     try {
-        log.info('Getting intern report');
+        const queryParams = event.queryStringParameters || {};
+        const { project_name, account_manager, track, tech_stack } = queryParams;
 
-        const query = `
-            SELECT 
+        log.info('Getting intern report', { filters: queryParams });
+
+        // Build WHERE clauses for all filters
+        let resourceWhereClause = 'WHERE r.intern_classification IS NOT NULL AND r.status = \'Active\' AND r.deleted_at IS NULL';
+        let allocationWhereClause = '';
+        const params = [];
+        let paramIndex = 1;
+
+        // Track filter
+        if (track && track !== 'All' && track !== '') {
+            resourceWhereClause += ` AND t.name = $${paramIndex}`;
+            params.push(track);
+            paramIndex++;
+        }
+
+        // Tech Stack filter
+        if (tech_stack && tech_stack !== 'All' && tech_stack !== '') {
+            resourceWhereClause += ` AND r.tech_stack = $${paramIndex}`;
+            params.push(tech_stack);
+            paramIndex++;
+        }
+
+        // Project Name filter (applied to allocation join)
+        if (project_name && project_name !== 'All' && project_name !== '') {
+            allocationWhereClause += ` AND p.project_name = $${paramIndex}`;
+            params.push(project_name);
+            paramIndex++;
+        }
+
+        // Account Manager filter (applied to allocation join)
+        if (account_manager && account_manager !== 'All' && account_manager !== '') {
+            allocationWhereClause += ` AND am.name = $${paramIndex}`;
+            params.push(account_manager);
+            paramIndex++;
+        }
+
+        // Get total employee count (for percentage calculation) - no filters applied
+        const totalEmployeesQuery = `
+            SELECT COUNT(*) as total
+            FROM resources
+            WHERE status = 'Active'
+            AND deleted_at IS NULL
+        `;
+
+        // Get total intern count - apply resource filters only
+        // If project or account_manager filter is applied, count only interns with matching allocations
+        const totalInternsQuery = project_name || account_manager
+            ? `
+                SELECT COUNT(DISTINCT r.id) as total
+                FROM resources r
+                LEFT JOIN tracks t ON r.track_id = t.id
+                INNER JOIN allocations a ON r.id = a.resource_id 
+                    AND a.is_active = true 
+                    AND (a.end_date IS NULL OR a.end_date >= CURRENT_DATE)
+                INNER JOIN projects p ON a.project_id = p.id AND p.deleted_at IS NULL
+                LEFT JOIN resources am ON p.account_manager_id = am.id
+                ${resourceWhereClause}
+                ${allocationWhereClause}
+            `
+            : `
+                SELECT COUNT(DISTINCT r.id) as total
+                FROM resources r
+                LEFT JOIN tracks t ON r.track_id = t.id
+                ${resourceWhereClause}
+            `;
+
+        // Get intern details with their current projects
+        // If project or account_manager filter is applied, use INNER JOIN to only show interns with matching allocations
+        // Otherwise, use LEFT JOIN to show all interns including those with no projects
+        const internDetailsQuery = project_name || account_manager
+            ? `
+                SELECT DISTINCT
                 r.id,
-                r.name,
+                    r.name as employee_name,
                 r.email,
                 d.name as designation,
                 t.name as track,
+                    r.tech_stack,
                 r.date_of_joining,
                 CASE WHEN r.date_of_joining IS NOT NULL 
                      THEN EXTRACT(MONTH FROM AGE(CURRENT_DATE, r.date_of_joining::DATE)) 
                      ELSE NULL END as months_in_company,
-                COALESCE(
-                    (SELECT SUM(allocation_percentage) 
-                     FROM allocations 
-                     WHERE resource_id = r.id 
-                     AND is_active = true 
-                     AND (end_date IS NULL OR end_date >= CURRENT_DATE)),
-                    0
-                ) as current_allocation
+                    p.project_name as project,
+                    p.id as project_id,
+                    TO_CHAR(a.start_date, 'DD Mon YYYY') as project_allocated_date,
+                    CASE WHEN a.end_date IS NOT NULL THEN TO_CHAR(a.end_date, 'DD Mon YYYY') ELSE NULL END as project_deallocated_date,
+                    CASE 
+                        WHEN p.project_type = 'Bench' THEN 'Bench'
+                        WHEN p.billing_status = 'Non-Billing' THEN 'Non-Billing'
+                        WHEN p.project_type = 'Training' THEN 'Training'
+                        WHEN p.project_type = 'Presale' THEN 'Presale'
+                        WHEN p.billing_status = 'Billing' THEN 'Billing'
+                        ELSE 'Non-Billing'
+                    END as billing_status,
+                    COALESCE(a.billing_percentage, 0) as billing_percentage,
+                    COALESCE(a.allocation_percentage, 0) as project_allocation,
+                    CASE 
+                        WHEN a.end_date IS NOT NULL THEN a.end_date - a.start_date
+                        ELSE CURRENT_DATE - a.start_date
+                    END as duration_days,
+                    CASE WHEN a.is_active = true AND (a.end_date IS NULL OR a.end_date >= CURRENT_DATE) THEN 'Active' ELSE 'Inactive' END as status,
+                    a.is_active
             FROM resources r
             LEFT JOIN designations d ON r.designation_id = d.id
             LEFT JOIN tracks t ON r.track_id = t.id
-            WHERE r.intern_classification IS NOT NULL
-            AND r.status = 'Active'
-            AND r.deleted_at IS NULL
-            ORDER BY r.date_of_joining DESC
-        `;
+                INNER JOIN allocations a ON r.id = a.resource_id 
+                    AND a.is_active = true 
+                    AND (a.end_date IS NULL OR a.end_date >= CURRENT_DATE)
+                INNER JOIN projects p ON a.project_id = p.id AND p.deleted_at IS NULL
+                LEFT JOIN resources am ON p.account_manager_id = am.id
+                ${resourceWhereClause}
+                ${allocationWhereClause}
+                ORDER BY r.name, p.project_name
+            `
+            : `
+                SELECT DISTINCT
+                    r.id,
+                    r.name as employee_name,
+                    r.email,
+                    d.name as designation,
+                    t.name as track,
+                    r.tech_stack,
+                    r.date_of_joining,
+                    CASE WHEN r.date_of_joining IS NOT NULL 
+                         THEN EXTRACT(MONTH FROM AGE(CURRENT_DATE, r.date_of_joining::DATE)) 
+                         ELSE NULL END as months_in_company,
+                    p.project_name as project,
+                    p.id as project_id,
+                    TO_CHAR(a.start_date, 'DD Mon YYYY') as project_allocated_date,
+                    CASE WHEN a.end_date IS NOT NULL THEN TO_CHAR(a.end_date, 'DD Mon YYYY') ELSE NULL END as project_deallocated_date,
+                    CASE 
+                        WHEN p.project_type = 'Bench' THEN 'Bench'
+                        WHEN p.billing_status = 'Non-Billing' THEN 'Non-Billing'
+                        WHEN p.project_type = 'Training' THEN 'Training'
+                        WHEN p.project_type = 'Presale' THEN 'Presale'
+                        WHEN p.billing_status = 'Billing' THEN 'Billing'
+                        ELSE 'Non-Billing'
+                    END as billing_status,
+                    COALESCE(a.billing_percentage, 0) as billing_percentage,
+                    COALESCE(a.allocation_percentage, 0) as project_allocation,
+                    CASE 
+                        WHEN a.end_date IS NOT NULL THEN a.end_date - a.start_date
+                        ELSE CURRENT_DATE - a.start_date
+                    END as duration_days,
+                    CASE WHEN a.is_active = true AND (a.end_date IS NULL OR a.end_date >= CURRENT_DATE) THEN 'Active' ELSE 'Inactive' END as status,
+                    a.is_active
+                FROM resources r
+                LEFT JOIN designations d ON r.designation_id = d.id
+                LEFT JOIN tracks t ON r.track_id = t.id
+                LEFT JOIN allocations a ON r.id = a.resource_id 
+                    AND a.is_active = true 
+                    AND (a.end_date IS NULL OR a.end_date >= CURRENT_DATE)
+                LEFT JOIN projects p ON a.project_id = p.id AND p.deleted_at IS NULL
+                LEFT JOIN resources am ON p.account_manager_id = am.id
+                ${resourceWhereClause}
+                ${allocationWhereClause}
+                ORDER BY r.name, p.project_name
+            `;
 
-        const result = await db.query(query);
+        // Run queries in parallel
+        const [totalEmployeesResult, totalInternsResult, internDetailsResult] = await Promise.all([
+            db.query(totalEmployeesQuery),
+            db.query(totalInternsQuery, params),
+            db.query(internDetailsQuery, params)
+        ]);
+
+        const totalEmployees = parseInt(totalEmployeesResult.rows[0]?.total || 0);
+        const totalInterns = parseInt(totalInternsResult.rows[0]?.total || 0);
+        const internPercentage = totalEmployees > 0
+            ? ((totalInterns / totalEmployees) * 100).toFixed(1)
+            : '0.0';
+
+        // Format intern details for table
+        // Group by intern and collect all their projects
+        const internMap = {};
+        internDetailsResult.rows.forEach((row) => {
+            const internId = row.id;
+            if (!internMap[internId]) {
+                internMap[internId] = {
+                    id: internId,
+                    employeeName: row.employee_name,
+                    email: row.email,
+                    designation: row.designation,
+                    track: row.track,
+                    techStack: row.tech_stack,
+                    dateOfJoining: row.date_of_joining,
+                    monthsInCompany: row.months_in_company,
+                    projects: []
+                };
+            }
+
+            // Add project if exists
+            if (row.project) {
+                internMap[internId].projects.push({
+                    project: row.project,
+                    projectId: row.project_id,
+                    allocatedDate: row.project_allocated_date,
+                    deallocatedDate: row.project_deallocated_date,
+                    billingStatus: row.billing_status,
+                    billingPercentage: row.billing_percentage,
+                    projectAllocation: row.project_allocation,
+                    duration: row.duration_days,
+                    status: row.status
+                });
+            }
+        });
+
+        // Convert to array format for table (one row per project allocation)
+        const internData = [];
+        Object.values(internMap).forEach((intern) => {
+            if (intern.projects.length === 0) {
+                // Intern with no projects - show as Bench
+                internData.push({
+                    key: `${intern.id}-no-project`,
+                    employeeName: intern.employeeName,
+                    techStack: intern.techStack,
+                    project: 'Bench',
+                    allocatedDate: '',
+                    deallocatedDate: '',
+                    billingStatus: 'Bench',
+                    billingPercentage: '0.00%',
+                    projectAllocation: '0.00%',
+                    duration: 0,
+                    status: 'Active'
+                });
+            } else {
+                // Add one row per project
+                intern.projects.forEach((project, index) => {
+                    internData.push({
+                        key: `${intern.id}-${project.projectId}-${index}`,
+                        employeeName: intern.employeeName,
+                        techStack: intern.techStack,
+                        project: project.project,
+                        allocatedDate: project.allocatedDate,
+                        deallocatedDate: project.deallocatedDate || '',
+                        billingStatus: project.billingStatus,
+                        billingPercentage: project.billingPercentage ? `${parseFloat(project.billingPercentage).toFixed(2)}%` : '0.00%',
+                        projectAllocation: project.projectAllocation ? `${parseFloat(project.projectAllocation).toFixed(2)}%` : '0.00%',
+                        duration: project.duration || 0,
+                        status: project.status
+                    });
+                });
+            }
+        });
 
         return success({
-            data: result.rows,
-            total: result.rows.length,
+            summary: {
+                totalInternCount: totalInterns,
+                totalEmployees: totalEmployees,
+                internPercentage: parseFloat(internPercentage)
+            },
+            data: internData,
+            total: internData.length,
+            filters: queryParams,
             generatedAt: new Date().toISOString()
         });
 
     } catch (err) {
-        log.error('Failed to get intern report', { error: err.message });
+        log.error('Failed to get intern report', { error: err.message, stack: err.stack });
         return error('Failed to get intern report', err);
     }
 };
@@ -1085,5 +1322,233 @@ export const getPreSaleReport = async (event) => {
     } catch (err) {
         log.error('Failed to get pre-sale report', { error: err.message });
         return error('Failed to get pre-sale report', err);
+    }
+};
+
+/**
+ * Get tier breakdown report
+ * Returns resources grouped by tier with allocation details
+ * Supports filters: project_name, tier, account_manager, track, tech_stack
+ */
+export const getTierBreakdownReport = async (event) => {
+    const log = logger.child({ handler: 'reports.getTierBreakdownReport' });
+
+    try {
+        const queryParams = event.queryStringParameters || {};
+        const { tier, project_name, account_manager, track, tech_stack } = queryParams;
+
+        log.info('Getting tier breakdown report', { filters: queryParams });
+
+        // Build WHERE clauses for all filters
+        let resourceWhereClause = 'WHERE r.status = \'Active\' AND r.deleted_at IS NULL';
+        let allocationWhereClause = '';
+        const params = [];
+        let paramIndex = 1;
+
+        // Map frontend tier values to database values
+        const tierMapping = {
+            '0': 'Synergy',
+            '1': 'Tier - 1',
+            '2': 'Tier - 2',
+            '3': 'Tier - 3',
+            '4': 'Tier - 4',
+            '5': 'Tier - 5',
+            '99': 'Intern'
+        };
+
+        // Tier filter
+        if (tier && tier !== 'All' && tier !== '') {
+            const dbTier = tierMapping[tier] || tier;
+            resourceWhereClause += ` AND r.tier = $${paramIndex}`;
+            params.push(dbTier);
+            paramIndex++;
+        }
+
+        // Track filter
+        if (track && track !== 'All' && track !== '') {
+            resourceWhereClause += ` AND t.name = $${paramIndex}`;
+            params.push(track);
+            paramIndex++;
+        }
+
+        // Tech Stack filter
+        if (tech_stack && tech_stack !== 'All' && tech_stack !== '') {
+            resourceWhereClause += ` AND r.tech_stack = $${paramIndex}`;
+            params.push(tech_stack);
+            paramIndex++;
+        }
+
+        // Project Name filter (applied to allocation join)
+        if (project_name && project_name !== 'All' && project_name !== '') {
+            allocationWhereClause += ` AND p.project_name = $${paramIndex}`;
+            params.push(project_name);
+            paramIndex++;
+        }
+
+        // Account Manager filter (applied to allocation join)
+        if (account_manager && account_manager !== 'All' && account_manager !== '') {
+            allocationWhereClause += ` AND am.name = $${paramIndex}`;
+            params.push(account_manager);
+            paramIndex++;
+        }
+
+        // Get tier distribution (for chart)
+        // If project or account_manager filter is applied, we need to join with allocations
+        // Use INNER JOIN to only count resources that have matching allocations
+        const tierDistributionQuery = project_name || account_manager
+            ? `
+                SELECT 
+                    COALESCE(r.tier, 'Unassigned') as tier,
+                    COUNT(DISTINCT r.id) as count
+                FROM resources r
+                LEFT JOIN tracks t ON r.track_id = t.id
+                INNER JOIN allocations a ON r.id = a.resource_id 
+                    AND a.is_active = true 
+                    AND (a.end_date IS NULL OR a.end_date >= CURRENT_DATE)
+                INNER JOIN projects p ON a.project_id = p.id AND p.deleted_at IS NULL
+                LEFT JOIN resources am ON p.account_manager_id = am.id
+                ${resourceWhereClause}
+                ${allocationWhereClause}
+                GROUP BY r.tier
+                ORDER BY 
+                    CASE r.tier 
+                        WHEN 'Synergy' THEN 0
+                        WHEN 'Tier - 1' THEN 1
+                        WHEN 'Tier - 2' THEN 2
+                        WHEN 'Tier - 3' THEN 3
+                        WHEN 'Tier - 4' THEN 4
+                        WHEN 'Tier - 5' THEN 5
+                        WHEN 'Intern' THEN 99
+                        ELSE 999
+                    END
+            `
+            : `
+                SELECT 
+                    COALESCE(r.tier, 'Unassigned') as tier,
+                    COUNT(DISTINCT r.id) as count
+                FROM resources r
+                LEFT JOIN tracks t ON r.track_id = t.id
+                ${resourceWhereClause}
+                GROUP BY r.tier
+                ORDER BY 
+                    CASE r.tier 
+                        WHEN 'Synergy' THEN 0
+                        WHEN 'Tier - 1' THEN 1
+                        WHEN 'Tier - 2' THEN 2
+                        WHEN 'Tier - 3' THEN 3
+                        WHEN 'Tier - 4' THEN 4
+                        WHEN 'Tier - 5' THEN 5
+                        WHEN 'Intern' THEN 99
+                        ELSE 999
+                    END
+            `;
+
+        // Get employee details with allocation info (for table)
+        const employeeDetailsQuery = `
+            SELECT DISTINCT
+                r.id,
+                r.name as employee_name,
+                r.email,
+                COALESCE(r.tier, 'Unassigned') as tier,
+                r.tech_stack,
+                d.name as designation,
+                t.name as track,
+                p.project_name as project,
+                CASE 
+                    WHEN p.project_type = 'Bench' THEN 'Bench'
+                    WHEN p.billing_status = 'Non-Billing' THEN 'Non-Billing'
+                    WHEN p.project_type = 'Training' THEN 'Training'
+                    WHEN p.project_type = 'Presale' THEN 'Presale'
+                    WHEN p.billing_status = 'Billing' THEN 'Billing'
+                    ELSE 'Non-Billing'
+                END as billing_status,
+                COALESCE(a.billing_percentage, 0) as billing_percentage,
+                COALESCE(a.allocation_percentage, 0) as project_allocation
+            FROM resources r
+            LEFT JOIN designations d ON r.designation_id = d.id
+            LEFT JOIN tracks t ON r.track_id = t.id
+            LEFT JOIN allocations a ON r.id = a.resource_id 
+                AND a.is_active = true 
+                AND (a.end_date IS NULL OR a.end_date >= CURRENT_DATE)
+            LEFT JOIN projects p ON a.project_id = p.id AND p.deleted_at IS NULL
+            LEFT JOIN resources am ON p.account_manager_id = am.id
+            ${resourceWhereClause}
+            ${allocationWhereClause}
+            ORDER BY r.tier, r.name, p.project_name
+        `;
+
+        // Get total employee count
+        // If project or account_manager filter is applied, count distinct resources with matching allocations
+        const totalCountQuery = project_name || account_manager
+            ? `
+                SELECT COUNT(DISTINCT r.id) as total
+                FROM resources r
+                LEFT JOIN tracks t ON r.track_id = t.id
+                INNER JOIN allocations a ON r.id = a.resource_id 
+                    AND a.is_active = true 
+                    AND (a.end_date IS NULL OR a.end_date >= CURRENT_DATE)
+                INNER JOIN projects p ON a.project_id = p.id AND p.deleted_at IS NULL
+                LEFT JOIN resources am ON p.account_manager_id = am.id
+                ${resourceWhereClause}
+                ${allocationWhereClause}
+            `
+            : `
+                SELECT COUNT(*) as total
+                FROM resources r
+                LEFT JOIN tracks t ON r.track_id = t.id
+                ${resourceWhereClause}
+            `;
+
+        // Run queries in parallel
+        const [tierDistribution, employeeDetails, totalCount] = await Promise.all([
+            db.query(tierDistributionQuery, params),
+            db.query(employeeDetailsQuery, params),
+            db.query(totalCountQuery, params)
+        ]);
+
+        // Format tier distribution for chart (map database values to frontend format)
+        const reverseTierMapping = {
+            'Synergy': '0',
+            'Tier - 1': '1',
+            'Tier - 2': '2',
+            'Tier - 3': '3',
+            'Tier - 4': '4',
+            'Tier - 5': '5',
+            'Intern': '99',
+            'Unassigned': 'Unassigned'
+        };
+
+        const tierData = tierDistribution.rows.map(row => ({
+            tier: reverseTierMapping[row.tier] || row.tier,
+            count: parseInt(row.count)
+        }));
+
+        // Format employee details for table
+        const employeeData = employeeDetails.rows.map((row, index) => ({
+            key: `${row.id}-${row.project || 'no-project'}-${index}`,
+            employeeName: row.employee_name,
+            project: row.project || 'Bench',
+            billingStatus: row.billing_status || 'Non-Billing',
+            billingPercentage: row.billing_percentage ? `${parseFloat(row.billing_percentage).toFixed(2)}%` : '0.00%',
+            projectAllocation: row.project_allocation ? `${parseFloat(row.project_allocation).toFixed(2)}%` : '0.00%',
+            tier: row.tier,
+            designation: row.designation,
+            track: row.track,
+            techStack: row.tech_stack
+        }));
+
+        return success({
+            summary: {
+                totalEmployees: parseInt(totalCount.rows[0]?.total || 0)
+            },
+            tierDistribution: tierData,
+            employeeDetails: employeeData,
+            filters: queryParams,
+            generatedAt: new Date().toISOString()
+        });
+
+    } catch (err) {
+        log.error('Failed to get tier breakdown report', { error: err.message, stack: err.stack });
+        return error('Failed to get tier breakdown report', err);
     }
 };

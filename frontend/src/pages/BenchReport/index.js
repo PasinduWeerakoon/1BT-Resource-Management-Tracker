@@ -104,6 +104,7 @@ const BenchReport = () => {
         designation: item.designation || 'N/A',
         track: item.track || 'N/A',
         daysOnBench: item.days_on_bench || 0,
+        benchAllocationPercentage: item.bench_allocation_percentage || 0,
         project: 'Bench', // All bench resources are on Bench project
         allocatedDate: '', // Can be calculated if needed
         deallocatedDate: '',
@@ -156,6 +157,14 @@ const BenchReport = () => {
       dataIndex: 'track',
       key: 'track',
       width: 120,
+    },
+    {
+      title: 'Bench Allocation %',
+      dataIndex: 'benchAllocationPercentage',
+      key: 'benchAllocationPercentage',
+      width: 150,
+      sorter: (a, b) => a.benchAllocationPercentage - b.benchAllocationPercentage,
+      render: (percentage) => `${parseFloat(percentage || 0).toFixed(2)}%`,
     },
     {
       title: 'Days on Bench',

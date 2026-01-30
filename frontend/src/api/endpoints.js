@@ -18,6 +18,7 @@ export const ENDPOINTS = {
     RESET_PASSWORD: `${BASE_URL}/auth/reset-password`,
     INVITE: `${BASE_URL}/auth/invite`,
     COMPLETE_INVITE: `${BASE_URL}/auth/complete-invite`,
+    USERS: `${BASE_URL}/auth/users`,
   },
 
   // Resources (Employees)
@@ -49,6 +50,16 @@ export const ENDPOINTS = {
     UPDATE: (id) => `${BASE_URL}/tracks/${id}`,
   },
 
+  // Tags
+  TAGS: {
+    BASE: `${BASE_URL}/tags`,
+    LIST: `${BASE_URL}/tags`,
+    GET_BY_ID: (id) => `${BASE_URL}/tags/${id}`,
+    CREATE: `${BASE_URL}/tags`,
+    UPDATE: (id) => `${BASE_URL}/tags/${id}`,
+    DELETE: (id) => `${BASE_URL}/tags/${id}`,
+  },
+
   // Designations
   DESIGNATIONS: {
     BASE: `${BASE_URL}/designations`,
@@ -57,6 +68,26 @@ export const ENDPOINTS = {
     CREATE: `${BASE_URL}/designations`,
     UPDATE: (id) => `${BASE_URL}/designations/${id}`,
     HISTORY: (id) => `${BASE_URL}/designations/${id}/history`,
+  },
+
+  // Billing Statuses
+  BILLING_STATUSES: {
+    BASE: `${BASE_URL}/billing-statuses`,
+    LIST: `${BASE_URL}/billing-statuses`,
+    GET_BY_ID: (id) => `${BASE_URL}/billing-statuses/${id}`,
+    CREATE: `${BASE_URL}/billing-statuses`,
+    UPDATE: (id) => `${BASE_URL}/billing-statuses/${id}`,
+    DELETE: (id) => `${BASE_URL}/billing-statuses/${id}`,
+  },
+
+  // Project Types
+  PROJECT_TYPES: {
+    BASE: `${BASE_URL}/project-types`,
+    LIST: `${BASE_URL}/project-types`,
+    GET_BY_ID: (id) => `${BASE_URL}/project-types/${id}`,
+    CREATE: `${BASE_URL}/project-types`,
+    UPDATE: (id) => `${BASE_URL}/project-types/${id}`,
+    DELETE: (id) => `${BASE_URL}/project-types/${id}`,
   },
 
   // Clients
@@ -99,10 +130,12 @@ export const ENDPOINTS = {
     BENCH: `${BASE_URL}/reports/bench`,
     ACCOUNT_MANAGER: `${BASE_URL}/reports/account-manager`,
     EMPLOYEE: `${BASE_URL}/reports/employee`,
+    INTERN: `${BASE_URL}/reports/intern`,
     MONTHLY_ALLOCATION: `${BASE_URL}/reports/monthly-allocation`,
     EXCEPTION: `${BASE_URL}/reports/exception`,
     NON_BILLING: `${BASE_URL}/reports/non-billing`,
     PRE_SALE: `${BASE_URL}/reports/pre-sale`,
+    TIER_BREAKDOWN: `${BASE_URL}/reports/tier-breakdown`,
   },
 
   // Audit Logs

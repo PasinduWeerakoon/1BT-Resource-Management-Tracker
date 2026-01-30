@@ -3,7 +3,7 @@ import { Card, Button, Form, Input, Tabs, Space, Tooltip, Select, Switch, messag
 import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import CustomModal from '@components/Modal';
 import CustomTable from '@components/Table';
-import { tracksService, designationsService, projectsService, clientsService, accountManagersService } from '@api';
+import { tracksService, tagsService, designationsService, projectsService, clientsService, accountManagersService, billingStatusesService, projectTypesService } from '@api';
 import { showErrorToast, showSuccessToast } from '@utils/toast.utils';
 import dayjs from 'dayjs';
 import '@styles/pages/Configurations.scss';
@@ -13,17 +13,23 @@ const { Option } = Select;
 const Configurations = () => {
   const [designationForm] = Form.useForm();
   const [trackForm] = Form.useForm();
+  const [tagForm] = Form.useForm();
   const [projectTypeForm] = Form.useForm();
   const [clientForm] = Form.useForm();
+  const [billingStatusForm] = Form.useForm();
+  const [projectTypeConfigForm] = Form.useForm();
 
   const [isDesignationModalVisible, setIsDesignationModalVisible] = useState(false);
   const [isTrackModalVisible, setIsTrackModalVisible] = useState(false);
+  const [isTagModalVisible, setIsTagModalVisible] = useState(false);
   const [isProjectTypeModalVisible, setIsProjectTypeModalVisible] = useState(false);
   const [isClientModalVisible, setIsClientModalVisible] = useState(false);
+  const [isBillingStatusModalVisible, setIsBillingStatusModalVisible] = useState(false);
+  const [isProjectTypeConfigModalVisible, setIsProjectTypeConfigModalVisible] = useState(false);
 
   const [isEditMode, setIsEditMode] = useState(false);
   const [selectedItem, setSelectedItem] = useState(null);
-  const [activeTab, setActiveTab] = useState('designations');
+  const [activeTab, setActiveTab] = useState('project-types');
 
   const [designations, setDesignations] = useState([]);
   const [loadingDesignations, setLoadingDesignations] = useState(false);
@@ -32,6 +38,18 @@ const Configurations = () => {
   const [tracks, setTracks] = useState([]);
   const [loadingTracks, setLoadingTracks] = useState(false);
   const [trackLoading, setTrackLoading] = useState(false);
+
+  const [tags, setTags] = useState([]);
+  const [loadingTags, setLoadingTags] = useState(false);
+  const [tagLoading, setTagLoading] = useState(false);
+
+  const [billingStatuses, setBillingStatuses] = useState([]);
+  const [loadingBillingStatuses, setLoadingBillingStatuses] = useState(false);
+  const [billingStatusLoading, setBillingStatusLoading] = useState(false);
+
+  const [projectTypesConfig, setProjectTypesConfig] = useState([]);
+  const [loadingProjectTypesConfig, setLoadingProjectTypesConfig] = useState(false);
+  const [projectTypeConfigLoading, setProjectTypeConfigLoading] = useState(false);
 
   const [projectTypes, setProjectTypes] = useState([]);
   const [clients, setClients] = useState([]);
@@ -135,14 +153,26 @@ const Configurations = () => {
   }, [activeTab]);
 
   const handleDeleteDesignation = (record) => {
-    Modal.confirm({
+    const modal = Modal.confirm({
       title: 'Delete Designation',
       content: `Are you sure you want to delete "${record.name}"? This action cannot be undone.`,
       okText: 'Delete',
       okType: 'danger',
       cancelText: 'Cancel',
+      okButtonProps: {
+        loading: false,
+      },
       onOk: async () => {
         try {
+          modal.update({
+            okButtonProps: {
+              loading: true,
+              disabled: true,
+            },
+            cancelButtonProps: {
+              disabled: true,
+            },
+          });
           // Note: API doesn't have DELETE endpoint, so we'll deactivate instead
           await designationsService.update(record.id, {
             name: record.name,
@@ -152,9 +182,19 @@ const Configurations = () => {
 
           message.success('Designation deactivated successfully');
           fetchDesignations();
+          modal.destroy();
         } catch (error) {
           console.error('Failed to delete designation:', error);
           message.error(error?.message || 'Failed to delete designation');
+          modal.update({
+            okButtonProps: {
+              loading: false,
+              disabled: false,
+            },
+            cancelButtonProps: {
+              disabled: false,
+            },
+          });
         }
       },
     });
@@ -229,14 +269,26 @@ const Configurations = () => {
   };
 
   const handleDeleteTrack = (record) => {
-    Modal.confirm({
+    const modal = Modal.confirm({
       title: 'Delete Track',
       content: `Are you sure you want to delete "${record.name}"? This action cannot be undone.`,
       okText: 'Delete',
       okType: 'danger',
       cancelText: 'Cancel',
+      okButtonProps: {
+        loading: false,
+      },
       onOk: async () => {
         try {
+          modal.update({
+            okButtonProps: {
+              loading: true,
+              disabled: true,
+            },
+            cancelButtonProps: {
+              disabled: true,
+            },
+          });
           // Note: API doesn't have DELETE endpoint, so we'll deactivate instead
           // If DELETE endpoint exists, uncomment below:
           // await tracksService.delete(record.id);
@@ -250,9 +302,19 @@ const Configurations = () => {
 
           message.success('Track deactivated successfully');
           fetchTracks();
+          modal.destroy();
         } catch (error) {
           console.error('Failed to delete track:', error);
           message.error(error?.message || 'Failed to delete track');
+          modal.update({
+            okButtonProps: {
+              loading: false,
+              disabled: false,
+            },
+            cancelButtonProps: {
+              disabled: false,
+            },
+          });
         }
       },
     });
@@ -311,6 +373,533 @@ const Configurations = () => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
+
+  // Tag handlers
+  const handleAddTag = () => {
+    setIsEditMode(false);
+    setSelectedItem(null);
+    tagForm.resetFields();
+    setIsTagModalVisible(true);
+  };
+
+  const handleEditTag = (record) => {
+    setIsEditMode(true);
+    setSelectedItem(record);
+    tagForm.setFieldsValue({
+      name: record.name,
+      description: record.description || '',
+      is_active: record.is_active !== undefined ? record.is_active : true,
+    });
+    setIsTagModalVisible(true);
+  };
+
+  const handleDeleteTag = (record) => {
+    const modal = Modal.confirm({
+      title: 'Delete Tag',
+      content: `Are you sure you want to delete "${record.name}"? This action cannot be undone.`,
+      okText: 'Delete',
+      okType: 'danger',
+      cancelText: 'Cancel',
+      okButtonProps: {
+        loading: false,
+      },
+      onOk: async () => {
+        try {
+          modal.update({
+            okButtonProps: {
+              loading: true,
+              disabled: true,
+            },
+            cancelButtonProps: {
+              disabled: true,
+            },
+          });
+          const response = await tagsService.delete(record.id);
+
+          if (response && (response.success !== false || response.message)) {
+            showSuccessToast('Tag deleted successfully');
+            await fetchTags();
+            modal.destroy();
+          } else {
+            showErrorToast(response?.message || 'Failed to delete tag');
+            modal.update({
+              okButtonProps: {
+                loading: false,
+                disabled: false,
+              },
+              cancelButtonProps: {
+                disabled: false,
+              },
+            });
+          }
+        } catch (error) {
+          console.error('Failed to delete tag:', error);
+          showErrorToast(error?.message || 'Failed to delete tag');
+          modal.update({
+            okButtonProps: {
+              loading: false,
+              disabled: false,
+            },
+            cancelButtonProps: {
+              disabled: false,
+            },
+          });
+        }
+      },
+    });
+  };
+
+  // Fetch tags from API
+  const fetchTags = async () => {
+    try {
+      setLoadingTags(true);
+      const response = await tagsService.getAll();
+
+      // Handle response structure after interceptor transformation
+      let tagsData = [];
+
+      if (response) {
+        // Check if response has data array directly (after interceptor transformation)
+        if (Array.isArray(response.data)) {
+          tagsData = response.data;
+        }
+        // Check if response has nested data structure
+        else if (response.data && response.data.data && Array.isArray(response.data.data)) {
+          tagsData = response.data.data;
+        }
+        // Check if response is the data object directly
+        else if (response.data && Array.isArray(response.data)) {
+          tagsData = response.data;
+        }
+        // Fallback: response is an array
+        else if (Array.isArray(response)) {
+          tagsData = response;
+        }
+      }
+
+      // Transform tags data to match table format
+      const transformedTags = tagsData.map((tag) => ({
+        key: tag.id,
+        id: tag.id,
+        name: tag.name,
+        description: tag.description || '',
+        is_active: tag.is_active !== undefined ? tag.is_active : true,
+      }));
+
+      setTags(transformedTags);
+    } catch (error) {
+      console.error('Failed to fetch tags:', error);
+      showErrorToast('Failed to load tags');
+    } finally {
+      setLoadingTags(false);
+    }
+  };
+
+  // Fetch tags on component mount and when tags tab is active
+  useEffect(() => {
+    if (activeTab === 'tags') {
+      fetchTags();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
+
+  // Billing Status handlers
+  const handleAddBillingStatus = () => {
+    setIsEditMode(false);
+    setSelectedItem(null);
+    billingStatusForm.resetFields();
+    setIsBillingStatusModalVisible(true);
+  };
+
+  const handleEditBillingStatus = (record) => {
+    setIsEditMode(true);
+    setSelectedItem(record);
+    billingStatusForm.setFieldsValue({
+      name: record.name,
+      description: record.description || '',
+      is_active: record.is_active !== undefined ? record.is_active : true,
+    });
+    setIsBillingStatusModalVisible(true);
+  };
+
+  const handleDeleteBillingStatus = (record) => {
+    const modal = Modal.confirm({
+      title: 'Delete Billing Status',
+      content: `Are you sure you want to delete "${record.name}"? This action cannot be undone.`,
+      okText: 'Delete',
+      okType: 'danger',
+      cancelText: 'Cancel',
+      okButtonProps: {
+        loading: false,
+      },
+      onOk: async () => {
+        try {
+          modal.update({
+            okButtonProps: {
+              loading: true,
+              disabled: true,
+            },
+            cancelButtonProps: {
+              disabled: true,
+            },
+          });
+
+          const response = await billingStatusesService.delete(record.id);
+
+          if (response && (response.success !== false || response.data)) {
+            showSuccessToast('Billing status deleted successfully');
+            await fetchBillingStatuses();
+          } else {
+            showErrorToast(response?.message || 'Failed to delete billing status');
+            modal.update({
+              okButtonProps: {
+                loading: false,
+                disabled: false,
+              },
+              cancelButtonProps: {
+                disabled: false,
+              },
+            });
+          }
+        } catch (error) {
+          console.error('Failed to delete billing status:', error);
+          showErrorToast(error?.message || 'Failed to delete billing status');
+          modal.update({
+            okButtonProps: {
+              loading: false,
+              disabled: false,
+            },
+            cancelButtonProps: {
+              disabled: false,
+            },
+          });
+        }
+      },
+    });
+  };
+
+  // Fetch billing statuses from API
+  const fetchBillingStatuses = async () => {
+    try {
+      setLoadingBillingStatuses(true);
+      const response = await billingStatusesService.getAll();
+
+      // Handle response structure after interceptor transformation
+      let billingStatusesData = [];
+
+      if (response) {
+        // Check if response has data array directly (after interceptor transformation)
+        if (Array.isArray(response.data)) {
+          billingStatusesData = response.data;
+        }
+        // Check if response has nested data structure
+        else if (response.data && response.data.data && Array.isArray(response.data.data)) {
+          billingStatusesData = response.data.data;
+        }
+        // Check if response is the data object directly
+        else if (response.data && Array.isArray(response.data)) {
+          billingStatusesData = response.data;
+        }
+        // Fallback: response is an array
+        else if (Array.isArray(response)) {
+          billingStatusesData = response;
+        }
+      }
+
+      // Transform billing statuses data to match table format
+      const transformedBillingStatuses = billingStatusesData.map((billingStatus) => ({
+        key: billingStatus.id,
+        id: billingStatus.id,
+        name: billingStatus.name,
+        description: billingStatus.description || '',
+        is_active: billingStatus.is_active !== undefined ? billingStatus.is_active : true,
+        is_default: billingStatus.is_default === true,
+      }));
+
+      setBillingStatuses(transformedBillingStatuses);
+    } catch (error) {
+      console.error('Failed to fetch billing statuses:', error);
+      showErrorToast('Failed to load billing statuses');
+    } finally {
+      setLoadingBillingStatuses(false);
+    }
+  };
+
+  // Fetch billing statuses on component mount and when billing statuses tab is active
+  useEffect(() => {
+    if (activeTab === 'billing-statuses') {
+      fetchBillingStatuses();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
+
+  // Project Type handlers
+  const handleAddProjectTypeConfig = () => {
+    setIsEditMode(false);
+    setSelectedItem(null);
+    projectTypeConfigForm.resetFields();
+    setIsProjectTypeConfigModalVisible(true);
+  };
+
+  const handleEditProjectTypeConfig = (record) => {
+    setIsEditMode(true);
+    setSelectedItem(record);
+    projectTypeConfigForm.setFieldsValue({
+      name: record.name,
+      description: record.description || '',
+      is_active: record.is_active !== undefined ? record.is_active : true,
+    });
+    setIsProjectTypeConfigModalVisible(true);
+  };
+
+  const handleDeleteProjectTypeConfig = (record) => {
+    const modal = Modal.confirm({
+      title: 'Delete Project Type',
+      content: `Are you sure you want to delete "${record.name}"? This action cannot be undone.`,
+      okText: 'Delete',
+      okType: 'danger',
+      cancelText: 'Cancel',
+      okButtonProps: {
+        loading: false,
+      },
+      onOk: async () => {
+        try {
+          modal.update({
+            okButtonProps: {
+              loading: true,
+              disabled: true,
+            },
+            cancelButtonProps: {
+              disabled: true,
+            },
+          });
+
+          const response = await projectTypesService.delete(record.id);
+
+          if (response && (response.success !== false || response.data)) {
+            showSuccessToast('Project type deleted successfully');
+            await fetchProjectTypesConfig();
+          } else {
+            showErrorToast(response?.message || 'Failed to delete project type');
+            modal.update({
+              okButtonProps: {
+                loading: false,
+                disabled: false,
+              },
+              cancelButtonProps: {
+                disabled: false,
+              },
+            });
+          }
+        } catch (error) {
+          console.error('Failed to delete project type:', error);
+          showErrorToast(error?.message || 'Failed to delete project type');
+          modal.update({
+            okButtonProps: {
+              loading: false,
+              disabled: false,
+            },
+            cancelButtonProps: {
+              disabled: false,
+            },
+          });
+        }
+      },
+    });
+  };
+
+  // Fetch project types from API
+  const fetchProjectTypesConfig = async () => {
+    try {
+      setLoadingProjectTypesConfig(true);
+      const response = await projectTypesService.getAll();
+
+      // Handle response structure after interceptor transformation
+      let projectTypesData = [];
+
+      if (response) {
+        // Check if response has data array directly (after interceptor transformation)
+        if (Array.isArray(response.data)) {
+          projectTypesData = response.data;
+        }
+        // Check if response has nested data structure
+        else if (response.data && response.data.data && Array.isArray(response.data.data)) {
+          projectTypesData = response.data.data;
+        }
+        // Check if response is the data object directly
+        else if (response.data && Array.isArray(response.data)) {
+          projectTypesData = response.data;
+        }
+        // Fallback: response is an array
+        else if (Array.isArray(response)) {
+          projectTypesData = response;
+        }
+      }
+
+      // Transform project types data to match table format
+      const transformedProjectTypes = projectTypesData.map((projectType) => ({
+        key: projectType.id,
+        id: projectType.id,
+        name: projectType.name,
+        description: projectType.description || '',
+        is_active: projectType.is_active !== undefined ? projectType.is_active : true,
+        is_default: projectType.is_default === true,
+      }));
+
+      setProjectTypesConfig(transformedProjectTypes);
+    } catch (error) {
+      console.error('Failed to fetch project types:', error);
+      showErrorToast('Failed to load project types');
+    } finally {
+      setLoadingProjectTypesConfig(false);
+    }
+  };
+
+  // Fetch project types on component mount and when project types tab is active
+  useEffect(() => {
+    if (activeTab === 'project-types-config') {
+      fetchProjectTypesConfig();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
+
+  const handleProjectTypeConfigSubmit = async () => {
+    try {
+      setProjectTypeConfigLoading(true);
+      const values = await projectTypeConfigForm.validateFields();
+
+      // Prepare API payload
+      const projectTypePayload = {
+        name: values.name,
+        description: values.description || '',
+        is_active: values.is_active !== undefined ? values.is_active : true,
+      };
+
+      if (isEditMode) {
+        // Update project type
+        const response = await projectTypesService.update(selectedItem.id, projectTypePayload);
+
+        if (response && (response.success !== false || response.data)) {
+          showSuccessToast('Project type updated successfully');
+          await fetchProjectTypesConfig();
+        } else {
+          showErrorToast(response?.message || 'Failed to update project type');
+        }
+      } else {
+        // Create project type
+        const response = await projectTypesService.create(projectTypePayload);
+
+        if (response && (response.success !== false || response.data)) {
+          showSuccessToast('Project type created successfully');
+          await fetchProjectTypesConfig();
+        } else {
+          showErrorToast(response?.message || 'Failed to create project type');
+        }
+      }
+
+      setIsProjectTypeConfigModalVisible(false);
+      projectTypeConfigForm.resetFields();
+      setSelectedItem(null);
+      setIsEditMode(false);
+    } catch (error) {
+      console.error('Project type submit error:', error);
+      showErrorToast(error?.message || 'Failed to save project type');
+    } finally {
+      setProjectTypeConfigLoading(false);
+    }
+  };
+
+  const handleBillingStatusSubmit = async () => {
+    try {
+      setBillingStatusLoading(true);
+      const values = await billingStatusForm.validateFields();
+
+      // Prepare API payload
+      const billingStatusPayload = {
+        name: values.name,
+        description: values.description || '',
+        is_active: values.is_active !== undefined ? values.is_active : true,
+      };
+
+      if (isEditMode) {
+        // Update billing status
+        const response = await billingStatusesService.update(selectedItem.id, billingStatusPayload);
+
+        if (response && (response.success !== false || response.data)) {
+          showSuccessToast('Billing status updated successfully');
+          await fetchBillingStatuses();
+        } else {
+          showErrorToast(response?.message || 'Failed to update billing status');
+        }
+      } else {
+        // Create billing status
+        const response = await billingStatusesService.create(billingStatusPayload);
+
+        if (response && (response.success !== false || response.data)) {
+          showSuccessToast('Billing status created successfully');
+          await fetchBillingStatuses();
+        } else {
+          showErrorToast(response?.message || 'Failed to create billing status');
+        }
+      }
+
+      setIsBillingStatusModalVisible(false);
+      billingStatusForm.resetFields();
+      setSelectedItem(null);
+      setIsEditMode(false);
+    } catch (error) {
+      console.error('Billing status submit error:', error);
+      showErrorToast(error?.message || 'Failed to save billing status');
+    } finally {
+      setBillingStatusLoading(false);
+    }
+  };
+
+  const handleTagSubmit = async () => {
+    try {
+      setTagLoading(true);
+      const values = await tagForm.validateFields();
+
+      // Prepare API payload
+      const tagPayload = {
+        name: values.name,
+        description: values.description || '',
+        is_active: values.is_active !== undefined ? values.is_active : true,
+      };
+
+      if (isEditMode) {
+        // Update tag
+        const response = await tagsService.update(selectedItem.id, tagPayload);
+
+        if (response && (response.success !== false || response.data)) {
+          showSuccessToast('Tag updated successfully');
+          await fetchTags();
+        } else {
+          showErrorToast(response?.message || 'Failed to update tag');
+        }
+      } else {
+        // Create tag
+        const response = await tagsService.create(tagPayload);
+
+        if (response && (response.success !== false || response.data)) {
+          showSuccessToast('Tag created successfully');
+          await fetchTags();
+        } else {
+          showErrorToast(response?.message || 'Failed to create tag');
+        }
+      }
+
+      setIsTagModalVisible(false);
+      tagForm.resetFields();
+      setSelectedItem(null);
+      setIsEditMode(false);
+    } catch (error) {
+      console.error('Tag submit error:', error);
+      showErrorToast(error?.message || 'Failed to save tag');
+    } finally {
+      setTagLoading(false);
+    }
+  };
 
   const handleTrackSubmit = async () => {
     try {
@@ -549,28 +1138,56 @@ const Configurations = () => {
   };
 
   const handleDeleteProjectType = (record) => {
-    Modal.confirm({
+    const modal = Modal.confirm({
       title: 'Delete Project',
       content: `Are you sure you want to delete "${record.project_name}"? This action cannot be undone.`,
       okText: 'Delete',
       okType: 'danger',
       cancelText: 'Cancel',
+      okButtonProps: {
+        loading: false,
+      },
       onOk: async () => {
         try {
-          setProjectTypeLoading(true);
+          modal.update({
+            okButtonProps: {
+              loading: true,
+              disabled: true,
+            },
+            cancelButtonProps: {
+              disabled: true,
+            },
+          });
           const response = await projectsService.delete(record.id);
 
           if (response && (response.success !== false || response.message)) {
             message.success('Project deleted successfully');
             await fetchProjectTypes(projectTypePagination.current, projectTypePagination.pageSize);
+            modal.destroy();
           } else {
             message.error(response?.message || 'Failed to delete project');
+            modal.update({
+              okButtonProps: {
+                loading: false,
+                disabled: false,
+              },
+              cancelButtonProps: {
+                disabled: false,
+              },
+            });
           }
         } catch (error) {
           console.error('Failed to delete project:', error);
           message.error(error?.message || 'Failed to delete project');
-        } finally {
-          setProjectTypeLoading(false);
+          modal.update({
+            okButtonProps: {
+              loading: false,
+              disabled: false,
+            },
+            cancelButtonProps: {
+              disabled: false,
+            },
+          });
         }
       },
     });
@@ -832,28 +1449,56 @@ const Configurations = () => {
   };
 
   const handleDeleteClient = (record) => {
-    Modal.confirm({
+    const modal = Modal.confirm({
       title: 'Delete Client',
       content: `Are you sure you want to delete "${record.client_name}"? This action cannot be undone.`,
       okText: 'Delete',
       okType: 'danger',
       cancelText: 'Cancel',
+      okButtonProps: {
+        loading: false,
+      },
       onOk: async () => {
         try {
-          setClientLoading(true);
+          modal.update({
+            okButtonProps: {
+              loading: true,
+              disabled: true,
+            },
+            cancelButtonProps: {
+              disabled: true,
+            },
+          });
           const response = await clientsService.delete(record.id);
 
           if (response && (response.success !== false || response.message)) {
             message.success('Client deleted successfully');
             await fetchClientsList(clientPagination.current, clientPagination.pageSize);
+            modal.destroy();
           } else {
             message.error(response?.message || 'Failed to delete client');
+            modal.update({
+              okButtonProps: {
+                loading: false,
+                disabled: false,
+              },
+              cancelButtonProps: {
+                disabled: false,
+              },
+            });
           }
         } catch (error) {
           console.error('Failed to delete client:', error);
           message.error(error?.message || 'Failed to delete client');
-        } finally {
-          setClientLoading(false);
+          modal.update({
+            okButtonProps: {
+              loading: false,
+              disabled: false,
+            },
+            cancelButtonProps: {
+              disabled: false,
+            },
+          });
         }
       },
     });
@@ -1026,6 +1671,175 @@ const Configurations = () => {
               onClick={() => handleDeleteTrack(record)}
               className="action-icon-btn"
               danger
+            />
+          </Tooltip>
+        </Space>
+      ),
+    },
+  ];
+
+  // Tag columns
+  const tagColumns = [
+    {
+      title: 'Name',
+      dataIndex: 'name',
+      key: 'name',
+      width: 200,
+      fixed: 'left',
+    },
+    {
+      title: 'Description',
+      dataIndex: 'description',
+      key: 'description',
+      width: 400,
+    },
+    {
+      title: 'Status',
+      dataIndex: 'is_active',
+      key: 'is_active',
+      width: 100,
+      render: (isActive) => (
+        <span style={{ color: isActive ? '#52c41a' : '#ff4d4f' }}>
+          {isActive ? 'Active' : 'Inactive'}
+        </span>
+      ),
+    },
+    {
+      title: 'Actions',
+      key: 'actions',
+      width: 120,
+      fixed: 'right',
+      render: (_, record) => (
+        <Space>
+          <Tooltip title="Edit">
+            <Button
+              type="text"
+              icon={<EditOutlined />}
+              onClick={() => handleEditTag(record)}
+              className="action-icon-btn"
+            />
+          </Tooltip>
+          <Tooltip title="Delete">
+            <Button
+              type="text"
+              icon={<DeleteOutlined />}
+              onClick={() => handleDeleteTag(record)}
+              className="action-icon-btn"
+              danger
+            />
+          </Tooltip>
+        </Space>
+      ),
+    },
+  ];
+
+  // Billing Status columns
+  const billingStatusColumns = [
+    {
+      title: 'Name',
+      dataIndex: 'name',
+      key: 'name',
+      width: 200,
+      fixed: 'left',
+    },
+    {
+      title: 'Description',
+      dataIndex: 'description',
+      key: 'description',
+      width: 400,
+    },
+    {
+      title: 'Status',
+      dataIndex: 'is_active',
+      key: 'is_active',
+      width: 100,
+      render: (isActive) => (
+        <span style={{ color: isActive ? '#52c41a' : '#ff4d4f' }}>
+          {isActive ? 'Active' : 'Inactive'}
+        </span>
+      ),
+    },
+    {
+      title: 'Actions',
+      key: 'actions',
+      width: 120,
+      fixed: 'right',
+      render: (_, record) => (
+        <Space>
+          <Tooltip title={record.is_default ? 'Default billing statuses cannot be edited' : 'Edit'}>
+            <Button
+              type="text"
+              icon={<EditOutlined />}
+              onClick={() => handleEditBillingStatus(record)}
+              className="action-icon-btn"
+              disabled={record.is_default}
+            />
+          </Tooltip>
+          <Tooltip title={record.is_default ? 'Default billing statuses cannot be deleted' : 'Delete'}>
+            <Button
+              type="text"
+              icon={<DeleteOutlined />}
+              onClick={() => handleDeleteBillingStatus(record)}
+              className="action-icon-btn"
+              danger
+              disabled={record.is_default}
+            />
+          </Tooltip>
+        </Space>
+      ),
+    },
+  ];
+
+  // Project Type columns
+  const projectTypeConfigColumns = [
+    {
+      title: 'Name',
+      dataIndex: 'name',
+      key: 'name',
+      width: 200,
+      fixed: 'left',
+    },
+    {
+      title: 'Description',
+      dataIndex: 'description',
+      key: 'description',
+      width: 400,
+    },
+    {
+      title: 'Status',
+      dataIndex: 'is_active',
+      key: 'is_active',
+      width: 100,
+      render: (isActive) => (
+        <span style={{ color: isActive ? '#52c41a' : '#ff4d4f' }}>
+          {isActive ? 'Active' : 'Inactive'}
+        </span>
+      ),
+    },
+    {
+      title: 'Actions',
+      key: 'actions',
+      width: 120,
+      fixed: 'right',
+      render: (_, record) => (
+        <Space>
+          <Tooltip title={record.is_default ? 'Default project types cannot be edited' : 'Edit'}>
+            <Button
+              type="text"
+              icon={<EditOutlined />}
+              onClick={() => handleEditProjectTypeConfig(record)}
+              className="action-icon-btn"
+              disabled={record.is_default}
+            />
+          </Tooltip>
+          <Tooltip title={record.is_default ? 'Default project types cannot be deleted' : 'Delete'}>
+            <Button
+              type="text"
+              icon={<DeleteOutlined />}
+              onClick={() => handleDeleteProjectTypeConfig(record)}
+              className="action-icon-btn"
+              danger
+              disabled={record.is_default}
             />
           </Tooltip>
         </Space>
@@ -1210,59 +2024,44 @@ const Configurations = () => {
           onChange={setActiveTab}
           items={[
             {
-              key: 'designations',
-              label: 'Designation Related',
+              key: 'project-types',
+              label: 'Projects',
               children: (
                 <div>
                   <div className="table-header-section">
                     <div className="table-header-left">
-                      <span className="table-title">Designations</span>
+                      <span className="table-title">Project Types</span>
                     </div>
                     <div className="table-header-actions">
                       <Button
                         type="primary"
                         icon={<PlusOutlined />}
-                        onClick={handleAddDesignation}
+                        onClick={handleAddProjectType}
                       >
-                        Add Designation
+                        Add New Project
                       </Button>
                     </div>
                   </div>
                   <CustomTable
-                    columns={designationColumns}
-                    dataSource={designations}
-                    scroll={{ x: 600 }}
-                    loading={loadingDesignations}
-                    pagination={{ pageSize: 20 }}
-                  />
-                </div>
-              ),
-            },
-            {
-              key: 'tracks',
-              label: 'Tracks',
-              children: (
-                <div>
-                  <div className="table-header-section">
-                    <div className="table-header-left">
-                      <span className="table-title">Tracks</span>
-                    </div>
-                    <div className="table-header-actions">
-                      <Button
-                        type="primary"
-                        icon={<PlusOutlined />}
-                        onClick={handleAddTrack}
-                      >
-                        Add Track
-                      </Button>
-                    </div>
-                  </div>
-                  <CustomTable
-                    columns={trackColumns}
-                    dataSource={tracks}
-                    scroll={{ x: 600 }}
-                    loading={loadingTracks}
-                    pagination={{ pageSize: 20 }}
+                    columns={projectTypeColumns}
+                    dataSource={projectTypes}
+                    scroll={{ x: 1200 }}
+                    loading={loadingProjectTypes}
+                    pagination={{
+                      current: projectTypePagination.current,
+                      pageSize: projectTypePagination.pageSize,
+                      total: projectTypePagination.total,
+                      showSizeChanger: true,
+                      showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} projects`,
+                      onChange: (page, pageSize) => {
+                        setProjectTypePagination(prev => ({ ...prev, current: page, pageSize }));
+                        fetchProjectTypes(page, pageSize);
+                      },
+                      onShowSizeChange: (current, size) => {
+                        setProjectTypePagination(prev => ({ ...prev, current: 1, pageSize: size }));
+                        fetchProjectTypes(1, size);
+                      },
+                    }}
                   />
                 </div>
               ),
@@ -1335,8 +2134,124 @@ const Configurations = () => {
               ),
             },
             {
-              key: 'project-types',
-              label: 'Project Types',
+              key: 'designations',
+              label: 'Designations',
+              children: (
+                <div>
+                  <div className="table-header-section">
+                    <div className="table-header-left">
+                      <span className="table-title">Designations</span>
+                    </div>
+                    <div className="table-header-actions">
+                      <Button
+                        type="primary"
+                        icon={<PlusOutlined />}
+                        onClick={handleAddDesignation}
+                      >
+                        Add Designation
+                      </Button>
+                    </div>
+                  </div>
+                  <CustomTable
+                    columns={designationColumns}
+                    dataSource={designations}
+                    scroll={{ x: 600 }}
+                    loading={loadingDesignations}
+                    pagination={{ pageSize: 20 }}
+                  />
+                </div>
+              ),
+            },
+            {
+              key: 'tracks',
+              label: 'Tracks',
+              children: (
+                <div>
+                  <div className="table-header-section">
+                    <div className="table-header-left">
+                      <span className="table-title">Tracks</span>
+                    </div>
+                    <div className="table-header-actions">
+                      <Button
+                        type="primary"
+                        icon={<PlusOutlined />}
+                        onClick={handleAddTrack}
+                      >
+                        Add Track
+                      </Button>
+                    </div>
+                  </div>
+                  <CustomTable
+                    columns={trackColumns}
+                    dataSource={tracks}
+                    scroll={{ x: 600 }}
+                    loading={loadingTracks}
+                    pagination={{ pageSize: 20 }}
+                  />
+                </div>
+              ),
+            },
+            {
+              key: 'tags',
+              label: 'Tags',
+              children: (
+                <div>
+                  <div className="table-header-section">
+                    <div className="table-header-left">
+                      <span className="table-title">Tags</span>
+                    </div>
+                    <div className="table-header-actions">
+                      <Button
+                        type="primary"
+                        icon={<PlusOutlined />}
+                        onClick={handleAddTag}
+                      >
+                        Add Tag
+                      </Button>
+                    </div>
+                  </div>
+                  <CustomTable
+                    columns={tagColumns}
+                    dataSource={tags}
+                    scroll={{ x: 600 }}
+                    loading={loadingTags}
+                    pagination={{ pageSize: 20 }}
+                  />
+                </div>
+              ),
+            },
+            {
+              key: 'billing-statuses',
+              label: 'Billing Status',
+              children: (
+                <div>
+                  <div className="table-header-section">
+                    <div className="table-header-left">
+                      <span className="table-title">Billing Statuses</span>
+                    </div>
+                    <div className="table-header-actions">
+                      <Button
+                        type="primary"
+                        icon={<PlusOutlined />}
+                        onClick={handleAddBillingStatus}
+                      >
+                        Add Billing Status
+                      </Button>
+                    </div>
+                  </div>
+                  <CustomTable
+                    columns={billingStatusColumns}
+                    dataSource={billingStatuses}
+                    scroll={{ x: 600 }}
+                    loading={loadingBillingStatuses}
+                    pagination={{ pageSize: 20 }}
+                  />
+                </div>
+              ),
+            },
+            {
+              key: 'project-types-config',
+              label: 'Project Type',
               children: (
                 <div>
                   <div className="table-header-section">
@@ -1347,32 +2262,18 @@ const Configurations = () => {
                       <Button
                         type="primary"
                         icon={<PlusOutlined />}
-                        onClick={handleAddProjectType}
+                        onClick={handleAddProjectTypeConfig}
                       >
-                        Add New Project
+                        Add Project Type
                       </Button>
                     </div>
                   </div>
                   <CustomTable
-                    columns={projectTypeColumns}
-                    dataSource={projectTypes}
-                    scroll={{ x: 1200 }}
-                    loading={loadingProjectTypes}
-                    pagination={{
-                      current: projectTypePagination.current,
-                      pageSize: projectTypePagination.pageSize,
-                      total: projectTypePagination.total,
-                      showSizeChanger: true,
-                      showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} projects`,
-                      onChange: (page, pageSize) => {
-                        setProjectTypePagination(prev => ({ ...prev, current: page, pageSize }));
-                        fetchProjectTypes(page, pageSize);
-                      },
-                      onShowSizeChange: (current, size) => {
-                        setProjectTypePagination(prev => ({ ...prev, current: 1, pageSize: size }));
-                        fetchProjectTypes(1, size);
-                      },
-                    }}
+                    columns={projectTypeConfigColumns}
+                    dataSource={projectTypesConfig}
+                    scroll={{ x: 600 }}
+                    loading={loadingProjectTypesConfig}
+                    pagination={{ pageSize: 20 }}
                   />
                 </div>
               ),
@@ -1495,6 +2396,70 @@ const Configurations = () => {
             ]}
           >
             <Input placeholder="Enter track description" />
+          </Form.Item>
+          <Form.Item
+            label="Active"
+            name="is_active"
+            valuePropName="checked"
+            initialValue={true}
+          >
+            <Switch checkedChildren="Active" unCheckedChildren="Inactive" />
+          </Form.Item>
+        </Form>
+      </CustomModal>
+
+      {/* Add/Edit Tag Modal */}
+      <CustomModal
+        title={isEditMode ? 'Edit Tag' : 'Add New Tag'}
+        open={isTagModalVisible}
+        onClose={() => {
+          setIsTagModalVisible(false);
+          tagForm.resetFields();
+          setSelectedItem(null);
+          setIsEditMode(false);
+        }}
+        width={600}
+        buttons={[
+          {
+            text: 'Cancel',
+            type: 'default',
+            onClick: () => {
+              setIsTagModalVisible(false);
+              tagForm.resetFields();
+              setSelectedItem(null);
+              setIsEditMode(false);
+            },
+          },
+          {
+            text: isEditMode ? 'Update' : 'Add',
+            type: 'primary',
+            onClick: handleTagSubmit,
+            loading: tagLoading,
+          },
+        ]}
+      >
+        <Form form={tagForm} layout="vertical">
+          <Form.Item
+            label="Name"
+            name="name"
+            rules={[
+              { required: true, message: 'Name is required' },
+              { max: 50, message: 'Name must be less than 50 characters' },
+            ]}
+          >
+            <Input placeholder="Enter tag name (e.g., Synergy, GDC, Leaders League)" />
+          </Form.Item>
+          <Form.Item
+            label="Description"
+            name="description"
+            rules={[
+              { max: 255, message: 'Description must be less than 255 characters' },
+            ]}
+          >
+            <Input.TextArea
+              placeholder="Enter tag description (optional)"
+              rows={3}
+            />
           </Form.Item>
           <Form.Item
             label="Active"
@@ -1781,6 +2746,128 @@ const Configurations = () => {
               </Form.Item>
             </Col>
           </Row>
+        </Form>
+      </CustomModal>
+
+      {/* Add/Edit Billing Status Modal */}
+      <CustomModal
+        title={isEditMode ? 'Edit Billing Status' : 'Add New Billing Status'}
+        open={isBillingStatusModalVisible}
+        onClose={() => {
+          setIsBillingStatusModalVisible(false);
+          billingStatusForm.resetFields();
+          setSelectedItem(null);
+          setIsEditMode(false);
+        }}
+        width={600}
+        buttons={[
+          {
+            text: 'Cancel',
+            type: 'default',
+            onClick: () => {
+              setIsBillingStatusModalVisible(false);
+              billingStatusForm.resetFields();
+              setSelectedItem(null);
+              setIsEditMode(false);
+            },
+          },
+          {
+            text: isEditMode ? 'Update' : 'Add',
+            type: 'primary',
+            onClick: handleBillingStatusSubmit,
+            loading: billingStatusLoading,
+          },
+        ]}
+      >
+        <Form form={billingStatusForm} layout="vertical">
+          <Form.Item
+            label="Name"
+            name="name"
+            rules={[
+              { required: true, message: 'Name is required' },
+              { max: 50, message: 'Name must be less than 50 characters' },
+            ]}
+          >
+            <Input placeholder="Enter billing status name (e.g., Billing, Non-Billing, Presales)" />
+          </Form.Item>
+          <Form.Item
+            label="Description"
+            name="description"
+            rules={[
+              { max: 500, message: 'Description must be less than 500 characters' },
+            ]}
+          >
+            <Input.TextArea rows={3} placeholder="Enter description (optional)" />
+          </Form.Item>
+          <Form.Item
+            label="Active"
+            name="is_active"
+            valuePropName="checked"
+            initialValue={true}
+          >
+            <Switch checkedChildren="Active" unCheckedChildren="Inactive" />
+          </Form.Item>
+        </Form>
+      </CustomModal>
+
+      {/* Add/Edit Project Type Config Modal */}
+      <CustomModal
+        title={isEditMode ? 'Edit Project Type' : 'Add New Project Type'}
+        open={isProjectTypeConfigModalVisible}
+        onClose={() => {
+          setIsProjectTypeConfigModalVisible(false);
+          projectTypeConfigForm.resetFields();
+          setSelectedItem(null);
+          setIsEditMode(false);
+        }}
+        width={600}
+        buttons={[
+          {
+            text: 'Cancel',
+            type: 'default',
+            onClick: () => {
+              setIsProjectTypeConfigModalVisible(false);
+              projectTypeConfigForm.resetFields();
+              setSelectedItem(null);
+              setIsEditMode(false);
+            },
+          },
+          {
+            text: isEditMode ? 'Update' : 'Add',
+            type: 'primary',
+            onClick: handleProjectTypeConfigSubmit,
+            loading: projectTypeConfigLoading,
+          },
+        ]}
+      >
+        <Form form={projectTypeConfigForm} layout="vertical">
+          <Form.Item
+            label="Name"
+            name="name"
+            rules={[
+              { required: true, message: 'Name is required' },
+              { max: 50, message: 'Name must be less than 50 characters' },
+            ]}
+          >
+            <Input placeholder="Enter project type name (e.g., Client, Bench, POC)" />
+          </Form.Item>
+          <Form.Item
+            label="Description"
+            name="description"
+            rules={[
+              { max: 500, message: 'Description must be less than 500 characters' },
+            ]}
+          >
+            <Input.TextArea rows={3} placeholder="Enter description (optional)" />
+          </Form.Item>
+          <Form.Item
+            label="Active"
+            name="is_active"
+            valuePropName="checked"
+            initialValue={true}
+          >
+            <Switch checkedChildren="Active" unCheckedChildren="Inactive" />
+          </Form.Item>
         </Form>
       </CustomModal>
 

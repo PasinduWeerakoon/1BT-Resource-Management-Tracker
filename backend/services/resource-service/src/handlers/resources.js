@@ -146,8 +146,12 @@ export const list = async (event) => {
         let paramIndex = 1;
 
         if (search) {
-            whereClause += ` AND (r.name ILIKE $${paramIndex} OR r.email ILIKE $${paramIndex} OR r.employee_id ILIKE $${paramIndex})`;
-            params.push(`%${search}%`);
+            // Case-insensitive search across name, email, employee_id, and employee_number
+            // ILIKE is PostgreSQL's case-insensitive LIKE operator
+            // Convert search to lowercase for consistency (frontend also sends lowercase)
+            const searchTerm = search.toLowerCase().trim();
+            whereClause += ` AND (r.name ILIKE $${paramIndex} OR r.email ILIKE $${paramIndex} OR r.employee_id ILIKE $${paramIndex} OR r.employee_number ILIKE $${paramIndex})`;
+            params.push(`%${searchTerm}%`);
             paramIndex++;
         }
 
