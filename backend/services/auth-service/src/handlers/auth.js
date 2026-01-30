@@ -328,7 +328,7 @@ const getSystemUsersHandler = async (event) => {
             UserPoolId: USER_POOL_ID,
             Limit: limit
         };
-        
+
         if (paginationToken) {
             listUsersParams.PaginationToken = paginationToken;
         }
@@ -372,10 +372,10 @@ const getSystemUsersHandler = async (event) => {
                     username: user.Username,
                     userType: userType,
                     groups: groups,
-                    status: user.UserStatus === 'CONFIRMED' ? 'Active' : 
-                           user.UserStatus === 'FORCE_CHANGE_PASSWORD' ? 'Pending' : 
-                           user.UserStatus === 'UNCONFIRMED' ? 'Unconfirmed' : 
-                           user.UserStatus || 'Unknown',
+                    status: user.UserStatus === 'CONFIRMED' ? 'Active' :
+                        user.UserStatus === 'FORCE_CHANGE_PASSWORD' ? 'Pending' :
+                            user.UserStatus === 'UNCONFIRMED' ? 'Unconfirmed' :
+                                user.UserStatus || 'Unknown',
                     enabled: user.Enabled !== false,
                     emailVerified: attributes.email_verified === 'true',
                     createdAt: user.UserCreateDate?.toISOString(),

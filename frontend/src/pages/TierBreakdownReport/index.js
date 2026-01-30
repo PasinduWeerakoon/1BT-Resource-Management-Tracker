@@ -4,7 +4,7 @@ import { FilterOutlined, UpOutlined, DownOutlined, ReloadOutlined } from '@ant-d
 import { Bar } from 'react-chartjs-2';
 import { commonOptions, colors } from '@utils/chartConfig';
 import CustomTable from '@components/Table';
-import { accountManagersService, reportsService, projectsService, tracksService, resourcesService } from '@api';
+import { accountManagersService, reportsService, projectsService, tracksService } from '@api';
 import { showErrorToast } from '@utils/toast.utils';
 import '@styles/pages/TierBreakdownReport.scss';
 
@@ -48,7 +48,6 @@ const TierBreakdownReport = () => {
   const [tracks, setTracks] = useState([]);
   const [loadingTracks, setLoadingTracks] = useState(false);
   const [techStacks, setTechStacks] = useState([]);
-  const [loadingTechStacks, setLoadingTechStacks] = useState(false);
 
   // Report data
   const [tierData, setTierData] = useState([]);
@@ -146,39 +145,9 @@ const TierBreakdownReport = () => {
       }
     };
 
-    const fetchTechStacks = async () => {
-      try {
-        setLoadingTechStacks(true);
-        const response = await resourcesService.getAll({ limit: 1000, status: 'Active' });
-        let resourcesData = [];
-
-        if (response) {
-          if (Array.isArray(response.data)) {
-            resourcesData = response.data;
-          } else if (response.data && response.data.data && Array.isArray(response.data.data)) {
-            resourcesData = response.data.data;
-          }
-        }
-
-        // Get unique tech stacks
-        const uniqueTechStacks = [...new Set(
-          resourcesData
-            .map((resource) => resource.tech_stack)
-            .filter((techStack) => techStack && techStack.trim() !== '')
-        )].sort();
-
-        setTechStacks(uniqueTechStacks.map((techStack) => ({ name: techStack })));
-      } catch (error) {
-        console.error('Failed to fetch tech stacks:', error);
-      } finally {
-        setLoadingTechStacks(false);
-      }
-    };
-
     fetchAccountManagers();
     fetchProjects();
     fetchTracks();
-    fetchTechStacks();
   }, []);
 
   // Fetch tier breakdown report
@@ -230,6 +199,26 @@ const TierBreakdownReport = () => {
         // Update employee details for table
         if (reportData.employeeDetails && Array.isArray(reportData.employeeDetails)) {
           setEmployeeData(reportData.employeeDetails);
+
+          // Extract unique tech stacks from employee details for filter dropdown
+          // Only extract on initial load (when no filters are applied) to get all available tech stacks
+          const hasNoFilters = filters.projectName === 'All' &&
+            filters.tier === 'All' &&
+            filters.accountManager === 'All' &&
+            filters.track === 'All' &&
+            filters.techStack === 'All';
+
+          if (hasNoFilters && reportData.employeeDetails.length > 0) {
+            const uniqueTechStacks = [...new Set(
+              reportData.employeeDetails
+                .map((employee) => employee.techStack || employee.tech_stack)
+                .filter((techStack) => techStack && techStack.trim() !== '')
+            )].sort();
+
+            if (uniqueTechStacks.length > 0) {
+              setTechStacks(uniqueTechStacks.map((techStack) => ({ name: techStack })));
+            }
+          }
         }
 
         // Update total employees
@@ -471,7 +460,6 @@ const TierBreakdownReport = () => {
                     value={filters.techStack}
                     onChange={(value) => setFilters({ ...filters, techStack: value })}
                     style={{ width: '100%' }}
-                    loading={loadingTechStacks}
                     showSearch
                     allowClear
                     filterOption={(input, option) =>
