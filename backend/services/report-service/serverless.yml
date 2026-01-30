@@ -153,3 +153,12 @@ functions:
           path: /api/v1/reports/tier-breakdown
           method: GET
           authorizer: ${self:custom.authorizer}
+
+  externalConsultantsReport:
+    handler: src/handlers/reports.getExternalConsultantsReport
+    description: Get external consultants report with projects, charts, and statistics
+    events:
+      - httpApi:
+          path: /api/v1/reports/external-consultants
+          method: GET
+          authorizer: ${self:custom.authorizer}
