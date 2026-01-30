@@ -383,6 +383,11 @@ const Configurations = () => {
   };
 
   const handleEditTag = (record) => {
+    // Prevent editing default tags
+    if (record.is_default) {
+      showErrorToast('Default tags cannot be edited');
+      return;
+    }
     setIsEditMode(true);
     setSelectedItem(record);
     tagForm.setFieldsValue({
@@ -394,6 +399,12 @@ const Configurations = () => {
   };
 
   const handleDeleteTag = (record) => {
+    // Prevent deleting default tags
+    if (record.is_default) {
+      showErrorToast('Default tags cannot be deleted');
+      return;
+    }
+
     const modal = Modal.confirm({
       title: 'Delete Tag',
       content: `Are you sure you want to delete "${record.name}"? This action cannot be undone.`,
@@ -484,6 +495,7 @@ const Configurations = () => {
         name: tag.name,
         description: tag.description || '',
         is_active: tag.is_active !== undefined ? tag.is_active : true,
+        is_default: tag.is_default !== undefined ? tag.is_default : false,
       }));
 
       setTags(transformedTags);
@@ -1711,21 +1723,23 @@ const Configurations = () => {
       fixed: 'right',
       render: (_, record) => (
         <Space>
-          <Tooltip title="Edit">
+          <Tooltip title={record.is_default ? 'Default tags cannot be edited' : 'Edit'}>
             <Button
               type="text"
               icon={<EditOutlined />}
               onClick={() => handleEditTag(record)}
               className="action-icon-btn"
+              disabled={record.is_default}
             />
           </Tooltip>
-          <Tooltip title="Delete">
+          <Tooltip title={record.is_default ? 'Default tags cannot be deleted' : 'Delete'}>
             <Button
               type="text"
               icon={<DeleteOutlined />}
               onClick={() => handleDeleteTag(record)}
               className="action-icon-btn"
               danger
+              disabled={record.is_default}
             />
           </Tooltip>
         </Space>
