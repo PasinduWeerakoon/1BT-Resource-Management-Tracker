@@ -12,6 +12,82 @@ import audit from '/opt/nodejs/lib/audit/index.js';
 const SERVICE_NAME = 'project-service';
 
 /**
+ * Enhancement 3.3: Auto-adjust allocation end dates when project end date is set/changed
+ */
+const autoAdjustAllocationEndDates = async (projectId, newEndDate, userId, log) => {
+    try {
+        if (!newEndDate) {
+            return { adjusted: 0, message: 'No end date specified' };
+        }
+
+        const endDateStr = newEndDate instanceof Date ? newEndDate.toISOString().split('T')[0] : newEndDate;
+
+        // Find all active allocations that need adjustment
+        const query = `
+            SELECT id, resource_id, end_date 
+            FROM allocations 
+            WHERE project_id = $1 
+            AND is_active = true
+            AND (end_date IS NULL OR end_date > $2::date)
+        `;
+
+        const result = await db.query(query, [projectId, endDateStr]);
+        const allocationsToAdjust = result.rows;
+
+        if (allocationsToAdjust.length === 0) {
+            return { adjusted: 0, message: 'No allocations needed adjustment' };
+        }
+
+        // Update each allocation's end date
+        const updateQuery = `
+            UPDATE allocations 
+            SET end_date = $1::date, 
+                updated_by = $2, 
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = $3
+        `;
+
+        let adjusted = 0;
+        for (const allocation of allocationsToAdjust) {
+            await db.query(updateQuery, [endDateStr, userId || '00000000-0000-0000-0000-000000000000', allocation.id]);
+
+            // Log the auto-adjustment to allocation change history
+            await db.query(`
+                INSERT INTO allocation_change_history (
+                    allocation_id, change_type, changed_by, changed_fields, old_values, new_values, notes
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
+            `, [
+                allocation.id,
+                'UPDATED',
+                userId || '00000000-0000-0000-0000-000000000000',
+                JSON.stringify(['end_date']),
+                JSON.stringify({ end_date: allocation.end_date }),
+                JSON.stringify({ end_date: endDateStr }),
+                'Auto-adjusted: Project end date changed'
+            ]);
+
+            adjusted++;
+        }
+
+        log.info('Auto-adjusted allocation end dates', {
+            projectId,
+            newEndDate: endDateStr,
+            adjustedCount: adjusted
+        });
+
+        return {
+            adjusted,
+            message: `Auto-adjusted ${adjusted} allocation(s) to match project end date`
+        };
+    } catch (err) {
+        log.error('Failed to auto-adjust allocation end dates', { projectId, error: err.message });
+        // Don't fail the project update if this fails
+        return { adjusted: 0, error: err.message };
+    }
+};
+
+/**
  * List projects with pagination and filters
  */
 export const list = async (event) => {
@@ -287,6 +363,12 @@ export const update = async (event) => {
         const result = await db.query(query, params);
         const updatedProject = result.rows[0];
 
+        // Enhancement 3.3: Auto-adjust allocation end dates if project end_date was changed
+        let allocationAdjustment = null;
+        if (validated.end_date !== undefined && validated.end_date !== existing.end_date) {
+            allocationAdjustment = await autoAdjustAllocationEndDates(id, validated.end_date, userId, log);
+        }
+
         // Send audit event for project update
         await audit.update(
             event,
@@ -295,12 +377,19 @@ export const update = async (event) => {
             updatedProject.project_name,
             existing,
             updatedProject,
-            SERVICE_NAME
+            SERVICE_NAME,
+            { allocationAdjustment }
         );
 
-        log.info('Project updated', { id });
+        log.info('Project updated', { id, allocationAdjustment });
 
-        return success(updatedProject);
+        // Include adjustment info in response
+        const response = { ...updatedProject };
+        if (allocationAdjustment && allocationAdjustment.adjusted > 0) {
+            response.allocationAdjustment = allocationAdjustment;
+        }
+
+        return success(response);
 
     } catch (err) {
         log.error('Failed to update project', { id, error: err.message });

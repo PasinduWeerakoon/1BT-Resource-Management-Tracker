@@ -787,6 +787,255 @@ const migrations = [
 
             logger.info('Migration 011 completed: Added team_size, account_manager, account_type, budget columns to projects');
         }
+    },
+    {
+        id: '012_billing_statuses',
+        name: 'Create billing_statuses table',
+        up: async (client) => {
+            // Create billing_statuses table
+            await client.query(`
+                CREATE TABLE IF NOT EXISTS billing_statuses (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    name VARCHAR(50) NOT NULL UNIQUE,
+                    description TEXT,
+                    is_active BOOLEAN DEFAULT true,
+                    is_default BOOLEAN DEFAULT false NOT NULL,
+                    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                    created_by UUID,
+                    updated_by UUID
+                )
+            `);
+
+            // Create index on name for faster lookups
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS idx_billing_statuses_name ON billing_statuses(name);
+            `);
+
+            // Insert default billing statuses (marked as is_default = true)
+            await client.query(`
+                INSERT INTO billing_statuses (name, description, is_active, is_default) VALUES
+                ('Billing', 'Project is billable', true, true),
+                ('Non-Billing', 'Project is not billable', true, true),
+                ('Presales', 'Pre-sales project', true, true),
+                ('Training', 'Training project', true, true),
+                ('POC', 'Proof of Concept project', true, true),
+                ('Preparation', 'Project in preparation phase', true, true)
+                ON CONFLICT (name) DO NOTHING;
+            `);
+
+            // Add trigger to update updated_at
+            await client.query(`
+                DROP TRIGGER IF EXISTS update_billing_statuses_updated_at ON billing_statuses;
+                CREATE TRIGGER update_billing_statuses_updated_at
+                    BEFORE UPDATE ON billing_statuses
+                    FOR EACH ROW
+                    EXECUTE FUNCTION update_updated_at_column();
+            `);
+
+            logger.info('Migration 012 completed: billing_statuses table created');
+        }
+    },
+    {
+        id: '013_project_types',
+        name: 'Create project_types table',
+        up: async (client) => {
+            // Create project_types table
+            await client.query(`
+                CREATE TABLE IF NOT EXISTS project_types (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    name VARCHAR(50) NOT NULL UNIQUE,
+                    description TEXT,
+                    is_active BOOLEAN DEFAULT true,
+                    is_default BOOLEAN DEFAULT false NOT NULL,
+                    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                    created_by UUID,
+                    updated_by UUID
+                )
+            `);
+
+            // Create index on name for faster lookups
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS idx_project_types_name ON project_types(name);
+            `);
+
+            // Insert default project types (marked as is_default = true)
+            await client.query(`
+                INSERT INTO project_types (name, description, is_active, is_default) VALUES
+                ('Client', 'Client project', true, true),
+                ('Bench', 'Bench project', true, true),
+                ('POC', 'Proof of Concept project', true, true),
+                ('Presale', 'Pre-sales project', true, true),
+                ('Research', 'Research project', true, true)
+                ON CONFLICT (name) DO NOTHING;
+            `);
+
+            // Add trigger to update updated_at
+            await client.query(`
+                DROP TRIGGER IF EXISTS update_project_types_updated_at ON project_types;
+                CREATE TRIGGER update_project_types_updated_at
+                    BEFORE UPDATE ON project_types
+                    FOR EACH ROW
+                    EXECUTE FUNCTION update_updated_at_column();
+            `);
+
+            logger.info('Migration 013 completed: project_types table created');
+        }
+    },
+    {
+        id: '014_allocation_totals',
+        name: 'Allocation Totals on Resources',
+        up: async (client) => {
+            // Add total_allocation and total_billing columns to resources
+            await client.query(`
+                                ALTER TABLE resources
+                                ADD COLUMN IF NOT EXISTS total_allocation DECIMAL(5,2) NOT NULL DEFAULT 0,
+                                ADD COLUMN IF NOT EXISTS total_billing DECIMAL(5,2) NOT NULL DEFAULT 0;
+                        `);
+
+            // Index for quick overallocation queries
+            await client.query(`
+                                CREATE INDEX IF NOT EXISTS idx_resources_total_allocation
+                                ON resources(total_allocation) WHERE status = 'Active';
+                        `);
+
+            // Add is_billable_track to tracks
+            await client.query(`
+                                ALTER TABLE tracks
+                                ADD COLUMN IF NOT EXISTS is_billable_track BOOLEAN NOT NULL DEFAULT false;
+                        `);
+
+            // Update existing tracks to set is_billable_track
+            await client.query(`
+                                UPDATE tracks SET is_billable_track = true WHERE name IN ('FS', '.Net', 'DS', 'UI/UX', 'QA', 'PM/BA');
+                        `);
+
+            // Backfill existing resource totals
+            await client.query(`
+                                WITH allocation_totals AS (
+                                    SELECT 
+                                        a.resource_id,
+                                        COALESCE(SUM(CASE WHEN p.is_bench_project = false THEN a.allocation_percentage ELSE 0 END), 0) as total_alloc,
+                                        COALESCE(SUM(CASE WHEN p.is_bench_project = false THEN a.billing_percentage ELSE 0 END), 0) as total_bill
+                                    FROM allocations a
+                                    JOIN projects p ON a.project_id = p.id
+                                    WHERE a.is_active = true
+                                        AND (a.end_date IS NULL OR a.end_date >= CURRENT_DATE)
+                                        AND a.start_date <= CURRENT_DATE
+                                    GROUP BY a.resource_id
+                                )
+                                UPDATE resources r
+                                SET 
+                                    total_allocation = COALESCE(at.total_alloc, 0),
+                                    total_billing = COALESCE(at.total_bill, 0)
+                                FROM allocation_totals at
+                                WHERE r.id = at.resource_id;
+                        `);
+
+            // Create function to update resource allocation totals
+            await client.query(`
+                                CREATE OR REPLACE FUNCTION update_resource_allocation_totals(p_resource_id UUID)
+                                RETURNS void AS $$
+                                BEGIN
+                                    UPDATE resources
+                                    SET 
+                                        total_allocation = COALESCE((
+                                            SELECT SUM(a.allocation_percentage)
+                                            FROM allocations a
+                                            JOIN projects p ON a.project_id = p.id
+                                            WHERE a.resource_id = p_resource_id
+                                                AND a.is_active = true
+                                                AND p.is_bench_project = false
+                                                AND (a.end_date IS NULL OR a.end_date >= CURRENT_DATE)
+                                                AND a.start_date <= CURRENT_DATE
+                                        ), 0),
+                                        total_billing = COALESCE((
+                                            SELECT SUM(a.billing_percentage)
+                                            FROM allocations a
+                                            JOIN projects p ON a.project_id = p.id
+                                            WHERE a.resource_id = p_resource_id
+                                                AND a.is_active = true
+                                                AND p.is_bench_project = false
+                                                AND (a.end_date IS NULL OR a.end_date >= CURRENT_DATE)
+                                                AND a.start_date <= CURRENT_DATE
+                                        ), 0),
+                                        updated_at = CURRENT_TIMESTAMP
+                                    WHERE id = p_resource_id;
+                                END;
+                                $$ LANGUAGE plpgsql;
+                        `);
+
+            // Create trigger function
+            await client.query(`
+                                CREATE OR REPLACE FUNCTION trigger_update_resource_totals()
+                                RETURNS TRIGGER AS $$
+                                BEGIN
+                                    IF (TG_OP = 'INSERT' OR TG_OP = 'UPDATE') THEN
+                                        PERFORM update_resource_allocation_totals(NEW.resource_id);
+                                        RETURN NEW;
+                                    END IF;
+                                    IF (TG_OP = 'DELETE') THEN
+                                        PERFORM update_resource_allocation_totals(OLD.resource_id);
+                                        RETURN OLD;
+                                    END IF;
+                                    RETURN NULL;
+                                END;
+                                $$ LANGUAGE plpgsql;
+                        `);
+
+            // Create the trigger on allocations table
+            await client.query(`
+                                DROP TRIGGER IF EXISTS allocations_update_resource_totals ON allocations;
+                                CREATE TRIGGER allocations_update_resource_totals
+                                AFTER INSERT OR UPDATE OR DELETE ON allocations
+                                FOR EACH ROW
+                                EXECUTE FUNCTION trigger_update_resource_totals();
+                        `);
+
+            logger.info('Migration 014 completed: Allocation totals and is_billable_track added, triggers created');
+        }
+    },
+    {
+        id: '015_utilization_snapshots',
+        name: 'Historical Utilization Snapshots',
+        up: async (client) => {
+            // Create resource_utilization_snapshots table
+            await client.query(`
+                CREATE TABLE IF NOT EXISTS resource_utilization_snapshots (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    resource_id UUID NOT NULL REFERENCES resources(id) ON DELETE CASCADE,
+                    snapshot_date DATE NOT NULL,
+                    total_allocation DECIMAL(5,2) NOT NULL DEFAULT 0,
+                    bench_percentage DECIMAL(5,2) NOT NULL DEFAULT 0,
+                    billing_allocation DECIMAL(5,2) NOT NULL DEFAULT 0,
+                    non_billing_allocation DECIMAL(5,2) NOT NULL DEFAULT 0,
+                    project_count INTEGER NOT NULL DEFAULT 0,
+                    is_over_allocated BOOLEAN NOT NULL DEFAULT false,
+                    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                    
+                    CONSTRAINT unique_resource_date UNIQUE (resource_id, snapshot_date)
+                );
+            `);
+
+            // Create indexes for efficient querying
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS idx_snapshots_resource 
+                ON resource_utilization_snapshots(resource_id);
+            `);
+
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS idx_snapshots_date 
+                ON resource_utilization_snapshots(snapshot_date);
+            `);
+
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS idx_snapshots_resource_date 
+                ON resource_utilization_snapshots(resource_id, snapshot_date DESC);
+            `);
+
+            logger.info('Migration 015 completed: resource_utilization_snapshots table created');
+        }
     }
 ];
 
