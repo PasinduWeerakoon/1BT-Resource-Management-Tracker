@@ -11,6 +11,12 @@ const ExceptionAllocationReport = () => {
   const [filtersExpanded, setFiltersExpanded] = useState(false);
   const [loading, setLoading] = useState(false);
   const [reportData, setReportData] = useState([]);
+  const [summary, setSummary] = useState({
+    total: 0,
+    overAllocated: 0,
+    underAllocated: 0,
+    unallocated: 0,
+  });
   const [filters, setFilters] = useState({});
   const fetchInProgressRef = useRef(false);
 
@@ -48,11 +54,12 @@ const ExceptionAllocationReport = () => {
       const response = await reportsService.getException(filters);
       
       // Handle response structure
+      // Response structure: { success: true, data: { data: [...], summary: {...}, generatedAt: "..." } }
       let reportDataArray = [];
       if (response) {
-        if (Array.isArray(response.data)) {
-          reportDataArray = response.data;
-        } else if (response.data && Array.isArray(response.data)) {
+        if (response.data && response.data.data && Array.isArray(response.data.data)) {
+          reportDataArray = response.data.data;
+        } else if (Array.isArray(response.data)) {
           reportDataArray = response.data;
         } else if (Array.isArray(response)) {
           reportDataArray = response;
@@ -60,20 +67,47 @@ const ExceptionAllocationReport = () => {
       }
       
       // Transform API data to table format
-      const transformedData = reportDataArray.map((item, index) => ({
-        key: item.id || `exception-${index}`,
-        id: item.id,
-        employeeName: item.name || 'N/A',
-        totalAllocation: item.total_allocation || 0,
-        totalAllocationFormatted: `${(item.total_allocation || 0).toFixed(2)}%`,
-        isOverAllocated: item.is_over_allocated || false,
-      }));
+      const transformedData = reportDataArray.map((item, index) => {
+        const totalAllocation = parseFloat(item.total_allocation || 0);
+        const exceptionType = item.exception_type || 'Normal';
+        const isOverAllocated = exceptionType === 'Over-allocated' || totalAllocation > 100;
+        
+        return {
+          key: item.id || `exception-${index}`,
+          id: item.id,
+          employeeName: item.name || 'N/A',
+          employeeId: item.employee_id || '',
+          email: item.email || '',
+          designation: item.designation || '',
+          track: item.track || '',
+          totalAllocation: totalAllocation,
+          totalAllocationFormatted: `${totalAllocation.toFixed(2)}%`,
+          isOverAllocated: isOverAllocated,
+          exceptionType: exceptionType,
+        };
+      });
       
       setReportData(transformedData);
+      
+      // Update summary from API response if available
+      if (response && response.data && response.data.summary) {
+        setSummary({
+          total: response.data.summary.total || 0,
+          overAllocated: response.data.summary.overAllocated || 0,
+          underAllocated: response.data.summary.underAllocated || 0,
+          unallocated: response.data.summary.unallocated || 0,
+        });
+      }
     } catch (error) {
       console.error('Failed to fetch exception allocation report:', error);
       showErrorToast('Failed to load exception allocation report');
       setReportData([]);
+      setSummary({
+        total: 0,
+        overAllocated: 0,
+        underAllocated: 0,
+        unallocated: 0,
+      });
     } finally {
       setLoading(false);
       fetchInProgressRef.current = false;
@@ -115,22 +149,40 @@ const ExceptionAllocationReport = () => {
     },
     {
       title: 'Status',
-      dataIndex: 'isOverAllocated',
+      dataIndex: 'exceptionType',
       key: 'status',
       width: 150,
-      render: (isOverAllocated) => (
-        <Badge
-          status={isOverAllocated ? 'error' : 'warning'}
-          text={isOverAllocated ? 'Over Allocated' : 'Anomaly'}
-        />
-      ),
+      render: (exceptionType, record) => {
+        let badgeStatus = 'warning';
+        let badgeText = 'Anomaly';
+        
+        if (exceptionType === 'Over-allocated') {
+          badgeStatus = 'error';
+          badgeText = 'Over Allocated';
+        } else if (exceptionType === 'Under-allocated') {
+          badgeStatus = 'warning';
+          badgeText = 'Under Allocated';
+        } else if (exceptionType === 'Unallocated') {
+          badgeStatus = 'default';
+          badgeText = 'Unallocated';
+        }
+        
+        return (
+          <Badge
+            status={badgeStatus}
+            text={badgeText}
+          />
+        );
+      },
     },
   ];
 
-  // Calculate KPIs
-  const totalExceptions = reportData.length;
-  const overAllocatedCount = reportData.filter(item => item.isOverAllocated).length;
-  const anomalyCount = totalExceptions - overAllocatedCount;
+  // Calculate KPIs - use summary from API if available, otherwise calculate from data
+  const totalExceptions = summary.total > 0 ? summary.total : reportData.length;
+  const overAllocatedCount = summary.overAllocated > 0 ? summary.overAllocated : reportData.filter(item => item.isOverAllocated).length;
+  const anomalyCount = summary.underAllocated > 0 || summary.unallocated > 0 
+    ? (summary.underAllocated + summary.unallocated)
+    : (totalExceptions - overAllocatedCount);
 
   return (
     <div className="exception-allocation-report-page">
