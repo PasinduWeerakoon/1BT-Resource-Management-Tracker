@@ -365,3 +365,49 @@ functions:
           path: /api/v1/project-types/{id}
           method: DELETE
           authorizer: ${self:custom.authorizer}
+
+  # ==================== TAGS ====================
+  listTags:
+    handler: src/handlers/tags.list
+    description: List all tags
+    events:
+      - httpApi:
+          path: /api/v1/tags
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  getTag:
+    handler: src/handlers/tags.getById
+    description: Get a tag by ID
+    events:
+      - httpApi:
+          path: /api/v1/tags/{id}
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  createTag:
+    handler: src/handlers/tags.create
+    description: Create a new tag
+    events:
+      - httpApi:
+          path: /api/v1/tags
+          method: POST
+          authorizer: ${self:custom.authorizer}
+
+  updateTag:
+    handler: src/handlers/tags.update
+    description: Update a tag
+    events:
+      - httpApi:
+          path: /api/v1/tags/{id}
+          method: PUT
+          authorizer: ${self:custom.authorizer}
+
+  deleteTag:
+    handler: src/handlers/tags.remove
+    description: Delete a tag
+    events:
+      - httpApi:
+          path: /api/v1/tags/{id}
+          method: DELETE
+          authorizer: ${self:custom.authorizer}

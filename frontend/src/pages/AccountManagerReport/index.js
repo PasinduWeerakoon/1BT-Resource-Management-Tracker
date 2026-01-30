@@ -1380,103 +1380,6 @@ const AccountManagerReport = () => {
         },
     };
 
-    // Chart.js data for track donut chart from API
-    const trackDonutData = useMemo(() => {
-        const employeesByTrack = reportData.charts.employeesByTrack || {};
-        const labels = Object.keys(employeesByTrack);
-        const data = Object.values(employeesByTrack);
-
-        const colorPalette = [
-            colors.primary,
-            colors.error,
-            colors.warning,
-            colors.success,
-            colors.info,
-            colors.purple,
-            colors.cyan,
-        ];
-
-        const backgroundColors = labels.map((_, index) => colorPalette[index % colorPalette.length]);
-
-        return {
-            labels: labels.length > 0 ? labels : ['No Data'],
-            datasets: [
-                {
-                    data: data.length > 0 ? data : [0],
-                    backgroundColor: backgroundColors.length > 0 ? backgroundColors : [colors.gray],
-                    borderWidth: 2,
-                    borderColor: '#fff',
-                },
-            ],
-        };
-    }, [reportData.charts.employeesByTrack]);
-
-    const trackDonutOptions = {
-        ...commonOptions,
-        plugins: {
-            ...commonOptions.plugins,
-            legend: {
-                ...commonOptions.plugins.legend,
-                position: 'bottom',
-            },
-            tooltip: {
-                ...commonOptions.plugins.tooltip,
-                callbacks: {
-                    label: function (context) {
-                        const label = context.label || '';
-                        const value = context.parsed || 0;
-                        const total = context.dataset.data.reduce((a, b) => a + b, 0);
-                        const percentage = ((value / total) * 100).toFixed(2);
-                        return `${label}: ${value} (${percentage}%)`;
-                    },
-                },
-            },
-        },
-    };
-
-    // Chart.js data for tech stack bar chart from API
-    const techStackBarData = useMemo(() => {
-        const employeesByTechStack = reportData.charts.employeesByTechStack || {};
-        const labels = Object.keys(employeesByTechStack);
-        const data = Object.values(employeesByTechStack);
-
-        return {
-            labels: labels.length > 0 ? labels : ['No Data'],
-            datasets: [
-                {
-                    label: 'Number of Employees',
-                    data: data.length > 0 ? data : [0],
-                    backgroundColor: colors.primary,
-                    borderRadius: 4,
-                },
-            ],
-        };
-    }, [reportData.charts.employeesByTechStack]);
-
-    const techStackBarOptions = {
-        ...commonOptions,
-        indexAxis: 'y',
-        scales: {
-            ...commonOptions.scales,
-            x: {
-                ...commonOptions.scales.x,
-                beginAtZero: true,
-            },
-            y: {
-                ...commonOptions.scales.y,
-                grid: {
-                    display: false,
-                },
-            },
-        },
-        plugins: {
-            ...commonOptions.plugins,
-            legend: {
-                display: false,
-            },
-        },
-    };
-
     // Mock data for tables
     // Fetch resources list for allocation form
     useEffect(() => {
@@ -1930,59 +1833,6 @@ const AccountManagerReport = () => {
             ),
         },
     ];
-
-    const designationColumns = [
-        {
-            title: 'Employee Name',
-            dataIndex: 'employeeName',
-            key: 'employeeName',
-            width: 200,
-        },
-        {
-            title: 'Track',
-            dataIndex: 'track',
-            key: 'track',
-            width: 120,
-        },
-        {
-            title: 'Tech Stack',
-            dataIndex: 'techStack',
-            key: 'techStack',
-            width: 150,
-        },
-        {
-            title: 'Tier',
-            dataIndex: 'tier',
-            key: 'tier',
-            width: 120,
-        },
-        {
-            title: 'Designation',
-            dataIndex: 'designation',
-            key: 'designation',
-            width: 250,
-        },
-        {
-            title: 'Allocation Count',
-            dataIndex: 'allocationCount',
-            key: 'allocationCount',
-            width: 140,
-        },
-    ];
-
-    // Designation data from API
-    const designationData = useMemo(() => {
-        const designations = reportData.designations.data || [];
-        return designations.map((item, index) => ({
-            key: item.id || `designation-${index}`,
-            employeeName: item.employee_name || item.name || 'N/A',
-            track: item.track || 'N/A',
-            techStack: item.tech_stack || 'N/A',
-            tier: item.tier || 'N/A',
-            designation: item.designation || 'N/A',
-            allocationCount: item.allocation_count || 0,
-        }));
-    }, [reportData.designations.data]);
 
     // Fetch allocations for a project
     const fetchProjectAllocations = async (projectId, page = 1, limit = 10) => {
@@ -2617,35 +2467,6 @@ const AccountManagerReport = () => {
                     />
                 )}
             </Card>
-
-            {/* Bottom Section - Three Columns */}
-            <Row gutter={[16, 16]} className="bottom-section">
-                <Col xs={24} lg={8}>
-                    <Card className="table-card" title="BY DESIGNATION">
-                        <CustomTable
-                            columns={designationColumns}
-                            dataSource={designationData}
-                            pagination={false}
-                            size="small"
-                            scroll={{ x: 800 }}
-                        />
-                    </Card>
-                </Col>
-                <Col xs={24} lg={8}>
-                    <Card className="chart-card" title="No. of Employee Accounts Managed by Track">
-                        <div className="chart-container">
-                            <Doughnut data={trackDonutData} options={trackDonutOptions} />
-                        </div>
-                    </Card>
-                </Col>
-                <Col xs={24} lg={8}>
-                    <Card className="chart-card" title="No. of Employee Accounts Managed by Tech Stack">
-                        <div className="chart-container">
-                            <Bar data={techStackBarData} options={techStackBarOptions} />
-                        </div>
-                    </Card>
-                </Col>
-            </Row>
 
             {/* Create/Edit Project Modal */}
             <CustomModal
