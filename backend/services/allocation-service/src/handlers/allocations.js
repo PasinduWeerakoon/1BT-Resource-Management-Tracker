@@ -16,6 +16,12 @@ import audit from '/opt/nodejs/lib/audit/index.js';
 
 const SERVICE_NAME = 'allocation-service';
 
+// Configuration constants for allocation business rules
+const ALLOCATION_CONFIG = {
+    // Enhancement 3.1: Bench cleanup threshold
+    BENCH_CLEANUP_THRESHOLD_HOURS: 24,
+};
+
 // Fixed Bench project ID - will be looked up by is_bench_project flag
 let BENCH_PROJECT_ID = null;
 
@@ -98,13 +104,129 @@ const getBenchAllocation = async (resourceId) => {
 };
 
 /**
+ * Enhancement 3.5: Check for overlapping date ranges with existing allocations
+ * Returns conflicting allocation if found, null otherwise
+ */
+const checkOverlappingAllocation = async (resourceId, projectId, startDate, endDate, excludeAllocationId = null) => {
+    const startDateStr = startDate instanceof Date ? startDate.toISOString().split('T')[0] : startDate;
+    const endDateStr = endDate instanceof Date ? endDate.toISOString().split('T')[0] : endDate;
+
+    // Two date ranges overlap if:
+    // (start1 <= end2 OR end2 IS NULL) AND (start2 <= end1 OR end1 IS NULL)
+    let query = `
+        SELECT id, start_date, end_date, allocation_percentage
+        FROM allocations
+        WHERE resource_id = $1
+        AND project_id = $2
+        AND is_active = true
+        AND (start_date <= COALESCE($4::date, '9999-12-31'))
+        AND (COALESCE(end_date, '9999-12-31') >= $3::date)
+    `;
+    const params = [resourceId, projectId, startDateStr, endDateStr];
+
+    if (excludeAllocationId) {
+        query += ` AND id != $5`;
+        params.push(excludeAllocationId);
+    }
+
+    const result = await db.query(query, params);
+    return result.rows.length > 0 ? result.rows[0] : null;
+};
+
+/**
+ * Enhancement 3.1: Check if bench allocation is a short-stay (< 24 hours)
+ * and can be cleaned up (hard deleted) instead of just deactivated
+ */
+const isShortStayBench = async (resourceId, log) => {
+    const benchProjectId = await getBenchProjectId();
+    const thresholdHours = ALLOCATION_CONFIG.BENCH_CLEANUP_THRESHOLD_HOURS;
+
+    // Get the current bench allocation
+    const benchResult = await db.query(`
+        SELECT id, created_at, start_date
+        FROM allocations
+        WHERE resource_id = $1
+        AND project_id = $2
+        AND is_active = true
+        ORDER BY created_at DESC
+        LIMIT 1
+    `, [resourceId, benchProjectId]);
+
+    if (benchResult.rows.length === 0) {
+        return { isShortStay: false, benchAllocationId: null };
+    }
+
+    const benchAllocation = benchResult.rows[0];
+    const benchCreatedAt = new Date(benchAllocation.created_at);
+    const now = new Date();
+    const hoursSinceBenchCreated = (now - benchCreatedAt) / (1000 * 60 * 60);
+
+    if (hoursSinceBenchCreated >= thresholdHours) {
+        return { isShortStay: false, benchAllocationId: benchAllocation.id };
+    }
+
+    // Check if resource had any other allocation changes since bench was created
+    // (excluding the bench allocation itself)
+    const otherChangesResult = await db.query(`
+        SELECT COUNT(*) as change_count
+        FROM allocation_change_history
+        WHERE allocation_id IN (
+            SELECT id FROM allocations WHERE resource_id = $1 AND project_id != $2
+        )
+        AND changed_at > $3
+    `, [resourceId, benchProjectId, benchCreatedAt.toISOString()]);
+
+    const hasOtherChanges = parseInt(otherChangesResult.rows[0].change_count, 10) > 0;
+
+    if (hasOtherChanges) {
+        log.info('Bench is short-stay but resource had other allocation changes', {
+            resourceId,
+            benchAllocationId: benchAllocation.id,
+            hoursSinceBenchCreated
+        });
+        return { isShortStay: false, benchAllocationId: benchAllocation.id };
+    }
+
+    log.info('Short-stay bench detected', {
+        resourceId,
+        benchAllocationId: benchAllocation.id,
+        hoursSinceBenchCreated,
+        thresholdHours
+    });
+
+    return { isShortStay: true, benchAllocationId: benchAllocation.id };
+};
+
+/**
+ * Enhancement 3.1: Hard delete a short-stay bench allocation
+ * Does NOT log to allocation_history (to keep history clean)
+ */
+const cleanupShortStayBench = async (benchAllocationId, log) => {
+    await db.query('DELETE FROM allocations WHERE id = $1', [benchAllocationId]);
+    log.info('Short-stay bench allocation cleaned up (hard deleted)', { benchAllocationId });
+};
+
+/**
  * Auto-adjust bench allocation based on other allocations
  * Returns the new bench percentage after adjustment
+ * Enhancement 3.11: Added explicit logging for negative bench calculation
  */
 const adjustBenchAllocation = async (resourceId, userId, log) => {
     const benchProjectId = await getBenchProjectId();
     const nonBenchTotal = await calculateNonBenchTotal(resourceId, null, new Date().toISOString().split('T')[0], null);
-    const newBenchPercentage = Math.max(0, 100 - nonBenchTotal);
+    const calculatedBenchPercentage = 100 - nonBenchTotal;
+
+    // Enhancement 3.11: Explicit logging for rollover protection
+    if (calculatedBenchPercentage < 0) {
+        log.warn('Bench percentage calculation resulted in negative value, clamping to 0', {
+            resourceId,
+            nonBenchTotal,
+            calculatedValue: calculatedBenchPercentage,
+            clampedValue: 0
+        });
+    }
+
+    const newBenchPercentage = Math.max(0, calculatedBenchPercentage);
 
     const benchAllocation = await getBenchAllocation(resourceId);
 
@@ -132,9 +254,10 @@ const adjustBenchAllocation = async (resourceId, userId, log) => {
         }
     } else if (newBenchPercentage > 0) {
         // Create bench allocation if it doesn't exist and should have a value
+        // Bench allocations have 0% billing
         await db.query(`
-            INSERT INTO allocations (resource_id, project_id, allocation_percentage, start_date, is_active, notes, created_by)
-            VALUES ($1, $2, $3, CURRENT_DATE, true, 'Auto-created bench allocation', $4)
+            INSERT INTO allocations (resource_id, project_id, allocation_percentage, billing_percentage, start_date, is_active, notes, created_by)
+            VALUES ($1, $2, $3, 0, CURRENT_DATE, true, 'Auto-created bench allocation', $4)
         `, [resourceId, benchProjectId, newBenchPercentage, userId || '00000000-0000-0000-0000-000000000000']);
         log.info('Bench allocation created', { resourceId, percentage: newBenchPercentage });
     }
@@ -340,6 +463,35 @@ export const create = async (event) => {
         // Check if this is a bench allocation
         const isBenchAllocation = validated.project_id === benchProjectId;
 
+        // Enhancement 3.5: Check for overlapping date conflicts
+        if (!isBenchAllocation) {
+            const overlappingAllocation = await checkOverlappingAllocation(
+                validated.resource_id,
+                validated.project_id,
+                validated.start_date,
+                validated.end_date
+            );
+
+            if (overlappingAllocation) {
+                log.warn('Overlapping allocation detected', {
+                    resourceId: validated.resource_id,
+                    projectId: validated.project_id,
+                    existingAllocationId: overlappingAllocation.id
+                });
+                return conflict('Conflicting allocation exists for this resource and project with overlapping dates', {
+                    existingAllocationId: overlappingAllocation.id,
+                    existingDateRange: {
+                        start: overlappingAllocation.start_date,
+                        end: overlappingAllocation.end_date
+                    },
+                    requestedDateRange: {
+                        start: validated.start_date,
+                        end: validated.end_date
+                    }
+                });
+            }
+        }
+
         // Validate allocation (now returns warning instead of error for >100%)
         const validationResult = await validateAllocation(
             validated.resource_id,
@@ -351,10 +503,10 @@ export const create = async (event) => {
 
         const query = `
             INSERT INTO allocations (
-                resource_id, project_id, allocation_percentage, start_date, end_date,
+                resource_id, project_id, allocation_percentage, billing_percentage, start_date, end_date,
                 is_active, notes, created_by
             )
-            VALUES ($1, $2, $3, $4::date, $5::date, $6, $7, $8)
+            VALUES ($1, $2, $3, $4, $5::date, $6::date, $7, $8, $9)
             RETURNING *
         `;
 
@@ -368,10 +520,14 @@ export const create = async (event) => {
                 : validated.end_date)
             : null;
 
+        // Bench allocations have 0% billing, default 100% for project allocations
+        const billingPercentage = isBenchAllocation ? 0 : (validated.billing_percentage ?? 100);
+
         const params = [
             validated.resource_id,
             validated.project_id,
             validated.allocation_percentage,
+            billingPercentage,
             startDateStr,
             endDateStr,
             true, // is_active
@@ -387,11 +543,26 @@ export const create = async (event) => {
 
         // Auto-adjust bench allocation if this is not a bench allocation
         let benchAdjustment = null;
+        let shortStayCleanup = null;
         if (!isBenchAllocation) {
+            // Enhancement 3.1: Check if bench is a short-stay that can be cleaned up
+            const { isShortStay, benchAllocationId } = await isShortStayBench(validated.resource_id, log);
+
+            if (isShortStay && benchAllocationId) {
+                // Hard delete the short-stay bench allocation (don't log to history)
+                await cleanupShortStayBench(benchAllocationId, log);
+                shortStayCleanup = {
+                    cleaned: true,
+                    message: 'Short-stay bench allocation removed (< 24 hours)'
+                };
+                // Re-adjust bench (will create new one or leave as is based on total allocation)
+            }
+
             const newBenchPercentage = await adjustBenchAllocation(validated.resource_id, userId, log);
             benchAdjustment = {
                 benchPercentage: newBenchPercentage,
-                message: `Bench allocation adjusted to ${newBenchPercentage}%`
+                message: `Bench allocation adjusted to ${newBenchPercentage}%`,
+                shortStayCleanup
             };
         }
 
@@ -469,6 +640,37 @@ export const update = async (event) => {
         // Optimistic locking check
         if (validated.version !== undefined && existing.version !== validated.version) {
             return conflict('Allocation has been modified by another user. Please refresh and try again.');
+        }
+
+        // Enhancement 3.5: Check for overlapping date conflicts when dates are being changed
+        if (!isBenchAllocation && (validated.start_date || validated.end_date)) {
+            const overlappingAllocation = await checkOverlappingAllocation(
+                existing.resource_id,
+                existing.project_id,
+                validated.start_date || existing.start_date,
+                validated.end_date !== undefined ? validated.end_date : existing.end_date,
+                id // Exclude current allocation from check
+            );
+
+            if (overlappingAllocation) {
+                log.warn('Overlapping allocation detected on update', {
+                    allocationId: id,
+                    resourceId: existing.resource_id,
+                    projectId: existing.project_id,
+                    existingAllocationId: overlappingAllocation.id
+                });
+                return conflict('Conflicting allocation exists for this resource and project with overlapping dates', {
+                    existingAllocationId: overlappingAllocation.id,
+                    existingDateRange: {
+                        start: overlappingAllocation.start_date,
+                        end: overlappingAllocation.end_date
+                    },
+                    requestedDateRange: {
+                        start: validated.start_date || existing.start_date,
+                        end: validated.end_date !== undefined ? validated.end_date : existing.end_date
+                    }
+                });
+            }
         }
 
         // If updating percentage, validate (warnings instead of errors for >100%)

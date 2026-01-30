@@ -74,15 +74,55 @@ const getBenchProjectId = async () => {
 };
 
 /**
+ * Check if a track is a billable track (should have auto-bench allocation)
+ * Only Dev (FS, .Net, DS, UI/UX), QA, and PM/BA tracks should auto-bench
+ * @param {object} tx - Drizzle transaction context
+ * @param {string} trackId - The track ID to check
+ * @returns {boolean} - Whether the track is billable
+ */
+const isBillableTrack = async (tx, trackId) => {
+    try {
+        const result = await tx
+            .select({ isBillableTrack: tracks.isBillableTrack, name: tracks.name })
+            .from(tracks)
+            .where(eq(tracks.id, trackId));
+
+        if (result.length === 0) {
+            return false;
+        }
+
+        // If is_billable_track column is set, use it
+        if (result[0].isBillableTrack !== null) {
+            return result[0].isBillableTrack;
+        }
+
+        // Fallback: check track name for backwards compatibility
+        const billableTracks = ['FS', '.Net', 'DS', 'UI/UX', 'QA', 'PM/BA'];
+        return billableTracks.includes(result[0].name);
+    } catch {
+        return false;
+    }
+};
+
+/**
  * Create initial bench allocation for a new resource at 100%
+ * Only applies to billable tracks (Dev, QA, PM/BA)
  * Uses Drizzle ORM - can accept transaction context (tx) for atomic operations
  * @param {object} tx - Drizzle transaction context (or regular drizzle instance)
  * @param {string} resourceId - The resource ID to allocate
+ * @param {string} trackId - The track ID of the resource
  * @param {string} userId - The user creating the allocation
  * @param {object} log - Logger instance
  */
-const createInitialBenchAllocation = async (tx, resourceId, userId, log) => {
+const createInitialBenchAllocation = async (tx, resourceId, trackId, userId, log) => {
     try {
+        // Check if this track should have auto-bench allocation
+        const shouldAutoBench = await isBillableTrack(tx, trackId);
+        if (!shouldAutoBench) {
+            log.info('Track is not billable, skipping auto-bench allocation', { resourceId, trackId });
+            return null;
+        }
+
         const benchProjectId = await getBenchProjectId();
 
         if (!benchProjectId) {
@@ -108,6 +148,7 @@ const createInitialBenchAllocation = async (tx, resourceId, userId, log) => {
                 resourceId: resourceId,
                 projectId: benchProjectId,
                 allocationPercentage: '100',
+                billingPercentage: '0', // Bench is non-billing
                 startDate: new Date().toISOString().split('T')[0], // YYYY-MM-DD format
                 isActive: true,
                 notes: 'Auto-created bench allocation for new resource',
@@ -264,6 +305,8 @@ export const getById = async (event) => {
                 tech_stack: resources.techStack,
                 photo_url: resources.photoUrl,
                 status: resources.status,
+                total_allocation: resources.totalAllocation,
+                total_billing: resources.totalBilling,
                 version: resources.version,
                 created_at: resources.createdAt,
                 updated_at: resources.updatedAt,
@@ -389,7 +432,8 @@ export const create = async (event) => {
             log.info('Resource created in transaction', { id: newResource.id });
 
             // Auto-assign 100% to Bench project (within same transaction)
-            const benchAllocation = await createInitialBenchAllocation(tx, newResource.id, userId, log);
+            // Only creates bench allocation for billable tracks (FS, .Net, DS, UI/UX, QA, PM/BA)
+            const benchAllocation = await createInitialBenchAllocation(tx, newResource.id, validated.track_id, userId, log);
 
             return { newResource, benchAllocation };
         });
