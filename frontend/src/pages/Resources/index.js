@@ -5,7 +5,7 @@ import { Doughnut, Bar, Line } from 'react-chartjs-2';
 import { commonOptions, colors } from '@utils/chartConfig';
 import CustomModal from '@components/Modal';
 import CustomTable from '@components/Table';
-import { resourcesService, designationsService, tracksService } from '@api';
+import { resourcesService, designationsService, tracksService, tagsService } from '@api';
 import { showErrorToast, showWarningToast } from '@utils/toast.utils';
 import dayjs from 'dayjs';
 import '@styles/pages/Resources.scss';
@@ -25,6 +25,7 @@ const Resources = () => {
   const [fetchingEmployees, setFetchingEmployees] = useState(false);
   const [designations, setDesignations] = useState([]);
   const [tracks, setTracks] = useState([]);
+  const [tags, setTags] = useState([]);
   const [pagination, setPagination] = useState({
     current: 1,
     pageSize: 20,
@@ -32,27 +33,21 @@ const Resources = () => {
   });
   const [filters, setFilters] = useState({
     tier: 'All',
-    position: 'All',
     status: 'All',
-    joinDateRange: null,
     employeeNumber: '',
     name: '',
     track_id: undefined,
     designation_id: undefined,
-    is_intern: undefined,
   });
 
   // Default filter values for comparison
   const defaultFilters = {
     tier: 'All',
-    position: 'All',
     status: 'All',
-    joinDateRange: null,
     employeeNumber: '',
     name: '',
     track_id: undefined,
     designation_id: undefined,
-    is_intern: undefined,
   };
 
   // Count active filters (filters that differ from defaults)
@@ -92,6 +87,12 @@ const Resources = () => {
   const handleEditEmployee = (record) => {
     setIsEditMode(true);
     setSelectedEmployee(record);
+    
+    // Extract tag IDs from tags array
+    const tagIds = record.tags && Array.isArray(record.tags) 
+      ? record.tags.map(tag => tag.id || tag).filter(Boolean)
+      : [];
+    
     form.setFieldsValue({
       ...record,
       // Map API field names to form field names
@@ -99,6 +100,8 @@ const Resources = () => {
       nicOrPassport: record.nic_passport || record.nic,
       bod: record.date_of_birth ? dayjs(record.date_of_birth) : (record.bod ? dayjs(record.bod) : null),
       joinDate: record.date_of_joining ? dayjs(record.date_of_joining) : (record.joinDate ? dayjs(record.joinDate) : null),
+      employee_type: record.employee_type || 'Internal',
+      tag_ids: tagIds,
     });
     setIsAddEmployeeModalVisible(true);
   };
@@ -215,13 +218,14 @@ const Resources = () => {
     }
   };
 
-  // Fetch designations and tracks on component mount
+  // Fetch designations, tracks, and tags on component mount
   useEffect(() => {
     const fetchDropdownData = async () => {
       try {
-        const [designationsRes, tracksRes] = await Promise.all([
+        const [designationsRes, tracksRes, tagsRes] = await Promise.all([
           designationsService.getAll(),
           tracksService.getAll(),
+          tagsService.getAll(),
         ]);
 
         if (designationsRes && designationsRes.data) {
@@ -230,8 +234,18 @@ const Resources = () => {
         if (tracksRes && tracksRes.data) {
           setTracks(tracksRes.data);
         }
+        if (tagsRes && tagsRes.data) {
+          // Handle different response structures
+          let tagsData = [];
+          if (Array.isArray(tagsRes.data)) {
+            tagsData = tagsRes.data;
+          } else if (tagsRes.data && tagsRes.data.data && Array.isArray(tagsRes.data.data)) {
+            tagsData = tagsRes.data.data;
+          }
+          setTags(tagsData);
+        }
       } catch (error) {
-        console.error('Failed to fetch designations/tracks:', error);
+        console.error('Failed to fetch dropdown data:', error);
       }
     };
 
@@ -266,11 +280,14 @@ const Resources = () => {
       if (filters.status && filters.status !== 'All') {
         queryParams.status = filters.status;
       }
-      if (filters.is_intern !== undefined && filters.is_intern !== null) {
-        queryParams.is_intern = filters.is_intern;
-      }
       if (filters.tier && filters.tier !== 'All') {
         queryParams.tier = filters.tier;
+      }
+      if (filters.employeeNumber) {
+        queryParams.employee_number = filters.employeeNumber;
+      }
+      if (filters.name) {
+        queryParams.name = filters.name;
       }
 
       const response = await resourcesService.getAll(queryParams);
@@ -357,6 +374,8 @@ const Resources = () => {
           intern_classification: employee.intern_classification,
           tech_stack: employee.tech_stack, // Keep API field name
           skills: employee.skills || [],
+          employee_type: employee.employee_type || 'Internal',
+          tags: employee.tags || [],
           notice_period_end_date: employee.notice_period_end_date,
           date_of_joining: employee.date_of_joining,
           // Keep all original data for reference
@@ -408,10 +427,12 @@ const Resources = () => {
           date_of_birth: values.bod ? values.bod.format('YYYY-MM-DD') : values.date_of_birth || undefined,
           nic_passport: values.nicOrPassport || values.nic_passport || '',
           is_intern: values.is_intern !== undefined ? values.is_intern : false,
+          employee_type: values.employee_type || 'Internal',
           tier: values.tier || undefined,
           tech_stack: values.tech_stack || undefined,
           photo_url: values.photo_url || undefined,
           status: values.status || 'Active',
+          tag_ids: values.tag_ids && Array.isArray(values.tag_ids) ? values.tag_ids : undefined,
         };
 
         // Remove undefined fields
@@ -446,10 +467,12 @@ const Resources = () => {
           date_of_birth: values.bod ? values.bod.format('YYYY-MM-DD') : null,
           nic_passport: values.nicOrPassport || '',
           is_intern: values.is_intern || false,
+          employee_type: values.employee_type || 'Internal',
           tier: values.tier || undefined,
           tech_stack: values.tech_stack || undefined,
           photo_url: values.photo_url || undefined,
           status: values.status || 'Active',
+          tag_ids: values.tag_ids && Array.isArray(values.tag_ids) && values.tag_ids.length > 0 ? values.tag_ids : undefined,
         };
 
         // Remove undefined fields (but keep required fields even if empty)
@@ -624,13 +647,6 @@ const Resources = () => {
   }, [employees, filters.tier, filters.position, filters.joinDateRange]);
 
   // Get unique values for filter dropdowns
-  const uniqueTiers = useMemo(() => {
-    return [...new Set(employees.map(emp => emp.tier))].sort();
-  }, [employees]);
-
-  const uniquePositions = useMemo(() => {
-    return [...new Set(employees.map(emp => emp.position))].sort();
-  }, [employees]);
 
   // Table columns
   const columns = [
@@ -852,27 +868,31 @@ const Resources = () => {
                     style={{ width: '100%' }}
                   >
                     <Option value="All">All</Option>
-                    {uniqueTiers.map(tier => (
-                      <Option key={tier} value={tier}>{tier}</Option>
-                    ))}
+                    <Option value="Synergy">Synergy</Option>
+                    <Option value="Tier - 1">Tier - 1</Option>
+                    <Option value="Tier - 2">Tier - 2</Option>
+                    <Option value="Tier - 3">Tier - 3</Option>
+                    <Option value="Tier - 4">Tier - 4</Option>
+                    <Option value="Intern">Intern</Option>
                   </Select>
                 </div>
               </Col>
               <Col xs={24} sm={12} md={8} lg={6}>
                 <div className="filter-item">
-                  <label>Position</label>
+                  <label>Designation</label>
                   <Select
-                    value={filters.position}
-                    onChange={(value) => setFilters({ ...filters, position: value })}
+                    value={filters.designation_id}
+                    onChange={(value) => setFilters({ ...filters, designation_id: value || undefined })}
                     style={{ width: '100%' }}
+                    placeholder="All Designations"
+                    allowClear
                     showSearch
-                    filterOption={(input, option) =>
-                      (option?.children ?? '').toLowerCase().includes(input.toLowerCase())
-                    }
+                    optionFilterProp="children"
                   >
-                    <Option value="All">All</Option>
-                    {uniquePositions.map(position => (
-                      <Option key={position} value={position}>{position}</Option>
+                    {designations.map((designation) => (
+                      <Option key={designation.id} value={designation.id}>
+                        {designation.name}
+                      </Option>
                     ))}
                   </Select>
                 </div>
@@ -899,26 +919,6 @@ const Resources = () => {
               </Col>
               <Col xs={24} sm={12} md={8} lg={6}>
                 <div className="filter-item">
-                  <label>Designation</label>
-                  <Select
-                    value={filters.designation_id}
-                    onChange={(value) => setFilters({ ...filters, designation_id: value || undefined })}
-                    style={{ width: '100%' }}
-                    placeholder="All Designations"
-                    allowClear
-                    showSearch
-                    optionFilterProp="children"
-                  >
-                    {designations.map((designation) => (
-                      <Option key={designation.id} value={designation.id}>
-                        {designation.name}
-                      </Option>
-                    ))}
-                  </Select>
-                </div>
-              </Col>
-              <Col xs={24} sm={12} md={8} lg={6}>
-                <div className="filter-item">
                   <label>Status</label>
                   <Select
                     value={filters.status}
@@ -931,49 +931,6 @@ const Resources = () => {
                     <Option value="Serving Notice Period">Serving Notice Period</Option>
                     <Option value="On Leave">On Leave</Option>
                   </Select>
-                </div>
-              </Col>
-              <Col xs={24} sm={12} md={8} lg={6}>
-                <div className="filter-item">
-                  <label>Is Intern</label>
-                  <Select
-                    value={filters.is_intern}
-                    onChange={(value) => setFilters({ ...filters, is_intern: value })}
-                    style={{ width: '100%' }}
-                    allowClear
-                    placeholder="All"
-                  >
-                    <Option value={true}>Yes</Option>
-                    <Option value={false}>No</Option>
-                  </Select>
-                </div>
-              </Col>
-              <Col xs={24} sm={12} md={8} lg={6}>
-                <div className="filter-item">
-                  <label>Tier</label>
-                  <Select
-                    value={filters.tier}
-                    onChange={(value) => setFilters({ ...filters, tier: value })}
-                    style={{ width: '100%' }}
-                  >
-                    <Option value="All">All</Option>
-                    <Option value="Synergy">Synergy</Option>
-                    <Option value="Tier - 1">Tier - 1</Option>
-                    <Option value="Tier - 2">Tier - 2</Option>
-                    <Option value="Tier - 3">Tier - 3</Option>
-                    <Option value="Tier - 4">Tier - 4</Option>
-                    <Option value="Intern">Intern</Option>
-                  </Select>
-                </div>
-              </Col>
-              <Col xs={24} sm={12} md={8} lg={6}>
-                <div className="filter-item">
-                  <label>Join Date Range</label>
-                  <RangePicker
-                    style={{ width: '100%' }}
-                    value={filters.joinDateRange}
-                    onChange={(dates) => setFilters({ ...filters, joinDateRange: dates })}
-                  />
                 </div>
               </Col>
               <Col xs={24} sm={12} md={8} lg={6}>
@@ -1188,6 +1145,19 @@ const Resources = () => {
             </Col>
             <Col xs={24} sm={12}>
               <Form.Item
+                label="Employee Type"
+                name="employee_type"
+                initialValue="Internal"
+                rules={[{ required: true, message: 'Employee type is required' }]}
+              >
+                <Select placeholder="Select employee type">
+                  <Option value="Internal">Internal</Option>
+                  <Option value="External">External</Option>
+                </Select>
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={12}>
+              <Form.Item
                 label="Is Intern"
                 name="is_intern"
                 initialValue={false}
@@ -1211,6 +1181,29 @@ const Resources = () => {
                   <Option value="Data Science">Data Science</Option>
                   <Option value="Java">Java</Option>
                   <Option value="React">React</Option>
+                </Select>
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={12}>
+              <Form.Item
+                label="Tags"
+                name="tag_ids"
+              >
+                <Select
+                  mode="multiple"
+                  placeholder="Select tags"
+                  allowClear
+                  showSearch
+                  optionFilterProp="children"
+                  filterOption={(input, option) =>
+                    (option?.children ?? '').toLowerCase().includes(input.toLowerCase())
+                  }
+                >
+                  {tags.map((tag) => (
+                    <Option key={tag.id} value={tag.id}>
+                      {tag.name}
+                    </Option>
+                  ))}
                 </Select>
               </Form.Item>
             </Col>

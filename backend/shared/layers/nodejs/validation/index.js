@@ -47,9 +47,9 @@ export const resourceSchemas = {
         track_id: Joi.string().pattern(uuidPattern).optional(),
         designation_id: Joi.string().pattern(uuidPattern).optional(),
         status: Joi.string().valid('Active', 'Inactive', 'Serving Notice Period', 'On Leave').optional(),
-        intern_classification: Joi.string().optional(),
-        is_intern: Joi.string().valid('true', 'false').optional(),
         tier: Joi.string().optional(),
+        employee_number: Joi.string().optional(),
+        name: Joi.string().optional(),
     }),
 
     create: Joi.object({
@@ -65,12 +65,14 @@ export const resourceSchemas = {
         date_of_birth: Joi.date().iso().optional(),
         nic_passport: Joi.string().max(50).optional(),
         is_intern: Joi.boolean().default(false),
+        employee_type: Joi.string().valid('Internal', 'External').default('Internal'),
         tier: Joi.string().valid('Synergy', 'Tier - 1', 'Tier - 2', 'Tier - 3', 'Tier - 4', 'Intern').optional(),
         tech_stack: Joi.string().max(50).optional(),
         photo_url: Joi.string().max(500).optional(),
         intern_classification: Joi.string().max(20).optional(),
         skills: Joi.array().items(Joi.string()).optional(),
         status: Joi.string().valid('Active', 'Inactive', 'Serving Notice Period', 'On Leave').default('Active'),
+        tag_ids: Joi.array().items(Joi.string().pattern(uuidPattern)).optional(),
     }),
 
     update: Joi.object({
@@ -86,6 +88,7 @@ export const resourceSchemas = {
         date_of_birth: Joi.date().iso().optional(),
         nic_passport: Joi.string().max(50).optional(),
         is_intern: Joi.boolean().optional(),
+        employee_type: Joi.string().valid('Internal', 'External').optional(),
         tier: Joi.string().valid('Synergy', 'Tier - 1', 'Tier - 2', 'Tier - 3', 'Tier - 4', 'Intern').allow(null).optional(),
         tech_stack: Joi.string().max(50).allow(null).optional(),
         photo_url: Joi.string().max(500).allow(null).optional(),
@@ -94,6 +97,7 @@ export const resourceSchemas = {
         status: Joi.string().valid('Active', 'Inactive', 'Serving Notice Period', 'On Leave').optional(),
         notice_period_end_date: Joi.date().iso().optional(),
         is_account_manager: Joi.boolean().optional(),
+        tag_ids: Joi.array().items(Joi.string().pattern(uuidPattern)).optional(),
     }),
 };
 

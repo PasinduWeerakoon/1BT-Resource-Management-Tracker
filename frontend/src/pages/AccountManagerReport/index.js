@@ -710,10 +710,6 @@ const AccountManagerReport = () => {
             billingType: project.is_billable ? 'Billing' : 'Non-Billing',
             teamSize: project.teamSize || 0,
             description: project.description || '',
-            clientContact: '',
-            clientEmail: '',
-            clientPhone: '',
-            clientAddress: '',
         };
 
         form.setFieldsValue(formValues);
@@ -2646,14 +2642,6 @@ const AccountManagerReport = () => {
                     <Row gutter={16}>
                         <Col xs={24} sm={12}>
                             <Form.Item
-                                label="Project Start Date"
-                                name="projectStartDate"
-                            >
-                                <DatePicker style={{ width: '100%' }} placeholder="Select start date" />
-                            </Form.Item>
-                        </Col>
-                        <Col xs={24} sm={12}>
-                            <Form.Item
                                 label="Billing"
                                 name="billingType"
                                 rules={[{ required: true, message: 'Billing type is required' }]}
@@ -2667,9 +2655,6 @@ const AccountManagerReport = () => {
                                 </Select>
                             </Form.Item>
                         </Col>
-                    </Row>
-
-                    <Row gutter={16}>
                         <Col xs={24} sm={12}>
                             <Form.Item
                                 label="Account Manager"
@@ -2742,62 +2727,6 @@ const AccountManagerReport = () => {
                         </Col>
                     </Row>
 
-                    {accountType === 'External' && (
-                        <>
-                            <Divider style={{ margin: '24px 0' }} />
-                            <div style={{ marginBottom: 16, marginTop: 8 }}>
-                                <h4 style={{ marginBottom: 16, fontFamily: 'Poppins', fontWeight: 600 }}>Client Details (Optional)</h4>
-                            </div>
-
-                            <Row gutter={16}>
-                                <Col xs={24} sm={12}>
-                                    <Form.Item
-                                        label="Client Contact Person"
-                                        name="clientContact"
-                                        rules={[
-                                            { max: 100, message: 'Client contact must not exceed 100 characters' },
-                                        ]}
-                                    >
-                                        <Input placeholder="Enter client contact person" />
-                                    </Form.Item>
-                                </Col>
-                                <Col xs={24} sm={12}>
-                                    <Form.Item
-                                        label="Client Email"
-                                        name="clientEmail"
-                                        rules={[
-                                            { type: 'email', message: 'Please enter a valid email address' },
-                                        ]}
-                                    >
-                                        <Input placeholder="Enter client email" />
-                                    </Form.Item>
-                                </Col>
-                            </Row>
-
-                            <Row gutter={16}>
-                                <Col xs={24} sm={12}>
-                                    <Form.Item
-                                        label="Client Phone"
-                                        name="clientPhone"
-                                    >
-                                        <Input placeholder="Enter client phone number" />
-                                    </Form.Item>
-                                </Col>
-                                <Col xs={24} sm={12}>
-                                    <Form.Item
-                                        label="Client Address"
-                                        name="clientAddress"
-                                        rules={[
-                                            { max: 500, message: 'Client address must not exceed 500 characters' },
-                                        ]}
-                                    >
-                                        <Input.TextArea rows={2} placeholder="Enter client address" />
-                                    </Form.Item>
-                                </Col>
-                            </Row>
-
-                        </>
-                    )}
 
                     <Form.Item
                         label="Project Description"
