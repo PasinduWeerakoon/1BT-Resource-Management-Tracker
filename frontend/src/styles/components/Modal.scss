@@ -124,6 +124,14 @@
       transition: all 0.2s ease;
       min-width: 80px;
 
+      // Override Ant Design Button default styles
+      &.ant-btn {
+        border: 1px solid #d9d9d9;
+        background: #fff;
+        color: #262626;
+        box-shadow: none;
+      }
+
       .button-icon {
         display: inline-flex;
         align-items: center;
@@ -144,19 +152,25 @@
       }
 
       &.primary {
-        background: #97230c;
-        border-color: #97230c;
-        color: #fff;
+        background: #97230c !important;
+        border-color: #97230c !important;
+        color: #fff !important;
 
-        &:hover:not(:disabled) {
-          background: #c42d1a;
-          border-color: #c42d1a;
-          color: #fff;
+        &.ant-btn:hover:not(:disabled) {
+          background: #c42d1a !important;
+          border-color: #c42d1a !important;
+          color: #fff !important;
         }
 
         &:active:not(:disabled) {
-          background: #7a1c09;
-          border-color: #7a1c09;
+          background: #7a1c09 !important;
+          border-color: #7a1c09 !important;
+        }
+
+        &.ant-btn-loading {
+          background: #97230c !important;
+          border-color: #97230c !important;
+          color: #fff !important;
         }
       }
 
