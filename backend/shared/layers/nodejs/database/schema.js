@@ -60,6 +60,19 @@ export const tiers = pgTable('tiers', {
     createdBy: uuid('created_by'),
 });
 
+// Tags table
+export const tags = pgTable('tags', {
+    id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+    name: varchar('name', { length: 50 }).notNull().unique(),
+    description: text('description'),
+    isActive: boolean('is_active').default(true),
+    isDefault: boolean('is_default').default(false).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+    createdBy: uuid('created_by'),
+    updatedBy: uuid('updated_by'),
+});
+
 // Resources table (employees)
 export const resources = pgTable('resources', {
     id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
@@ -78,6 +91,7 @@ export const resources = pgTable('resources', {
     nicPassport: varchar('nic_passport', { length: 50 }),
     isIntern: boolean('is_intern').default(false),
     isAccountManager: boolean('is_account_manager').default(false),
+    employeeType: varchar('employee_type', { length: 20 }).default('Internal'),
     tier: varchar('tier', { length: 20 }),
     techStack: varchar('tech_stack', { length: 50 }),
     photoUrl: varchar('photo_url', { length: 500 }),
@@ -98,6 +112,20 @@ export const resources = pgTable('resources', {
     tierIdx: index('idx_resources_tier').on(table.tier),
     techStackIdx: index('idx_resources_tech_stack').on(table.techStack),
     isInternIdx: index('idx_resources_is_intern').on(table.isIntern).where(sql`is_intern = true`),
+    employeeTypeIdx: index('idx_resources_employee_type').on(table.employeeType),
+}));
+
+// Resource tags junction table (many-to-many relationship)
+export const resourceTags = pgTable('resource_tags', {
+    id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+    resourceId: uuid('resource_id').notNull().references(() => resources.id, { onDelete: 'cascade' }),
+    tagId: uuid('tag_id').notNull().references(() => tags.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+    createdBy: uuid('created_by'),
+}, (table) => ({
+    resourceTagUnique: uniqueIndex('resource_tags_unique').on(table.resourceId, table.tagId),
+    resourceIdx: index('idx_resource_tags_resource').on(table.resourceId),
+    tagIdx: index('idx_resource_tags_tag').on(table.tagId),
 }));
 
 // Users table
@@ -266,7 +294,9 @@ export const schema = {
     tracks,
     designations,
     tiers,
+    tags,
     resources,
+    resourceTags,
     users,
     clients,
     projects,
