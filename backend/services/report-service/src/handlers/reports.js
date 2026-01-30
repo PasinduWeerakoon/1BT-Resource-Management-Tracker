@@ -1444,8 +1444,10 @@ export const getTierBreakdownReport = async (event) => {
             `;
 
         // Get employee details with allocation info (for table)
+        // Using regular SELECT instead of DISTINCT to avoid ORDER BY issues
+        // Duplicates are handled in application code if needed
         const employeeDetailsQuery = `
-            SELECT DISTINCT
+            SELECT 
                 r.id,
                 r.name as employee_name,
                 r.email,
@@ -1474,7 +1476,19 @@ export const getTierBreakdownReport = async (event) => {
             LEFT JOIN resources am ON p.account_manager_id = am.id
             ${resourceWhereClause}
             ${allocationWhereClause}
-            ORDER BY r.tier, r.name, p.project_name
+            ORDER BY 
+                CASE COALESCE(r.tier, 'Unassigned')
+                    WHEN 'Synergy' THEN 0
+                    WHEN 'Tier - 1' THEN 1
+                    WHEN 'Tier - 2' THEN 2
+                    WHEN 'Tier - 3' THEN 3
+                    WHEN 'Tier - 4' THEN 4
+                    WHEN 'Tier - 5' THEN 5
+                    WHEN 'Intern' THEN 99
+                    ELSE 999
+                END,
+                r.name,
+                p.project_name
         `;
 
         // Get total employee count

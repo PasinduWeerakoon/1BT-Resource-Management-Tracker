@@ -787,6 +787,101 @@ const migrations = [
 
             logger.info('Migration 011 completed: Added team_size, account_manager, account_type, budget columns to projects');
         }
+    },
+    {
+        id: '012_billing_statuses',
+        name: 'Create billing_statuses table',
+        up: async (client) => {
+            // Create billing_statuses table
+            await client.query(`
+                CREATE TABLE IF NOT EXISTS billing_statuses (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    name VARCHAR(50) NOT NULL UNIQUE,
+                    description TEXT,
+                    is_active BOOLEAN DEFAULT true,
+                    is_default BOOLEAN DEFAULT false NOT NULL,
+                    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                    created_by UUID,
+                    updated_by UUID
+                )
+            `);
+
+            // Create index on name for faster lookups
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS idx_billing_statuses_name ON billing_statuses(name);
+            `);
+
+            // Insert default billing statuses (marked as is_default = true)
+            await client.query(`
+                INSERT INTO billing_statuses (name, description, is_active, is_default) VALUES
+                ('Billing', 'Project is billable', true, true),
+                ('Non-Billing', 'Project is not billable', true, true),
+                ('Presales', 'Pre-sales project', true, true),
+                ('Training', 'Training project', true, true),
+                ('POC', 'Proof of Concept project', true, true),
+                ('Preparation', 'Project in preparation phase', true, true)
+                ON CONFLICT (name) DO NOTHING;
+            `);
+
+            // Add trigger to update updated_at
+            await client.query(`
+                DROP TRIGGER IF EXISTS update_billing_statuses_updated_at ON billing_statuses;
+                CREATE TRIGGER update_billing_statuses_updated_at
+                    BEFORE UPDATE ON billing_statuses
+                    FOR EACH ROW
+                    EXECUTE FUNCTION update_updated_at_column();
+            `);
+
+            logger.info('Migration 012 completed: billing_statuses table created');
+        }
+    },
+    {
+        id: '013_project_types',
+        name: 'Create project_types table',
+        up: async (client) => {
+            // Create project_types table
+            await client.query(`
+                CREATE TABLE IF NOT EXISTS project_types (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    name VARCHAR(50) NOT NULL UNIQUE,
+                    description TEXT,
+                    is_active BOOLEAN DEFAULT true,
+                    is_default BOOLEAN DEFAULT false NOT NULL,
+                    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                    created_by UUID,
+                    updated_by UUID
+                )
+            `);
+
+            // Create index on name for faster lookups
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS idx_project_types_name ON project_types(name);
+            `);
+
+            // Insert default project types (marked as is_default = true)
+            await client.query(`
+                INSERT INTO project_types (name, description, is_active, is_default) VALUES
+                ('Client', 'Client project', true, true),
+                ('Bench', 'Bench project', true, true),
+                ('POC', 'Proof of Concept project', true, true),
+                ('Presale', 'Pre-sales project', true, true),
+                ('Research', 'Research project', true, true)
+                ON CONFLICT (name) DO NOTHING;
+            `);
+
+            // Add trigger to update updated_at
+            await client.query(`
+                DROP TRIGGER IF EXISTS update_project_types_updated_at ON project_types;
+                CREATE TRIGGER update_project_types_updated_at
+                    BEFORE UPDATE ON project_types
+                    FOR EACH ROW
+                    EXECUTE FUNCTION update_updated_at_column();
+            `);
+
+            logger.info('Migration 013 completed: project_types table created');
+        }
     }
 ];
 
