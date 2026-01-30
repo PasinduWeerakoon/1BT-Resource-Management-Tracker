@@ -308,6 +308,8 @@ export const list = async (event) => {
         const total = parseInt(countResult.rows[0].total);
 
         // Get paginated results with joins and tags
+        // Note: r.* includes all resource columns including employee_type
+        // Tags are aggregated using json_agg for the many-to-many relationship
         const dataQuery = `
             SELECT 
                 r.*,
@@ -339,6 +341,7 @@ export const list = async (event) => {
         const result = await db.query(dataQuery, params);
 
         // Transform tags from JSON array to proper format
+        // Ensure employee_type and tags are included in response
         const transformedData = result.rows.map(row => {
             let tagsArray = [];
             try {
@@ -350,9 +353,13 @@ export const list = async (event) => {
             } catch (e) {
                 log.warn('Failed to parse tags', { error: e.message });
             }
+
+            // Ensure employee_type is included (defaults to 'Internal' if null/undefined)
+            // Ensure tags is always an array (empty array if no tags)
             return {
                 ...row,
-                tags: tagsArray.filter(tag => tag.id) // Remove null entries
+                employee_type: row.employee_type || 'Internal', // Default to 'Internal' if null
+                tags: tagsArray.filter(tag => tag && tag.id) // Remove null entries
             };
         });
 
