@@ -66,7 +66,7 @@ export const create = async (event) => {
 
     try {
         const body = JSON.parse(event.body || '{}');
-        
+
         // Basic validation
         if (!body.name || typeof body.name !== 'string' || body.name.trim().length === 0) {
             return validationError([{ field: 'name', message: 'Name is required' }]);
@@ -240,20 +240,14 @@ export const remove = async (event) => {
             return error('Cannot delete default tag', null, 403);
         }
 
-        // Check if tag is being used by any resources (if there's a resource_tags table)
-        // For now, we'll just check if it exists in any resource tag fields
-        // This can be expanded based on your actual schema
+        // Check if tag is being used by any resources via the resource_tags junction table
         const usageCheck = await db.query(
-            `SELECT COUNT(*) as count FROM resources 
-             WHERE tags::text LIKE $1 AND deleted_at IS NULL`,
-            [`%${existing.name}%`]
-        ).catch(() => {
-            // If the query fails (e.g., tags column doesn't exist), return empty result
-            return { rows: [{ count: '0' }] };
-        });
+            `SELECT COUNT(*) as count FROM resource_tags WHERE tag_id = $1`,
+            [id]
+        );
 
         if (parseInt(usageCheck.rows[0].count) > 0) {
-            return error('Cannot delete tag that is in use by resources', null, 409);
+            return error('Cannot delete tag that is currently assigned to resources', null, 409);
         }
 
         const query = 'DELETE FROM tags WHERE id = $1 RETURNING *';
