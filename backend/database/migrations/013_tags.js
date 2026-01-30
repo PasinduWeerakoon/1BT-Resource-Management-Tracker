@@ -21,21 +21,21 @@ export const up = (pgm) => {
     // Create index on name for faster lookups
     pgm.createIndex('tags', 'name');
 
-    // Insert default tags (marked as is_default = true)
-    pgm.sql(`
-        INSERT INTO tags (name, description, is_active, is_default) VALUES
-        ('Synergy', 'Synergy tag', true, true),
-        ('GDC', 'GDC tag', true, true),
-        ('Leaders league', 'Leaders league tag', true, true)
-        ON CONFLICT (name) DO NOTHING;
-    `);
-
     // Add trigger to update updated_at
     pgm.sql(`
         CREATE TRIGGER update_tags_updated_at
         BEFORE UPDATE ON tags
         FOR EACH ROW
         EXECUTE FUNCTION update_updated_at_column();
+    `);
+
+    // Insert default tags (marked as is_default = true)
+    pgm.sql(`
+        INSERT INTO tags (name, description, is_active, is_default, created_by) VALUES
+        ('Synergy', 'Default Synergy tag', true, true, '00000000-0000-0000-0000-000000000000'),
+        ('GDC', 'Default GDC tag', true, true, '00000000-0000-0000-0000-000000000000'),
+        ('Leaders league', 'Default Leaders league tag', true, true, '00000000-0000-0000-0000-000000000000')
+        ON CONFLICT (name) DO NOTHING;
     `);
 };
 
