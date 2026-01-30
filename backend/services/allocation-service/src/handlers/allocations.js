@@ -863,24 +863,22 @@ export const create = async (event) => {
         if (durationValidation.durationWarnings) {
             response.durationWarnings = durationValidation.durationWarnings;
         }
-        response.requiresReview = validationResult.requiresReview;
-    }
 
         return success(response, 201);
 
-} catch (err) {
-    log.error('Failed to create allocation', { error: err.message });
+    } catch (err) {
+        log.error('Failed to create allocation', { error: err.message });
 
-    if (err.name === 'ValidationError') {
-        return validationError(err.details);
+        if (err.name === 'ValidationError') {
+            return validationError(err.details);
+        }
+
+        if (err.code === '23503') {
+            return badRequest('Resource or Project not found');
+        }
+
+        return error('Failed to create allocation', err);
     }
-
-    if (err.code === '23503') {
-        return badRequest('Resource or Project not found');
-    }
-
-    return error('Failed to create allocation', err);
-}
 };
 
 /**
