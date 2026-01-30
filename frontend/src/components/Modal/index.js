@@ -1,5 +1,5 @@
 import React from 'react';
-import { Modal as AntModal } from 'antd';
+import { Modal as AntModal, Button } from 'antd';
 import { CloseOutlined } from '@ant-design/icons';
 import '@styles/components/Modal.scss';
 
@@ -47,19 +47,28 @@ const CustomModal = ({
                 {/* Footer with Configurable Buttons */}
                 {buttons && buttons.length > 0 && (
                     <div className="custom-modal-footer">
-                        {buttons.map((button, index) => (
-                            <button
-                                key={index}
-                                type={button.htmlType || 'button'}
-                                className={`custom-modal-button ${button.type || 'default'} ${button.className || ''}`}
-                                onClick={button.onClick}
-                                disabled={button.disabled}
-                                loading={button.loading}
-                            >
-                                {button.icon && <span className="button-icon">{button.icon}</span>}
-                                {button.text}
-                            </button>
-                        ))}
+                        {buttons.map((button, index) => {
+                            // Map button.type to className for custom styling
+                            const buttonTypeClass = button.type === 'primary' ? 'primary' : 
+                                                   button.type === 'danger' ? 'danger' : 
+                                                   button.type === 'dashed' ? 'dashed' : 
+                                                   button.type === 'text' ? 'text' : '';
+                            
+                            return (
+                                <Button
+                                    key={index}
+                                    type="default" // Always use default type, styling comes from className
+                                    htmlType={button.htmlType || 'button'}
+                                    className={`custom-modal-button ${buttonTypeClass} ${button.className || ''}`}
+                                    onClick={button.onClick}
+                                    disabled={button.disabled}
+                                    loading={button.loading}
+                                    icon={button.icon}
+                                >
+                                    {button.text}
+                                </Button>
+                            );
+                        })}
                     </div>
                 )}
             </div>

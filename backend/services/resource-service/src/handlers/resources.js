@@ -511,7 +511,12 @@ export const create = async (event) => {
         const body = JSON.parse(event.body || '{}');
         const validated = validate(body, resourceSchemas.create);
 
-        log.info('Creating resource', { email: validated.email, employee_id: validated.employee_id });
+        log.info('Creating resource', { 
+            email: validated.email, 
+            employee_id: validated.employee_id,
+            employee_type: validated.employee_type,
+            validated_data: validated
+        });
 
         const drizzle = await getDrizzle();
 
@@ -564,6 +569,22 @@ export const create = async (event) => {
         // Use transaction to ensure resource creation, tags, and bench allocation are atomic
         // If any fails, all are rolled back
         const result = await withTransaction(async (tx) => {
+            // Prepare employeeType - Joi validation ensures it's 'Internal' or 'External' or defaults to 'Internal'
+            // Explicitly check for the value to ensure it's not being overridden
+            const employeeType = (validated.employee_type && (validated.employee_type === 'Internal' || validated.employee_type === 'External'))
+                ? validated.employee_type
+                : 'Internal';
+            
+            log.info('Inserting resource with employee_type', { 
+                raw_employee_type: validated.employee_type,
+                validated_employee_type: validated.employee_type,
+                employeeType: employeeType,
+                willUse: employeeType,
+                typeCheck: typeof validated.employee_type,
+                isExternal: validated.employee_type === 'External',
+                isInternal: validated.employee_type === 'Internal'
+            });
+            
             // Insert resource using Drizzle (use camelCase properties from schema)
             const [newResource] = await tx
                 .insert(resources)
@@ -581,8 +602,8 @@ export const create = async (event) => {
                     dateOfJoining: validated.date_of_joining || null,
                     dateOfBirth: validated.date_of_birth || null,
                     nicPassport: validated.nic_passport || null,
-                    isIntern: validated.is_intern || false,
-                    employeeType: validated.employee_type || 'Internal',
+                    isIntern: validated.is_intern !== undefined ? validated.is_intern : false,
+                    employeeType: employeeType,
                     tier: validated.tier || null,
                     techStack: validated.tech_stack || null,
                     photoUrl: validated.photo_url || null,
@@ -591,7 +612,11 @@ export const create = async (event) => {
                 })
                 .returning();
 
-            log.info('Resource created in transaction', { id: newResource.id });
+            log.info('Resource created in transaction', { 
+                id: newResource.id,
+                employeeType: newResource.employeeType,
+                employee_type_from_db: newResource.employeeType
+            });
 
             // Handle tags if provided
             if (validated.tag_ids && Array.isArray(validated.tag_ids) && validated.tag_ids.length > 0) {
@@ -671,7 +696,13 @@ export const update = async (event) => {
         const body = JSON.parse(event.body || '{}');
         const validated = validate(body, resourceSchemas.update);
 
-        log.info('Updating resource', { id });
+        log.info('Updating resource', { 
+            id, 
+            raw_body: body,
+            validated: validated,
+            employee_type_in_body: body.employee_type,
+            employee_type_in_validated: validated.employee_type
+        });
 
         const drizzle = await getDrizzle();
 
@@ -726,7 +757,7 @@ export const update = async (event) => {
             date_of_birth: 'dateOfBirth',
             nic_passport: 'nicPassport',
             is_intern: 'isIntern',
-            employee_type: 'employeeType',
+            employee_type: 'employeeType', // Map employee_type to employeeType for Drizzle schema
             tech_stack: 'techStack',
             photo_url: 'photoUrl',
             // Direct mappings (same name)
@@ -749,6 +780,17 @@ export const update = async (event) => {
                 updateValues[drizzleKey] = value;
             }
         }
+
+        log.info('Update values prepared', { 
+            originalKeys: Object.keys(updateData),
+            updateKeys: Object.keys(updateValues),
+            updateValues: updateValues,
+            employee_type_raw: updateData.employee_type,
+            employeeType_mapped: updateValues.employeeType,
+            has_employee_type: 'employee_type' in updateData,
+            employee_type_value: updateData.employee_type,
+            employee_type_undefined: updateData.employee_type === undefined
+        });
 
         // Perform update using transaction for atomicity (includes tags update)
         const [updatedResource] = await withTransaction(async (tx) => {
@@ -809,6 +851,12 @@ export const update = async (event) => {
                     eq(resources.id, id),
                     isNull(resources.deletedAt)
                 ));
+
+            log.info('Resource updated in DB', {
+                resourceId: id,
+                employeeType: result[0]?.employeeType,
+                employee_type_in_db: result[0]?.employeeType
+            });
 
             return result;
         });

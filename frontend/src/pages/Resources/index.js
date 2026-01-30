@@ -77,6 +77,9 @@ const Resources = () => {
   const [updatingAccountManager, setUpdatingAccountManager] = useState({});
   const [updatingTier, setUpdatingTier] = useState({});
   const [updatingTechStack, setUpdatingTechStack] = useState({});
+  
+  // Debounce search inputs to avoid too many API calls
+  const [debouncedSearch, setDebouncedSearch] = useState({ name: '', employeeNumber: '' });
 
   // Handle Add Employee
   const handleAddEmployee = () => {
@@ -273,11 +276,11 @@ const Resources = () => {
         limit,
       };
 
-      // Add search if name or employeeNumber is provided
+      // Add search if name or employeeNumber is provided (use debounced values)
       // Convert to lowercase for case-insensitive search
-      if (filters.name || filters.employeeNumber) {
-        const searchValue = filters.name || filters.employeeNumber;
-        queryParams.search = searchValue ? searchValue.toLowerCase().trim() : '';
+      const searchValue = debouncedSearch.name || debouncedSearch.employeeNumber;
+      if (searchValue) {
+        queryParams.search = searchValue.toLowerCase().trim();
       }
 
       // Add filters
@@ -293,19 +296,21 @@ const Resources = () => {
       if (filters.tier && filters.tier !== 'All') {
         queryParams.tier = filters.tier;
       }
-      if (filters.employeeNumber) {
-        queryParams.employee_number = filters.employeeNumber;
+      // Use debounced search values for API calls
+      if (debouncedSearch.employeeNumber) {
+        queryParams.employee_number = debouncedSearch.employeeNumber;
       }
-      if (filters.name) {
-        queryParams.name = filters.name;
+      if (debouncedSearch.name) {
+        queryParams.name = debouncedSearch.name;
       }
 
       const response = await resourcesService.getAll(queryParams);
 
       // Handle response structure after interceptor transformation
       // API returns: {success: true, data: {data: [...], pagination: {...}}}
-      // Interceptor: response.data = response.data.data || response.data
-      // For resources API: response.data = {data: [...], pagination: {...}}
+      // Interceptor (client.js line 61): response.data = response.data.data || response.data
+      // So if API returns {success: true, data: {data: [...], pagination: {...}}}
+      // After interceptor: response.data = {data: [...], pagination: {...}}
       // Service returns: response.data || response
       // So we get: {data: [...], pagination: {...}}
 
@@ -313,25 +318,35 @@ const Resources = () => {
       let paginationData = {};
 
       if (response) {
-        // Most likely case: response = {data: [...], pagination: {...}}
-        if (response.data && Array.isArray(response.data)) {
+        // Case 1: response = {data: [...], pagination: {...}} (most common after interceptor + service)
+        if (response.data && Array.isArray(response.data) && response.pagination) {
+          employeesData = response.data;
+          paginationData = response.pagination;
+        }
+        // Case 2: response is an array directly
+        else if (Array.isArray(response)) {
+          employeesData = response;
+          paginationData = {};
+        }
+        // Case 3: response.data is an array, but no pagination
+        else if (response.data && Array.isArray(response.data)) {
           employeesData = response.data;
           paginationData = response.pagination || {};
         }
-        // Case: response = {success: true, data: {data: [...], pagination: {...}}}
+        // Case 4: response = {success: true, data: {data: [...], pagination: {...}}} (nested)
         else if (response.data && response.data.data && Array.isArray(response.data.data)) {
           employeesData = response.data.data;
           paginationData = response.data.pagination || {};
         }
-        // Case: response is the data object directly {data: [...], pagination: {...}}
-        else if (response.pagination && response.data && Array.isArray(response.data)) {
-          employeesData = response.data;
-          paginationData = response.pagination;
-        }
-        // Fallback: response is an array
-        else if (Array.isArray(response)) {
-          employeesData = response;
-          paginationData = {};
+        // Case 5: response.success = true, response.data = {data: [...], pagination: {...}}
+        else if (response.success && response.data) {
+          if (Array.isArray(response.data)) {
+            employeesData = response.data;
+            paginationData = response.pagination || {};
+          } else if (response.data.data && Array.isArray(response.data.data)) {
+            employeesData = response.data.data;
+            paginationData = response.data.pagination || {};
+          }
         }
       }
 
@@ -346,10 +361,10 @@ const Resources = () => {
 
       // Transform employees data to match table format
       const transformedEmployees = employeesData.map((employee) => {
-        // Format tier from designation_level (1-4) to "Tier 01" format
-        const tier = employee.designation_level
+        // Use tier from API if available, otherwise format from designation_level
+        const tier = employee.tier || (employee.designation_level
           ? `Tier ${String(employee.designation_level).padStart(2, '0')}`
-          : null;
+          : null);
 
         // Format date_of_joining from ISO string to YYYY-MM-DD
         const joinDate = employee.date_of_joining
@@ -385,6 +400,7 @@ const Resources = () => {
           tech_stack: employee.tech_stack, // Keep API field name
           skills: employee.skills || [],
           employee_type: employee.employee_type || 'Internal',
+          is_account_manager: employee.is_account_manager || false,
           tags: employee.tags || [],
           notice_period_end_date: employee.notice_period_end_date,
           date_of_joining: employee.date_of_joining,
@@ -401,7 +417,7 @@ const Resources = () => {
       });
     } catch (error) {
       console.error('Failed to fetch employees:', error);
-      message.error('Failed to load employees');
+      message.error(error?.response?.data?.message || error?.message || 'Failed to load employees');
     } finally {
       setFetchingEmployees(false);
     }
@@ -409,11 +425,30 @@ const Resources = () => {
 
   // Fetch employees on component mount and when filters change
   useEffect(() => {
+    fetchEmployees(1, 20);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Debounce search inputs to avoid too many API calls
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch({
+        name: filters.name || '',
+        employeeNumber: filters.employeeNumber || '',
+      });
+    }, 500); // 500ms debounce
+
+    return () => clearTimeout(timer);
+  }, [filters.name, filters.employeeNumber]);
+
+  // Fetch employees when API-supported filters change
+  useEffect(() => {
+    // Reset to page 1 when filters change
     // Reset to page 1 when filters change (but not on initial mount)
     setPagination(prev => ({ ...prev, current: 1 }));
-    fetchEmployees(1, pagination.pageSize);
+    fetchEmployees(1, pagination.pageSize || 20);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters.name, filters.employeeNumber, filters.track_id, filters.designation_id, filters.status, filters.tier]);
+  }, [debouncedSearch.name, debouncedSearch.employeeNumber, filters.track_id, filters.designation_id, filters.status, filters.tier]);
 
   // Handle Add/Edit Employee Submit
   const handleEmployeeSubmit = async () => {
@@ -439,12 +474,16 @@ const Resources = () => {
           tag_ids: values.tag_ids && Array.isArray(values.tag_ids) ? values.tag_ids : undefined,
         };
 
-        // Remove undefined fields
+        // Remove undefined and empty string fields, but preserve employee_type
+        const employeeTypeValue = values.employee_type || 'Internal';
         Object.keys(updatePayload).forEach(key => {
-          if (updatePayload[key] === undefined || updatePayload[key] === '') {
+          if (updatePayload[key] === undefined || (updatePayload[key] === '' && key !== 'employee_type')) {
             delete updatePayload[key];
           }
         });
+        
+        // Always include employee_type in the update payload
+        updatePayload.employee_type = employeeTypeValue;
 
         // Call update resource API
         const response = await resourcesService.update(selectedEmployee.id, updatePayload);
@@ -669,6 +708,23 @@ const Resources = () => {
       key: 'tech_stack',
       width: 150,
       render: (techStack) => techStack || '-',
+    },
+    {
+      title: 'Employee Type',
+      dataIndex: 'employee_type',
+      key: 'employee_type',
+      width: 120,
+      render: (type) => (
+        <Badge
+          status={type === 'Internal' ? 'success' : 'warning'}
+          text={type || 'Internal'}
+        />
+      ),
+      filters: [
+        { text: 'Internal', value: 'Internal' },
+        { text: 'External', value: 'External' },
+      ],
+      onFilter: (value, record) => record.employee_type === value,
     },
     {
       title: 'Join Date',

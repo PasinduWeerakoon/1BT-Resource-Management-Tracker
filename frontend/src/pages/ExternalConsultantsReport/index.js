@@ -1,31 +1,44 @@
-import React, { useState, useMemo } from 'react';
-import { Row, Col, Card, Select, DatePicker, Badge, Button } from 'antd';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { Row, Col, Card, Select, DatePicker, Badge, Button, App } from 'antd';
 import { FilterOutlined, UpOutlined, DownOutlined, ReloadOutlined } from '@ant-design/icons';
 import { Doughnut, Bar } from 'react-chartjs-2';
 import { commonOptions, colors } from '@utils/chartConfig';
 import CustomTable from '@components/Table';
 import { useUserAllocationModal } from '@hooks/useUserAllocationModal';
 import UserAllocationModal from '@components/UserAllocationModal';
+import { reportsService, tracksService, projectsService, resourcesService } from '@api';
+import { showErrorToast } from '@utils/toast.utils';
+import dayjs from 'dayjs';
 import '@styles/pages/ExternalConsultantsReport.scss';
 
 const { Option } = Select;
 const { RangePicker } = DatePicker;
 
 const ExternalConsultantsReport = () => {
+  const { message } = App.useApp();
   const [filtersExpanded, setFiltersExpanded] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [reportData, setReportData] = useState(null);
+  const [tracksList, setTracksList] = useState([]);
+  const [projectsList, setProjectsList] = useState([]);
+  const [totalEmployees, setTotalEmployees] = useState(0);
+  const fetchInProgressRef = useRef(false);
+
   const [filters, setFilters] = useState({
-    track: 'All',
-    techStack: 'All',
-    project: 'All',
-    dateRange: null,
+    track_id: undefined,
+    tech_stack: undefined,
+    project_id: undefined,
+    start_date: undefined,
+    end_date: undefined,
   });
 
   // Default filter values for comparison
   const defaultFilters = {
-    track: 'All',
-    techStack: 'All',
-    project: 'All',
-    dateRange: null,
+    track_id: undefined,
+    tech_stack: undefined,
+    project_id: undefined,
+    start_date: undefined,
+    end_date: undefined,
   };
 
   // Count active filters (filters that differ from defaults)
@@ -45,53 +58,145 @@ const ExternalConsultantsReport = () => {
     setFilters({ ...defaultFilters });
   };
 
-  // KPI Data
-  const totalExternalConsultants = 13;
-  const totalEmployees = 114;
-  const externalConsultantsPercentage = ((totalExternalConsultants / totalEmployees) * 100).toFixed(2);
+  // Fetch tracks for filter dropdown
+  useEffect(() => {
+    const fetchTracks = async () => {
+      try {
+        const response = await tracksService.getAll({ limit: 100 });
+        let tracksData = [];
+        
+        if (response) {
+          if (Array.isArray(response.data)) {
+            tracksData = response.data;
+          } else if (response.data && response.data.data && Array.isArray(response.data.data)) {
+            tracksData = response.data.data;
+          }
+        }
+        
+        setTracksList(tracksData);
+      } catch (error) {
+        console.error('Failed to fetch tracks:', error);
+      }
+    };
+    
+    fetchTracks();
+  }, []);
 
-  // User allocation modal hook
-  const {
-    isUserAllocationModalVisible,
-    selectedEmployee,
-    userAllocationsList,
-    userAllocationsForm,
-    handleRowClick,
-    handleUserAllocationCancel,
-    handleAddUserAllocationRow,
-    handleRemoveUserAllocationRow,
-    handleUserAllocationFieldChange,
-    handleUserAllocationsSubmit,
-  } = useUserAllocationModal(allocationData);
+  // Fetch projects for filter dropdown
+  useEffect(() => {
+    const fetchProjects = async () => {
+      try {
+        const response = await projectsService.getAll({ limit: 1000 });
+        let projectsData = [];
+        
+        if (response) {
+          if (Array.isArray(response.data)) {
+            projectsData = response.data;
+          } else if (response.data && response.data.data && Array.isArray(response.data.data)) {
+            projectsData = response.data.data;
+          }
+        }
+        
+        setProjectsList(projectsData);
+      } catch (error) {
+        console.error('Failed to fetch projects:', error);
+      }
+    };
+    
+    fetchProjects();
+  }, []);
+
+  // Fetch total employees count for percentage calculation
+  useEffect(() => {
+    const fetchTotalEmployees = async () => {
+      try {
+        const response = await resourcesService.getAll({ limit: 1, status: 'Active' });
+        if (response && response.data && response.data.pagination) {
+          setTotalEmployees(response.data.pagination.total || 0);
+        }
+      } catch (error) {
+        console.error('Failed to fetch total employees:', error);
+      }
+    };
+    
+    fetchTotalEmployees();
+  }, []);
+
+  // Fetch external consultants report data
+  const fetchExternalConsultantsReport = async () => {
+    // Prevent duplicate calls
+    if (fetchInProgressRef.current) {
+      return;
+    }
+    
+    try {
+      fetchInProgressRef.current = true;
+      setLoading(true);
+      
+      const queryParams = {};
+      
+      // Add filters to query params
+      if (filters.track_id) {
+        queryParams.track_id = filters.track_id;
+      }
+      if (filters.tech_stack) {
+        queryParams.tech_stack = filters.tech_stack;
+      }
+      if (filters.project_id) {
+        queryParams.project_id = filters.project_id;
+      }
+      if (filters.start_date) {
+        queryParams.start_date = filters.start_date;
+      }
+      if (filters.end_date) {
+        queryParams.end_date = filters.end_date;
+      }
+      
+      const response = await reportsService.getExternalConsultants(queryParams);
+      
+      if (response && response.success !== false) {
+        setReportData(response);
+      } else {
+        showErrorToast('Failed to load external consultants report');
+        setReportData(null);
+      }
+    } catch (error) {
+      console.error('Failed to fetch external consultants report:', error);
+      showErrorToast('Failed to load external consultants report');
+      setReportData(null);
+    } finally {
+      setLoading(false);
+      fetchInProgressRef.current = false;
+    }
+  };
+
+  // Fetch data when filters change
+  useEffect(() => {
+    fetchExternalConsultantsReport();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters.track_id, filters.tech_stack, filters.project_id, filters.start_date, filters.end_date]);
+
+  // KPI Data - Calculate from API response
+  const totalExternalConsultants = reportData?.summary?.totalConsultants || 0;
+  const externalConsultantsPercentage = totalEmployees > 0 
+    ? ((totalExternalConsultants / totalEmployees) * 100).toFixed(2) 
+    : '0.00';
 
   // Track distribution data for donut chart
-  const trackData = [
-    { track: 'Dev', count: 9, percentage: 69.23 },
-    { track: 'PM', count: 2, percentage: 15.38 },
-    { track: 'Support', count: 1, percentage: 7.69 },
-    { track: 'UX', count: 1, percentage: 7.69 },
-  ];
-
-  // Tech Stack distribution data for bar chart
-  const techStackData = [
-    { techStack: 'Dynamics', count: 6 },
-    { techStack: '.NET', count: 2 },
-    { techStack: 'BA/PM', count: 2 },
-    { techStack: 'HR', count: 1 },
-    { techStack: 'Power Apps', count: 1 },
-    { techStack: 'UX', count: 1 },
-  ];
-
-  // Calculate max count for bar chart scaling
-  const maxTechStackCount = Math.max(...techStackData.map(item => item.count));
-
-  // Chart.js data for donut chart
+  const trackData = reportData?.charts?.trackDistribution || [];
   const donutChartData = {
-    labels: trackData.map(item => item.track),
+    labels: trackData.map(item => item.track || 'Unassigned'),
     datasets: [
       {
         data: trackData.map(item => item.count),
-        backgroundColor: [colors.secondary, colors.primary, colors.pink, colors.error],
+        backgroundColor: [
+          colors.secondary,
+          colors.primary,
+          colors.pink,
+          colors.error,
+          colors.warning,
+          colors.info,
+        ],
         borderWidth: 2,
         borderColor: '#fff',
       },
@@ -113,7 +218,7 @@ const ExternalConsultantsReport = () => {
             const label = context.label || '';
             const value = context.parsed || 0;
             const total = context.dataset.data.reduce((a, b) => a + b, 0);
-            const percentage = ((value / total) * 100).toFixed(2);
+            const percentage = total > 0 ? ((value / total) * 100).toFixed(2) : '0.00';
             return `${label}: ${value} (${percentage}%)`;
           },
         },
@@ -121,14 +226,29 @@ const ExternalConsultantsReport = () => {
     },
   };
 
+  // Tech Stack distribution - Calculate from byAllocation data
+  const techStackDistribution = useMemo(() => {
+    if (!reportData?.tables?.byAllocation) return [];
+    
+    const techStackMap = new Map();
+    reportData.tables.byAllocation.forEach(item => {
+      const techStack = item.techStack || 'Unassigned';
+      techStackMap.set(techStack, (techStackMap.get(techStack) || 0) + 1);
+    });
+    
+    return Array.from(techStackMap.entries())
+      .map(([techStack, count]) => ({ techStack, count }))
+      .sort((a, b) => b.count - a.count);
+  }, [reportData]);
+
   // Chart.js data for bar chart
   const barChartData = {
-    labels: techStackData.map(item => item.techStack),
+    labels: techStackDistribution.map(item => item.techStack),
     datasets: [
       {
         label: 'Number of Consultants',
-        data: techStackData.map(item => item.count),
-        backgroundColor: techStackData.map((item, index) =>
+        data: techStackDistribution.map(item => item.count),
+        backgroundColor: techStackDistribution.map((item, index) =>
           index < 2 ? colors.secondary : colors.primary
         ),
         borderRadius: 4,
@@ -160,13 +280,111 @@ const ExternalConsultantsReport = () => {
     },
   };
 
+  // Transform API data for BY PROJECT table
+  const projectData = useMemo(() => {
+    if (!reportData?.tables?.byProject) return [];
+    
+    return reportData.tables.byProject.map((item, index) => ({
+      key: item.key || `project-${index}`,
+      projectName: item.projectName || 'N/A',
+      accountManager: item.accountManager || 'N/A',
+      consultantCount: item.consultantCount || 0,
+      totalAllocation: item.totalAllocation || '0.00%',
+      billingStatus: item.billingStatus || 'Non-Billing',
+      consultants: item.consultants || '',
+    }));
+  }, [reportData]);
+
+  // Transform API data for BY ALLOCATION table
+  const allocationData = useMemo(() => {
+    if (!reportData?.tables?.byAllocation) return [];
+    
+    return reportData.tables.byAllocation.map((item, index) => {
+      const startDate = item.startDate ? dayjs(item.startDate).format('DD MMM YYYY') : '';
+      const endDate = item.endDate ? dayjs(item.endDate).format('DD MMM YYYY') : '';
+      
+      // Calculate duration in days
+      let duration = 0;
+      if (item.startDate) {
+        const start = dayjs(item.startDate);
+        const end = item.endDate ? dayjs(item.endDate) : dayjs();
+        duration = end.diff(start, 'day');
+      }
+      
+      return {
+        key: item.key || `allocation-${index}`,
+        consultantName: item.consultantName || 'N/A',
+        email: item.email || '',
+        designation: item.designation || 'N/A',
+        track: item.track || 'N/A',
+        techStack: item.techStack || 'N/A',
+        project: item.project || 'Bench',
+        accountManager: item.accountManager || 'N/A',
+        allocationPercentage: item.allocationPercentage || '0.00%',
+        startDate: startDate,
+        endDate: endDate,
+        duration: duration,
+        billingStatus: item.billingStatus || 'Non-Billing',
+      };
+    });
+  }, [reportData]);
+
   // BY PROJECT Table Columns
   const projectColumns = [
     {
-      title: 'Employee Name',
-      dataIndex: 'employeeName',
-      key: 'employeeName',
+      title: 'Project Name',
+      dataIndex: 'projectName',
+      key: 'projectName',
       width: 200,
+      sorter: (a, b) => (a.projectName || '').localeCompare(b.projectName || ''),
+    },
+    {
+      title: 'Account Manager',
+      dataIndex: 'accountManager',
+      key: 'accountManager',
+      width: 150,
+    },
+    {
+      title: 'Consultant Count',
+      dataIndex: 'consultantCount',
+      key: 'consultantCount',
+      width: 120,
+      sorter: (a, b) => a.consultantCount - b.consultantCount,
+    },
+    {
+      title: 'Total Allocation',
+      dataIndex: 'totalAllocation',
+      key: 'totalAllocation',
+      width: 120,
+    },
+    {
+      title: 'Billing Status',
+      dataIndex: 'billingStatus',
+      key: 'billingStatus',
+      width: 120,
+      render: (status) => (
+        <Badge
+          status={status === 'Billing' ? 'success' : 'default'}
+          text={status}
+        />
+      ),
+    },
+    {
+      title: 'Consultants',
+      dataIndex: 'consultants',
+      key: 'consultants',
+      width: 300,
+    },
+  ];
+
+  // BY ALLOCATION Table Columns
+  const allocationColumns = [
+    {
+      title: 'Consultant Name',
+      dataIndex: 'consultantName',
+      key: 'consultantName',
+      width: 180,
+      sorter: (a, b) => (a.consultantName || '').localeCompare(b.consultantName || ''),
     },
     {
       title: 'Track',
@@ -186,244 +404,100 @@ const ExternalConsultantsReport = () => {
       key: 'project',
       width: 200,
     },
-  ];
-
-  // BY ALLOCATION Table Columns
-  const allocationColumns = [
     {
-      title: 'Employee Name',
-      dataIndex: 'employeeName',
-      key: 'employeeName',
-      width: 200,
+      title: 'Allocation %',
+      dataIndex: 'allocationPercentage',
+      key: 'allocationPercentage',
+      width: 120,
+      sorter: (a, b) => {
+        const aVal = parseFloat(a.allocationPercentage) || 0;
+        const bVal = parseFloat(b.allocationPercentage) || 0;
+        return aVal - bVal;
+      },
     },
     {
-      title: 'Project Allocated Date',
-      dataIndex: 'allocatedDate',
-      key: 'allocatedDate',
-      width: 180,
+      title: 'Start Date',
+      dataIndex: 'startDate',
+      key: 'startDate',
+      width: 120,
     },
     {
-      title: 'Project Deallocated Date',
-      dataIndex: 'deallocatedDate',
-      key: 'deallocatedDate',
-      width: 180,
-    },
-    {
-      title: 'Project Allocation',
-      dataIndex: 'projectAllocation',
-      key: 'projectAllocation',
-      width: 150,
+      title: 'End Date',
+      dataIndex: 'endDate',
+      key: 'endDate',
+      width: 120,
     },
     {
       title: 'Duration (Days)',
       dataIndex: 'duration',
       key: 'duration',
-      width: 150,
+      width: 120,
+      sorter: (a, b) => a.duration - b.duration,
+    },
+    {
+      title: 'Billing Status',
+      dataIndex: 'billingStatus',
+      key: 'billingStatus',
+      width: 120,
+      render: (status) => (
+        <Badge
+          status={status === 'Billing' ? 'success' : 'default'}
+          text={status}
+        />
+      ),
     },
   ];
 
-  // Mock data for BY PROJECT table
-  const projectData = [
-    {
-      key: '1',
-      employeeName: 'Burhanudheen Thassim',
-      track: 'PM',
-      techStack: 'BA/PM',
-      project: 'Bench/Presale',
-    },
-    {
-      key: '2',
-      employeeName: 'Dilukshika Liyanage',
-      track: 'Support',
-      techStack: 'HR',
-      project: 'Support',
-    },
-    {
-      key: '3',
-      employeeName: 'Gayan Coomasaru',
-      track: 'Dev',
-      techStack: '.NET',
-      project: 'DXC Technology',
-    },
-    {
-      key: '4',
-      employeeName: 'Gayan Wimalarathna',
-      track: 'Dev',
-      techStack: 'Power Apps',
-      project: 'Clearly Cloudy/Extrensica Global',
-    },
-    {
-      key: '5',
-      employeeName: 'Hasith Wanniarachchi',
-      track: 'Dev',
-      techStack: 'Dynamics',
-      project: 'Extrensica Global',
-    },
-    {
-      key: '6',
-      employeeName: 'Ismail Tunca',
-      track: 'Dev',
-      techStack: 'Dynamics',
-      project: 'F&O Update Project/Mint',
-    },
-    {
-      key: '7',
-      employeeName: 'Manoharalingam Muhunthan',
-      track: 'Dev',
-      techStack: 'Dynamics',
-      project: 'Presale - Power Intel',
-    },
-    {
-      key: '8',
-      employeeName: 'Nuwan Sampath',
-      track: 'Dev',
-      techStack: 'Dynamics',
-      project: 'Mint - Support',
-    },
-    {
-      key: '9',
-      employeeName: 'Prasanna Jayawardena',
-      track: 'Dev',
-      techStack: 'Dynamics',
-      project: 'Extrensica Global',
-    },
-    {
-      key: '10',
-      employeeName: 'Ravindu Perera',
-      track: 'Dev',
-      techStack: '.NET',
-      project: 'DXC Technology',
-    },
-    {
-      key: '11',
-      employeeName: 'Sachith Silva',
-      track: 'PM',
-      techStack: 'BA/PM',
-      project: 'Presale',
-    },
-    {
-      key: '12',
-      employeeName: 'Srihan De Mel',
-      track: 'Dev',
-      techStack: 'Dynamics',
-      project: 'Extrensica Global',
-    },
-    {
-      key: '13',
-      employeeName: 'Tharindu Fernando',
-      track: 'UX',
-      techStack: 'UX',
-      project: 'Presale',
-    },
-  ];
+  // User allocation modal hook
+  const {
+    isUserAllocationModalVisible,
+    selectedEmployee,
+    userAllocationsList,
+    userAllocationsForm,
+    handleRowClick,
+    handleUserAllocationCancel,
+    handleAddUserAllocationRow,
+    handleRemoveUserAllocationRow,
+    handleUserAllocationFieldChange,
+    handleUserAllocationsSubmit,
+  } = useUserAllocationModal(allocationData);
 
-  // Mock data for BY ALLOCATION table
-  const allocationData = [
-    {
-      key: '1',
-      employeeName: 'Burhanudheen Thassim',
-      allocatedDate: '01 Jul 2020',
-      deallocatedDate: '31 May 2024',
-      projectAllocation: '0.00%',
-      duration: 1023,
-    },
-    {
-      key: '2',
-      employeeName: 'Gayan Coomasaru',
-      allocatedDate: '01 Jan 2024',
-      deallocatedDate: '01 Apr 2025',
-      projectAllocation: '75.00%',
-      duration: 144,
-    },
-    {
-      key: '3',
-      employeeName: 'Srihan De Mel',
-      allocatedDate: '01 Jan 2024',
-      deallocatedDate: '04 Aug 2025',
-      projectAllocation: '200.00%',
-      duration: 144,
-    },
-    {
-      key: '4',
-      employeeName: 'Ismail Tunca',
-      allocatedDate: '01 Mar 2024',
-      deallocatedDate: '31 May 2024',
-      projectAllocation: '25.00%',
-      duration: 66,
-    },
-    {
-      key: '5',
-      employeeName: 'Hasith Wanniarachchi',
-      allocatedDate: '01 Jun 2024',
-      deallocatedDate: '',
-      projectAllocation: '100.00%',
-      duration: 1,
-    },
-    {
-      key: '6',
-      employeeName: 'Gayan Wimalarathna',
-      allocatedDate: '01 Sep 2024',
-      deallocatedDate: '',
-      projectAllocation: '100.00%',
-      duration: 1,
-    },
-    {
-      key: '7',
-      employeeName: 'Manoharalingam Muhunthan',
-      allocatedDate: '01 Oct 2024',
-      deallocatedDate: '',
-      projectAllocation: '100.00%',
-      duration: 1,
-    },
-    {
-      key: '8',
-      employeeName: 'Nuwan Sampath',
-      allocatedDate: '01 Nov 2024',
-      deallocatedDate: '',
-      projectAllocation: '100.00%',
-      duration: 1,
-    },
-    {
-      key: '9',
-      employeeName: 'Dilukshika Liyanage',
-      allocatedDate: '01 Dec 2024',
-      deallocatedDate: '',
-      projectAllocation: '100.00%',
-      duration: 1,
-    },
-    {
-      key: '10',
-      employeeName: 'Prasanna Jayawardena',
-      allocatedDate: '01 Jan 2025',
-      deallocatedDate: '',
-      projectAllocation: '100.00%',
-      duration: 1,
-    },
-    {
-      key: '11',
-      employeeName: 'Ravindu Perera',
-      allocatedDate: '01 Feb 2025',
-      deallocatedDate: '',
-      projectAllocation: '100.00%',
-      duration: 1,
-    },
-    {
-      key: '12',
-      employeeName: 'Sachith Silva',
-      allocatedDate: '01 Mar 2025',
-      deallocatedDate: '',
-      projectAllocation: '100.00%',
-      duration: 1,
-    },
-    {
-      key: '13',
-      employeeName: 'Tharindu Fernando',
-      allocatedDate: '01 Apr 2025',
-      deallocatedDate: '',
-      projectAllocation: '100.00%',
-      duration: 1,
-    },
-  ];
+  // Get unique tech stacks from allocation data for filter
+  const uniqueTechStacks = useMemo(() => {
+    if (!reportData?.tables?.byAllocation) return [];
+    const techStacks = new Set();
+    reportData.tables.byAllocation.forEach(item => {
+      if (item.techStack) {
+        techStacks.add(item.techStack);
+      }
+    });
+    return Array.from(techStacks).sort();
+  }, [reportData]);
+
+  // Handle date range change
+  const handleDateRangeChange = (dates) => {
+    if (dates && dates.length === 2) {
+      setFilters({
+        ...filters,
+        start_date: dates[0].format('YYYY-MM-DD'),
+        end_date: dates[1].format('YYYY-MM-DD'),
+      });
+    } else {
+      setFilters({
+        ...filters,
+        start_date: undefined,
+        end_date: undefined,
+      });
+    }
+  };
+
+  // Get date range value for RangePicker
+  const dateRangeValue = useMemo(() => {
+    if (filters.start_date && filters.end_date) {
+      return [dayjs(filters.start_date), dayjs(filters.end_date)];
+    }
+    return null;
+  }, [filters.start_date, filters.end_date]);
 
   return (
     <div className="external-consultants-report-page">
@@ -472,15 +546,17 @@ const ExternalConsultantsReport = () => {
                 <div className="filter-item">
                   <label>Track</label>
                   <Select
-                    value={filters.track}
-                    onChange={(value) => setFilters({ ...filters, track: value })}
+                    value={filters.track_id}
+                    onChange={(value) => setFilters({ ...filters, track_id: value || undefined })}
                     style={{ width: '100%' }}
+                    placeholder="All Tracks"
+                    allowClear
                   >
-                    <Option value="All">All</Option>
-                    <Option value="Dev">Dev</Option>
-                    <Option value="PM">PM</Option>
-                    <Option value="Support">Support</Option>
-                    <Option value="UX">UX</Option>
+                    {tracksList.map((track) => (
+                      <Option key={track.id} value={track.id}>
+                        {track.name}
+                      </Option>
+                    ))}
                   </Select>
                 </div>
               </Col>
@@ -488,17 +564,21 @@ const ExternalConsultantsReport = () => {
                 <div className="filter-item">
                   <label>Tech Stack</label>
                   <Select
-                    value={filters.techStack}
-                    onChange={(value) => setFilters({ ...filters, techStack: value })}
+                    value={filters.tech_stack}
+                    onChange={(value) => setFilters({ ...filters, tech_stack: value || undefined })}
                     style={{ width: '100%' }}
+                    placeholder="All Tech Stacks"
+                    allowClear
+                    showSearch
+                    filterOption={(input, option) =>
+                      (option?.children ?? '').toLowerCase().includes(input.toLowerCase())
+                    }
                   >
-                    <Option value="All">All</Option>
-                    <Option value="Dynamics">Dynamics</Option>
-                    <Option value=".NET">.NET</Option>
-                    <Option value="BA/PM">BA/PM</Option>
-                    <Option value="HR">HR</Option>
-                    <Option value="Power Apps">Power Apps</Option>
-                    <Option value="UX">UX</Option>
+                    {uniqueTechStacks.map((techStack) => (
+                      <Option key={techStack} value={techStack}>
+                        {techStack}
+                      </Option>
+                    ))}
                   </Select>
                 </div>
               </Col>
@@ -506,15 +586,21 @@ const ExternalConsultantsReport = () => {
                 <div className="filter-item">
                   <label>Project</label>
                   <Select
-                    value={filters.project}
-                    onChange={(value) => setFilters({ ...filters, project: value })}
+                    value={filters.project_id}
+                    onChange={(value) => setFilters({ ...filters, project_id: value || undefined })}
                     style={{ width: '100%' }}
+                    placeholder="All Projects"
+                    allowClear
+                    showSearch
+                    filterOption={(input, option) =>
+                      (option?.children ?? '').toLowerCase().includes(input.toLowerCase())
+                    }
                   >
-                    <Option value="All">All</Option>
-                    <Option value="Extrensica Global">Extrensica Global</Option>
-                    <Option value="DXC Technology">DXC Technology</Option>
-                    <Option value="Presale">Presale</Option>
-                    <Option value="Mint">Mint</Option>
+                    {projectsList.map((project) => (
+                      <Option key={project.id} value={project.id}>
+                        {project.project_name || project.name}
+                      </Option>
+                    ))}
                   </Select>
                 </div>
               </Col>
@@ -522,8 +608,8 @@ const ExternalConsultantsReport = () => {
                 <div className="filter-item">
                   <label>Duration Start and End Date</label>
                   <RangePicker
-                    value={filters.dateRange}
-                    onChange={(dates) => setFilters({ ...filters, dateRange: dates })}
+                    value={dateRangeValue}
+                    onChange={handleDateRangeChange}
                     style={{ width: '100%' }}
                     format="DD/MM/YYYY"
                   />
@@ -538,16 +624,20 @@ const ExternalConsultantsReport = () => {
       <Row gutter={[16, 16]} className="charts-kpi-section">
         {/* Left Chart - Donut Chart */}
         <Col xs={24} lg={8}>
-          <Card className="chart-card" title="No. of External Consultants by Track">
+          <Card className="chart-card" title="No. of External Consultants by Track" loading={loading}>
             <div className="chart-container">
-              <Doughnut data={donutChartData} options={donutChartOptions} />
+              {trackData.length > 0 ? (
+                <Doughnut data={donutChartData} options={donutChartOptions} />
+              ) : (
+                <div style={{ textAlign: 'center', padding: '40px' }}>No data available</div>
+              )}
             </div>
           </Card>
         </Col>
 
         {/* Center KPI Card */}
         <Col xs={24} lg={8}>
-          <Card className="kpi-card-large">
+          <Card className="kpi-card-large" loading={loading}>
             <div className="kpi-circle">
               <div className="kpi-value-large">{totalExternalConsultants}</div>
               <div className="kpi-label-large">EXTERNAL CONSULTANTS</div>
@@ -559,9 +649,13 @@ const ExternalConsultantsReport = () => {
 
         {/* Right Chart - Bar Chart */}
         <Col xs={24} lg={8}>
-          <Card className="chart-card" title="No. of External Consultants by Tech Stack">
+          <Card className="chart-card" title="No. of External Consultants by Tech Stack" loading={loading}>
             <div className="chart-container">
-              <Bar data={barChartData} options={barChartOptions} />
+              {techStackDistribution.length > 0 ? (
+                <Bar data={barChartData} options={barChartOptions} />
+              ) : (
+                <div style={{ textAlign: 'center', padding: '40px' }}>No data available</div>
+              )}
             </div>
           </Card>
         </Col>
@@ -571,7 +665,7 @@ const ExternalConsultantsReport = () => {
       <Row gutter={[16, 16]} className="tables-section">
         {/* Left Table - BY PROJECT */}
         <Col xs={24} lg={12}>
-          <Card className="table-card" title="BY PROJECT">
+          <Card className="table-card" title="BY PROJECT" loading={loading}>
             <CustomTable
               columns={projectColumns}
               dataSource={projectData}
@@ -584,7 +678,7 @@ const ExternalConsultantsReport = () => {
 
         {/* Right Table - BY ALLOCATION */}
         <Col xs={24} lg={12}>
-          <Card className="table-card" title="BY ALLOCATION">
+          <Card className="table-card" title="BY ALLOCATION" loading={loading}>
             <CustomTable
               columns={allocationColumns}
               dataSource={allocationData}
