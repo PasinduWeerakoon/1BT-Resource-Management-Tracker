@@ -12,7 +12,8 @@
 // Import from Lambda Layer (mounted at /opt/nodejs)
 import * as db from '/opt/nodejs/database/index.js';
 import { getDrizzle, withTransaction } from '/opt/nodejs/database/drizzle.js';
-import { resources, allocations, projects, designations, tracks, users, clients, tags, resourceTags } from '/opt/nodejs/database/schema.js';
+import schema from '/opt/nodejs/database/schema.js';
+const { resources, allocations, projects, designations, tracks, users, clients, tags, resourceTags } = schema;
 import { eq, and, isNull, ilike, or, sql, desc, inArray } from 'drizzle-orm';
 import logger from '/opt/nodejs/logger/index.js';
 import { success, error, notFound, validationError, conflict } from '/opt/nodejs/utils/response.js';
@@ -318,7 +319,7 @@ export const list = async (event) => {
                 t.name as track_name,
                 COALESCE(
                     json_agg(
-                        DISTINCT json_build_object(
+                        json_build_object(
                             'id', tg.id,
                             'name', tg.name,
                             'description', tg.description
@@ -332,7 +333,7 @@ export const list = async (event) => {
             LEFT JOIN resource_tags rt ON r.id = rt.resource_id
             LEFT JOIN tags tg ON rt.tag_id = tg.id
             ${whereClause}
-            GROUP BY r.id, d.name, d.level, t.name
+            GROUP BY r.id, d.id, t.id
             ORDER BY r.name ASC
             LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
         `;
@@ -420,7 +421,7 @@ export const getById = async (event) => {
             LEFT JOIN resource_tags rt ON r.id = rt.resource_id
             LEFT JOIN tags tg ON rt.tag_id = tg.id
             WHERE r.id = $1 AND r.deleted_at IS NULL
-            GROUP BY r.id, d.name, d.level, t.name
+            GROUP BY r.id, d.id, t.id
             LIMIT 1
         `;
         // Using Drizzle with leftJoin for related data

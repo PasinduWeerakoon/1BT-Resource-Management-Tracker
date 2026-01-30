@@ -1036,6 +1036,71 @@ const migrations = [
 
             logger.info('Migration 015 completed: resource_utilization_snapshots table created');
         }
+    },
+    {
+        id: '016_external_consultant_flag',
+        name: 'Add External Consultant Flag to Resources',
+        up: async (client) => {
+            // Add is_external_consultant column to resources table
+            await client.query(`
+                ALTER TABLE resources 
+                ADD COLUMN IF NOT EXISTS is_external_consultant BOOLEAN DEFAULT false;
+            `);
+
+            // Create index for efficient filtering
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS idx_resources_external_consultant 
+                ON resources(is_external_consultant) 
+                WHERE is_external_consultant = true;
+            `);
+
+            logger.info('Migration 016 completed: is_external_consultant column added to resources');
+        }
+    },
+    {
+        id: '017_tags_system',
+        name: 'Create Tags System for Resources',
+        up: async (client) => {
+            // Create tags table
+            await client.query(`
+                CREATE TABLE IF NOT EXISTS tags (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    name VARCHAR(100) NOT NULL UNIQUE,
+                    description TEXT,
+                    color VARCHAR(20),
+                    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                );
+            `);
+
+            // Create resource_tags junction table for many-to-many relationship
+            await client.query(`
+                CREATE TABLE IF NOT EXISTS resource_tags (
+                    resource_id UUID NOT NULL REFERENCES resources(id) ON DELETE CASCADE,
+                    tag_id UUID NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+                    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (resource_id, tag_id)
+                );
+            `);
+
+            // Create indexes for efficient querying
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS idx_resource_tags_resource 
+                ON resource_tags(resource_id);
+            `);
+
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS idx_resource_tags_tag 
+                ON resource_tags(tag_id);
+            `);
+
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS idx_tags_name 
+                ON tags(name);
+            `);
+
+            logger.info('Migration 017 completed: tags and resource_tags tables created');
+        }
     }
 ];
 
