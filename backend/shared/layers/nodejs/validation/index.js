@@ -262,7 +262,9 @@ export const allocationSchemas = {
         start_date: Joi.date().iso().required(),
         end_date: Joi.date().iso().optional(),
         billing_percentage: Joi.number().min(0).max(100).default(100),
-        notes: Joi.string().max(500).optional(),
+        notes: Joi.string().max(500).allow('').optional(),
+        effective_date: Joi.date().iso().optional(), // 3-table architecture: overrides start_date for routing
+        forceOverallocation: Joi.boolean().optional(), // Allow force flag for CRITICAL overallocations
     }),
 
     update: Joi.object({
@@ -271,7 +273,9 @@ export const allocationSchemas = {
         end_date: Joi.date().iso().optional(),
         billing_percentage: Joi.number().min(0).max(100).optional(),
         is_active: Joi.boolean().optional(),
-        notes: Joi.string().max(500).optional(),
+        notes: Joi.string().max(500).allow('').optional(),
+        effective_date: Joi.date().iso().optional(), // 3-table architecture: overrides start_date for routing
+        forceOverallocation: Joi.boolean().optional(), // Allow force flag for CRITICAL overallocations
     }),
 };
 

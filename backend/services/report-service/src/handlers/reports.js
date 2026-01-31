@@ -51,7 +51,7 @@ export const getDashboard = async (event) => {
                     AVG(allocation_percentage) as avg_allocation
                 FROM allocations
                 WHERE is_active = true
-                AND (end_date IS NULL OR end_date >= CURRENT_DATE)
+                AND (deallocated_date IS NULL OR deallocated_date >= CURRENT_DATE)
             `),
 
             // Bench resources count
@@ -59,7 +59,7 @@ export const getDashboard = async (event) => {
                 WITH resource_allocations AS (
                     SELECT resource_id, SUM(allocation_percentage) as total
                     FROM allocations
-                    WHERE is_active = true AND (end_date IS NULL OR end_date >= CURRENT_DATE)
+                    WHERE is_active = true AND (deallocated_date IS NULL OR deallocated_date >= CURRENT_DATE)
                     GROUP BY resource_id
                 )
                 SELECT COUNT(*) as count
@@ -134,13 +134,13 @@ export const getAllocationReport = async (event) => {
         }
 
         if (start_date) {
-            whereClause += ` AND (a.end_date IS NULL OR a.end_date >= $${paramIndex})`;
+            whereClause += ` AND (a.deallocated_date IS NULL OR a.deallocated_date >= $${paramIndex})`;
             params.push(start_date);
             paramIndex++;
         }
 
         if (end_date) {
-            whereClause += ` AND a.start_date <= $${paramIndex}`;
+            whereClause += ` AND a.allocated_date <= $${paramIndex}`;
             params.push(end_date);
             paramIndex++;
         }
@@ -155,8 +155,8 @@ export const getAllocationReport = async (event) => {
                 d.name as designation_name,
                 t.name as track_name,
                 a.allocation_percentage,
-                a.start_date,
-                a.end_date,
+                a.allocated_date,
+                a.deallocated_date,
                 a.status
             FROM allocations a
             JOIN projects p ON a.project_id = p.id
@@ -199,7 +199,7 @@ export const getBenchReport = async (event) => {
                     SUM(allocation_percentage) as total_allocation
                 FROM allocations
                 WHERE is_active = true 
-                AND (end_date IS NULL OR end_date >= CURRENT_DATE)
+                AND (deallocated_date IS NULL OR deallocated_date >= CURRENT_DATE)
                 GROUP BY resource_id
             ),
             bench_allocations AS (
@@ -209,7 +209,7 @@ export const getBenchReport = async (event) => {
                 FROM allocations a
                 INNER JOIN projects p ON a.project_id = p.id
                 WHERE a.is_active = true 
-                AND (a.end_date IS NULL OR a.end_date >= CURRENT_DATE)
+                AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
                 AND p.is_bench_project = true
                 AND p.deleted_at IS NULL
             )
@@ -283,7 +283,7 @@ export const getUtilizationReport = async (event) => {
             LEFT JOIN tracks t ON r.track_id = t.id
             LEFT JOIN allocations a ON r.id = a.resource_id 
                 AND a.is_active = true 
-                AND (a.end_date IS NULL OR a.end_date >= CURRENT_DATE)
+                AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
             LEFT JOIN projects p ON a.project_id = p.id
             WHERE r.status = 'Active' AND r.deleted_at IS NULL
             GROUP BY t.name
@@ -397,7 +397,7 @@ export const getInternReport = async (event) => {
                 LEFT JOIN tracks t ON r.track_id = t.id
                 INNER JOIN allocations a ON r.id = a.resource_id 
                     AND a.is_active = true 
-                    AND (a.end_date IS NULL OR a.end_date >= CURRENT_DATE)
+                    AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
                 INNER JOIN projects p ON a.project_id = p.id AND p.deleted_at IS NULL
                 LEFT JOIN resources am ON p.account_manager_id = am.id
                 ${resourceWhereClause}
@@ -428,8 +428,8 @@ export const getInternReport = async (event) => {
                      ELSE NULL END as months_in_company,
                     p.project_name as project,
                     p.id as project_id,
-                    TO_CHAR(a.start_date, 'DD Mon YYYY') as project_allocated_date,
-                    CASE WHEN a.end_date IS NOT NULL THEN TO_CHAR(a.end_date, 'DD Mon YYYY') ELSE NULL END as project_deallocated_date,
+                    TO_CHAR(a.allocated_date, 'DD Mon YYYY') as project_allocated_date,
+                    CASE WHEN a.deallocated_date IS NOT NULL THEN TO_CHAR(a.deallocated_date, 'DD Mon YYYY') ELSE NULL END as project_deallocated_date,
                     CASE 
                         WHEN p.project_type = 'Bench' THEN 'Bench'
                         WHEN p.billing_status = 'Non-Billing' THEN 'Non-Billing'
@@ -441,17 +441,17 @@ export const getInternReport = async (event) => {
                     COALESCE(a.billing_percentage, 0) as billing_percentage,
                     COALESCE(a.allocation_percentage, 0) as project_allocation,
                     CASE 
-                        WHEN a.end_date IS NOT NULL THEN a.end_date - a.start_date
-                        ELSE CURRENT_DATE - a.start_date
+                        WHEN a.deallocated_date IS NOT NULL THEN a.deallocated_date - a.allocated_date
+                        ELSE CURRENT_DATE - a.allocated_date
                     END as duration_days,
-                    CASE WHEN a.is_active = true AND (a.end_date IS NULL OR a.end_date >= CURRENT_DATE) THEN 'Active' ELSE 'Inactive' END as status,
+                    CASE WHEN a.is_active = true AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE) THEN 'Active' ELSE 'Inactive' END as status,
                     a.is_active
             FROM resources r
             LEFT JOIN designations d ON r.designation_id = d.id
             LEFT JOIN tracks t ON r.track_id = t.id
                 INNER JOIN allocations a ON r.id = a.resource_id 
                     AND a.is_active = true 
-                    AND (a.end_date IS NULL OR a.end_date >= CURRENT_DATE)
+                    AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
                 INNER JOIN projects p ON a.project_id = p.id AND p.deleted_at IS NULL
                 LEFT JOIN resources am ON p.account_manager_id = am.id
                 ${resourceWhereClause}
@@ -472,8 +472,8 @@ export const getInternReport = async (event) => {
                          ELSE NULL END as months_in_company,
                     p.project_name as project,
                     p.id as project_id,
-                    TO_CHAR(a.start_date, 'DD Mon YYYY') as project_allocated_date,
-                    CASE WHEN a.end_date IS NOT NULL THEN TO_CHAR(a.end_date, 'DD Mon YYYY') ELSE NULL END as project_deallocated_date,
+                    TO_CHAR(a.allocated_date, 'DD Mon YYYY') as project_allocated_date,
+                    CASE WHEN a.deallocated_date IS NOT NULL THEN TO_CHAR(a.deallocated_date, 'DD Mon YYYY') ELSE NULL END as project_deallocated_date,
                     CASE 
                         WHEN p.project_type = 'Bench' THEN 'Bench'
                         WHEN p.billing_status = 'Non-Billing' THEN 'Non-Billing'
@@ -485,17 +485,17 @@ export const getInternReport = async (event) => {
                     COALESCE(a.billing_percentage, 0) as billing_percentage,
                     COALESCE(a.allocation_percentage, 0) as project_allocation,
                     CASE 
-                        WHEN a.end_date IS NOT NULL THEN a.end_date - a.start_date
-                        ELSE CURRENT_DATE - a.start_date
+                        WHEN a.deallocated_date IS NOT NULL THEN a.deallocated_date - a.allocated_date
+                        ELSE CURRENT_DATE - a.allocated_date
                     END as duration_days,
-                    CASE WHEN a.is_active = true AND (a.end_date IS NULL OR a.end_date >= CURRENT_DATE) THEN 'Active' ELSE 'Inactive' END as status,
+                    CASE WHEN a.is_active = true AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE) THEN 'Active' ELSE 'Inactive' END as status,
                     a.is_active
                 FROM resources r
                 LEFT JOIN designations d ON r.designation_id = d.id
                 LEFT JOIN tracks t ON r.track_id = t.id
                 LEFT JOIN allocations a ON r.id = a.resource_id 
                     AND a.is_active = true 
-                    AND (a.end_date IS NULL OR a.end_date >= CURRENT_DATE)
+                    AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
                 LEFT JOIN projects p ON a.project_id = p.id AND p.deleted_at IS NULL
                 LEFT JOIN resources am ON p.account_manager_id = am.id
                 ${resourceWhereClause}
@@ -724,13 +724,13 @@ export const getAccountManagerReport = async (event) => {
 
         // Date range filter for allocations
         if (start_date) {
-            allocationWhereClause += ` AND (a.end_date IS NULL OR a.end_date >= $${allocationParamIndex})`;
+            allocationWhereClause += ` AND (a.deallocated_date IS NULL OR a.deallocated_date >= $${allocationParamIndex})`;
             allocationParams.push(start_date);
             allocationParamIndex++;
         }
 
         if (end_date) {
-            allocationWhereClause += ` AND a.start_date <= $${allocationParamIndex}`;
+            allocationWhereClause += ` AND a.allocated_date <= $${allocationParamIndex}`;
             allocationParams.push(end_date);
             allocationParamIndex++;
         }
@@ -743,11 +743,11 @@ export const getAccountManagerReport = async (event) => {
             if (targetMonth) {
                 const monthStart = `${targetYear}-${String(targetMonth).padStart(2, '0')}-01`;
                 const monthEnd = new Date(targetYear, targetMonth, 0).toISOString().split('T')[0];
-                allocationWhereClause += ` AND a.start_date <= $${allocationParamIndex} AND (a.end_date IS NULL OR a.end_date >= $${allocationParamIndex + 1})`;
+                allocationWhereClause += ` AND a.allocated_date <= $${allocationParamIndex} AND (a.deallocated_date IS NULL OR a.deallocated_date >= $${allocationParamIndex + 1})`;
                 allocationParams.push(monthEnd, monthStart);
                 allocationParamIndex += 2;
             } else {
-                allocationWhereClause += ` AND EXTRACT(YEAR FROM a.start_date) = $${allocationParamIndex}`;
+                allocationWhereClause += ` AND EXTRACT(YEAR FROM a.allocated_date) = $${allocationParamIndex}`;
                 allocationParams.push(targetYear);
                 allocationParamIndex++;
             }
@@ -756,9 +756,9 @@ export const getAccountManagerReport = async (event) => {
         // Allocation Status filter
         if (allocation_status && allocation_status !== 'All') {
             if (allocation_status === 'Active') {
-                allocationWhereClause += ` AND a.is_active = true AND (a.end_date IS NULL OR a.end_date >= CURRENT_DATE)`;
+                allocationWhereClause += ` AND a.is_active = true AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)`;
             } else if (allocation_status === 'Inactive') {
-                allocationWhereClause += ` AND (a.is_active = false OR a.end_date < CURRENT_DATE)`;
+                allocationWhereClause += ` AND (a.is_active = false OR a.deallocated_date < CURRENT_DATE)`;
             }
         }
 
@@ -824,16 +824,16 @@ export const getAccountManagerReport = async (event) => {
                     r.id as resource_id,
                     p.project_name as project,
                     p.id as project_id,
-                    TO_CHAR(a.start_date, 'DD Mon YYYY') as project_allocated_date,
-                    CASE WHEN a.end_date IS NOT NULL THEN TO_CHAR(a.end_date, 'DD Mon YYYY') ELSE NULL END as project_deallocated_date,
+                    TO_CHAR(a.allocated_date, 'DD Mon YYYY') as project_allocated_date,
+                    CASE WHEN a.deallocated_date IS NOT NULL THEN TO_CHAR(a.deallocated_date, 'DD Mon YYYY') ELSE NULL END as project_deallocated_date,
                     p.billing_status,
                     a.billing_percentage,
                     a.allocation_percentage as project_allocation,
                     CASE 
-                        WHEN a.end_date IS NOT NULL THEN a.end_date - a.start_date
-                        ELSE CURRENT_DATE - a.start_date
+                        WHEN a.deallocated_date IS NOT NULL THEN a.deallocated_date - a.allocated_date
+                        ELSE CURRENT_DATE - a.allocated_date
                     END as duration_days,
-                    CASE WHEN a.is_active = true AND (a.end_date IS NULL OR a.end_date >= CURRENT_DATE) THEN 'Active' ELSE 'Inactive' END as status,
+                    CASE WHEN a.is_active = true AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE) THEN 'Active' ELSE 'Inactive' END as status,
                     a.is_active
                 FROM allocations a
                 JOIN resources r ON a.resource_id = r.id
@@ -841,7 +841,7 @@ export const getAccountManagerReport = async (event) => {
                 ${allocationWhereClause}
                 ${account_manager_id && account_manager_id !== 'all' ? `AND p.account_manager_id = $${allocationParamIndex}` : ''}
                 ${employee_status && employee_status !== 'All' ? `AND r.status = $${allocationParamIndex + (account_manager_id && account_manager_id !== 'all' ? 1 : 0)}` : ''}
-                ORDER BY a.start_date DESC
+                ORDER BY a.allocated_date DESC
                 LIMIT $${allocationParamIndex + (account_manager_id && account_manager_id !== 'all' ? 1 : 0) + (employee_status && employee_status !== 'All' ? 1 : 0)} 
                 OFFSET $${allocationParamIndex + (account_manager_id && account_manager_id !== 'all' ? 1 : 0) + (employee_status && employee_status !== 'All' ? 1 : 0) + 1}
             `, [
@@ -894,7 +894,7 @@ export const getAccountManagerReport = async (event) => {
                     COUNT(*) as count
                 FROM allocations a
                 JOIN projects p ON a.project_id = p.id
-                WHERE a.is_active = true AND (a.end_date IS NULL OR a.end_date >= CURRENT_DATE)
+                WHERE a.is_active = true AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
                 ${account_manager_id && account_manager_id !== 'all' ? `AND p.account_manager_id = $1` : ''}
                 GROUP BY category
                 ORDER BY count DESC
@@ -1043,16 +1043,16 @@ export const getMonthlyAllocationReport = async (event) => {
                 p.project_name,
                 c.client_name,
                 a.allocation_percentage,
-                a.start_date,
-                a.end_date
+                a.allocated_date,
+                a.deallocated_date
             FROM allocations a
             JOIN resources r ON a.resource_id = r.id
             JOIN projects p ON a.project_id = p.id
             LEFT JOIN clients c ON p.client_id = c.id
             LEFT JOIN designations d ON r.designation_id = d.id
             LEFT JOIN tracks t ON r.track_id = t.id
-            WHERE a.start_date <= $2
-            AND (a.end_date IS NULL OR a.end_date >= $1)
+            WHERE a.allocated_date <= $2
+            AND (a.deallocated_date IS NULL OR a.deallocated_date >= $1)
             AND r.deleted_at IS NULL
             ORDER BY r.name, p.project_name
         `;
@@ -1101,7 +1101,7 @@ export const getEmployeeReport = async (event) => {
                      FROM allocations 
                      WHERE resource_id = r.id 
                      AND is_active = true 
-                     AND (end_date IS NULL OR end_date >= CURRENT_DATE)),
+                     AND (deallocated_date IS NULL OR deallocated_date >= CURRENT_DATE)),
                     0
                 ) as total_allocation,
                 COALESCE(
@@ -1110,7 +1110,7 @@ export const getEmployeeReport = async (event) => {
                      JOIN projects p ON a.project_id = p.id
                      WHERE a.resource_id = r.id 
                      AND a.is_active = true 
-                     AND (a.end_date IS NULL OR a.end_date >= CURRENT_DATE)),
+                     AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)),
                     'None'
                 ) as current_projects
             FROM resources r
@@ -1150,7 +1150,7 @@ export const getExceptionReport = async (event) => {
                     SUM(allocation_percentage) as total_allocation
                 FROM allocations
                 WHERE is_active = true 
-                AND (end_date IS NULL OR end_date >= CURRENT_DATE)
+                AND (deallocated_date IS NULL OR deallocated_date >= CURRENT_DATE)
                 GROUP BY resource_id
             )
             SELECT 
@@ -1222,15 +1222,15 @@ export const getNonBillingReport = async (event) => {
                 p.project_name,
                 a.allocation_percentage,
                 a.billing_percentage,
-                a.start_date,
-                a.end_date
+                a.allocated_date,
+                a.deallocated_date
             FROM allocations a
             JOIN resources r ON a.resource_id = r.id
             JOIN projects p ON a.project_id = p.id
             LEFT JOIN designations d ON r.designation_id = d.id
             LEFT JOIN tracks t ON r.track_id = t.id
             WHERE a.is_active = true
-            AND (a.end_date IS NULL OR a.end_date >= CURRENT_DATE)
+            AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
             AND p.is_billable = false
             AND r.deleted_at IS NULL
             ORDER BY r.name ASC
@@ -1271,8 +1271,8 @@ export const getPreSaleReport = async (event) => {
                 p.project_code,
                 c.client_name,
                 a.allocation_percentage,
-                a.start_date,
-                a.end_date,
+                a.allocated_date,
+                a.deallocated_date,
                 a.notes
             FROM allocations a
             JOIN resources r ON a.resource_id = r.id
@@ -1281,7 +1281,7 @@ export const getPreSaleReport = async (event) => {
             LEFT JOIN designations d ON r.designation_id = d.id
             LEFT JOIN tracks t ON r.track_id = t.id
             WHERE a.is_active = true
-            AND (a.end_date IS NULL OR a.end_date >= CURRENT_DATE)
+            AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
             AND p.project_type = 'Presale'
             AND r.deleted_at IS NULL
             ORDER BY p.project_name, r.name ASC
@@ -1307,8 +1307,8 @@ export const getPreSaleReport = async (event) => {
                 designation: row.designation,
                 track: row.track,
                 allocation_percentage: row.allocation_percentage,
-                start_date: row.start_date,
-                end_date: row.end_date
+                allocated_date: row.allocated_date,
+                deallocated_date: row.deallocated_date
             });
         });
 
@@ -1404,7 +1404,7 @@ export const getTierBreakdownReport = async (event) => {
                 LEFT JOIN tracks t ON r.track_id = t.id
                 INNER JOIN allocations a ON r.id = a.resource_id 
                     AND a.is_active = true 
-                    AND (a.end_date IS NULL OR a.end_date >= CURRENT_DATE)
+                    AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
                 INNER JOIN projects p ON a.project_id = p.id AND p.deleted_at IS NULL
                 LEFT JOIN resources am ON p.account_manager_id = am.id
                 ${resourceWhereClause}
@@ -1471,7 +1471,7 @@ export const getTierBreakdownReport = async (event) => {
             LEFT JOIN tracks t ON r.track_id = t.id
             LEFT JOIN allocations a ON r.id = a.resource_id 
                 AND a.is_active = true 
-                AND (a.end_date IS NULL OR a.end_date >= CURRENT_DATE)
+                AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
             LEFT JOIN projects p ON a.project_id = p.id AND p.deleted_at IS NULL
             LEFT JOIN resources am ON p.account_manager_id = am.id
             ${resourceWhereClause}
@@ -1500,7 +1500,7 @@ export const getTierBreakdownReport = async (event) => {
                 LEFT JOIN tracks t ON r.track_id = t.id
                 INNER JOIN allocations a ON r.id = a.resource_id 
                     AND a.is_active = true 
-                    AND (a.end_date IS NULL OR a.end_date >= CURRENT_DATE)
+                    AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
                 INNER JOIN projects p ON a.project_id = p.id AND p.deleted_at IS NULL
                 LEFT JOIN resources am ON p.account_manager_id = am.id
                 ${resourceWhereClause}
@@ -1601,8 +1601,8 @@ export const getExternalConsultantsReport = async (event) => {
                 p.project_name,
                 p.account_manager_id,
                 a.allocation_percentage,
-                a.start_date,
-                a.end_date,
+                a.allocated_date,
+                a.deallocated_date,
                 a.is_active,
                 CASE 
                     WHEN p.project_type = 'Client' THEN 'Billing'
@@ -1653,13 +1653,13 @@ export const getExternalConsultantsReport = async (event) => {
 
         if (start_date) {
             paramCount++;
-            query += ` AND (a.end_date >= $${paramCount} OR a.end_date IS NULL)`;
+            query += ` AND (a.deallocated_date >= $${paramCount} OR a.deallocated_date IS NULL)`;
             params.push(start_date);
         }
 
         if (end_date) {
             paramCount++;
-            query += ` AND a.start_date <= $${paramCount}`;
+            query += ` AND a.allocated_date <= $${paramCount}`;
             params.push(end_date);
         }
 
@@ -1702,8 +1702,8 @@ export const getExternalConsultantsReport = async (event) => {
                 project: row.project_name || 'Bench',
                 accountManager: row.account_manager || 'N/A',
                 allocationPercentage: row.allocation_percentage ? `${parseFloat(row.allocation_percentage).toFixed(2)}%` : '0.00%',
-                startDate: row.start_date,
-                endDate: row.end_date,
+                startDate: row.allocated_date,
+                endDate: row.deallocated_date,
                 billingStatus: row.billing_status || 'Non-Billing'
             });
 

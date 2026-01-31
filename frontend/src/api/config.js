@@ -26,13 +26,13 @@ const getEnvVar = (key, defaultValue) => {
   return defaultValue;
 };
 
-// Get environment from process.env or default to 'qa'
+// Get environment from process.env or default to 'dev'
 // Note: DefinePlugin replaces these with actual values from .env file at build time
 const NODE_ENV = process.env.NODE_ENV || 'development';
 const REACT_APP_ENV = process.env.REACT_APP_ENV || null;
 const REACT_APP_API_BASE_URL = process.env.REACT_APP_API_BASE_URL || null;
 
-const ENV = REACT_APP_ENV || (NODE_ENV === 'production' ? 'prod' : 'qa');
+const ENV = REACT_APP_ENV || (NODE_ENV === 'production' ? 'prod' : 'dev');
 
 // Select base URL based on environment
 const getBaseURL = () => {
@@ -42,7 +42,7 @@ const getBaseURL = () => {
   }
 
   // Use environment-based URL
-  return API_URLS[ENV] || API_URLS.qa;
+  return API_URLS[ENV] || API_URLS.dev;
 };
 
 const baseURL = getBaseURL();
@@ -50,7 +50,7 @@ const baseURL = getBaseURL();
 // Debug logging (only in development)
 if (typeof globalThis.window !== 'undefined' && process.env.NODE_ENV === 'development') {
   console.log('🔧 API Configuration:');
-  console.log('  - REACT_APP_ENV:', REACT_APP_ENV || 'not set (defaulting to qa)');
+  console.log('  - REACT_APP_ENV:', REACT_APP_ENV || 'not set (defaulting to dev)');
   console.log('  - NODE_ENV:', NODE_ENV);
   console.log('  - Selected ENV:', ENV);
   console.log('  - BASE_URL:', baseURL);

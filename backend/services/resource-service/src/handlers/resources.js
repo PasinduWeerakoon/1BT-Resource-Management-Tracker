@@ -511,8 +511,8 @@ export const create = async (event) => {
         const body = JSON.parse(event.body || '{}');
         const validated = validate(body, resourceSchemas.create);
 
-        log.info('Creating resource', { 
-            email: validated.email, 
+        log.info('Creating resource', {
+            email: validated.email,
             employee_id: validated.employee_id,
             employee_type: validated.employee_type,
             validated_data: validated
@@ -574,8 +574,8 @@ export const create = async (event) => {
             const employeeType = (validated.employee_type && (validated.employee_type === 'Internal' || validated.employee_type === 'External'))
                 ? validated.employee_type
                 : 'Internal';
-            
-            log.info('Inserting resource with employee_type', { 
+
+            log.info('Inserting resource with employee_type', {
                 raw_employee_type: validated.employee_type,
                 validated_employee_type: validated.employee_type,
                 employeeType: employeeType,
@@ -584,7 +584,7 @@ export const create = async (event) => {
                 isExternal: validated.employee_type === 'External',
                 isInternal: validated.employee_type === 'Internal'
             });
-            
+
             // Insert resource using Drizzle (use camelCase properties from schema)
             const [newResource] = await tx
                 .insert(resources)
@@ -612,7 +612,7 @@ export const create = async (event) => {
                 })
                 .returning();
 
-            log.info('Resource created in transaction', { 
+            log.info('Resource created in transaction', {
                 id: newResource.id,
                 employeeType: newResource.employeeType,
                 employee_type_from_db: newResource.employeeType
@@ -696,8 +696,8 @@ export const update = async (event) => {
         const body = JSON.parse(event.body || '{}');
         const validated = validate(body, resourceSchemas.update);
 
-        log.info('Updating resource', { 
-            id, 
+        log.info('Updating resource', {
+            id,
             raw_body: body,
             validated: validated,
             employee_type_in_body: body.employee_type,
@@ -781,7 +781,7 @@ export const update = async (event) => {
             }
         }
 
-        log.info('Update values prepared', { 
+        log.info('Update values prepared', {
             originalKeys: Object.keys(updateData),
             updateKeys: Object.keys(updateValues),
             updateValues: updateValues,
@@ -965,9 +965,10 @@ export const getAllocations = async (event) => {
     const { id } = event.pathParameters;
     const queryParams = event.queryStringParameters || {};
     const includeHistory = queryParams.includeHistory === 'true';
+    const includeFuture = queryParams.includeFuture !== 'false'; // Include future by default
 
     try {
-        log.info('Getting resource allocations', { id, includeHistory });
+        log.info('Getting resource allocations', { id, includeHistory, includeFuture });
 
         const drizzle = await getDrizzle();
 
@@ -984,38 +985,79 @@ export const getAllocations = async (event) => {
             return notFound('Resource not found');
         }
 
-        // Build where conditions
+        // Build where conditions for active allocations
         const conditions = [eq(allocations.resourceId, id)];
         if (!includeHistory) {
             conditions.push(eq(allocations.isActive, true));
         }
 
-        // Get allocations with joins using Drizzle (map to snake_case for API)
-        const result = await drizzle
+        // Get active/historical allocations with joins using Drizzle
+        const activeAllocations = await drizzle
             .select({
                 id: allocations.id,
                 resource_id: allocations.resourceId,
                 project_id: allocations.projectId,
                 allocation_percentage: allocations.allocationPercentage,
-                start_date: allocations.startDate,
-                end_date: allocations.endDate,
+                allocated_date: allocations.allocatedDate,
+                deallocated_date: allocations.deallocatedDate,
                 is_active: allocations.isActive,
                 notes: allocations.notes,
                 created_at: allocations.createdAt,
                 updated_at: allocations.updatedAt,
                 created_by: allocations.createdBy,
+                billing_percentage: allocations.billingPercentage,
                 // Joined fields from projects
                 project_name: projects.projectName,
                 project_code: projects.projectCode,
                 project_type: projects.projectType,
                 // Joined field from clients
-                client_name: clients.clientName
+                client_name: clients.clientName,
+                // Add status indicator
+                allocation_status: sql`'active'`.as('allocation_status')
             })
             .from(allocations)
             .leftJoin(projects, eq(allocations.projectId, projects.id))
             .leftJoin(clients, eq(projects.clientId, clients.id))
             .where(and(...conditions))
-            .orderBy(desc(allocations.startDate));
+            .orderBy(desc(allocations.allocatedDate));
+
+        let result = activeAllocations;
+
+        // Fetch future allocations if requested
+        if (includeFuture) {
+            const futureAllocations = await db.query(`
+                SELECT 
+                    fa.id,
+                    fa.resource_id,
+                    fa.project_id,
+                    fa.allocation_percentage,
+                    fa.billing_percentage,
+                    fa.allocated_date,
+                    fa.deallocated_date,
+                    fa.effective_date,
+                    fa.status as future_status,
+                    fa.change_type,
+                    fa.notes,
+                    fa.created_at,
+                    fa.updated_at,
+                    fa.created_by,
+                    false as is_active,
+                    p.project_name,
+                    p.project_code,
+                    p.project_type,
+                    c.client_name,
+                    'future' as allocation_status
+                FROM future_allocations fa
+                LEFT JOIN projects p ON fa.project_id = p.id
+                LEFT JOIN clients c ON p.client_id = c.id
+                WHERE fa.resource_id = $1
+                AND fa.status = 'scheduled'
+                ORDER BY fa.effective_date ASC
+            `, [id]);
+
+            // Combine active and future allocations
+            result = [...activeAllocations, ...futureAllocations.rows];
+        }
 
         return success({
             resource_id: id,

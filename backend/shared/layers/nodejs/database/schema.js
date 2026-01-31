@@ -196,8 +196,8 @@ export const allocations = pgTable('allocations', {
     projectId: uuid('project_id').notNull().references(() => projects.id),
     allocationPercentage: decimal('allocation_percentage', { precision: 5, scale: 2 }).notNull(),
     billingPercentage: decimal('billing_percentage', { precision: 5, scale: 2 }).default(sql`100`),
-    startDate: date('start_date').notNull(),
-    endDate: date('end_date'),
+    allocatedDate: date('allocated_date').notNull(),
+    deallocatedDate: date('deallocated_date'),
     isActive: boolean('is_active').default(true),
     notes: text('notes'),
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
@@ -209,8 +209,8 @@ export const allocations = pgTable('allocations', {
 }, (table) => ({
     resourceIdx: index('idx_allocations_resource').on(table.resourceId),
     projectIdx: index('idx_allocations_project').on(table.projectId),
-    datesIdx: index('idx_allocations_dates').on(table.startDate, table.endDate),
-    uniqueAllocation: uniqueIndex('unique_active_allocation').on(table.resourceId, table.projectId, table.startDate),
+    datesIdx: index('idx_allocations_dates').on(table.allocatedDate, table.deallocatedDate),
+    uniqueAllocation: uniqueIndex('unique_active_allocation').on(table.resourceId, table.projectId, table.allocatedDate),
 }));
 
 // Resource change history

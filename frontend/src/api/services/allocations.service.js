@@ -42,18 +42,28 @@ export const allocationsService = {
 
   /**
    * Create new allocation
+   * With 3-Table Architecture:
+   * - If effective_date > TODAY: Creates a future_allocation (scheduled)
+   * - If effective_date <= TODAY: Creates allocation immediately
+   * 
    * @param {Object} allocationData - Allocation data
    * @param {string} allocationData.resource_id - Resource ID (UUID)
    * @param {string} allocationData.project_id - Project ID (UUID)
    * @param {number} allocationData.allocation_percentage - Allocation percentage (0-100)
    * @param {number} allocationData.billing_percentage - Billing percentage (0-100)
-   * @param {string} allocationData.start_date - Start date (YYYY-MM-DD)
+   * @param {string} allocationData.effective_date - Effective date (YYYY-MM-DD) - when allocation takes effect
+   * @param {string} allocationData.start_date - Start date (YYYY-MM-DD) - legacy field, use effective_date
    * @param {string} allocationData.end_date - End date (YYYY-MM-DD, optional)
    * @param {string} allocationData.notes - Allocation notes (optional)
-   * @returns {Promise<{success: boolean, data: {id: string, allocation_percentage: number, resource_name: string, ...}}>}
+   * @returns {Promise<{success: boolean, data: Object, isFutureAllocation?: boolean}>}
    */
   create: async (allocationData) => {
-    const response = await apiClient.post(ENDPOINTS.ALLOCATIONS.CREATE, allocationData);
+    // Ensure we send effective_date if start_date is provided
+    const payload = {
+      ...allocationData,
+      effective_date: allocationData.effective_date || allocationData.start_date,
+    };
+    const response = await apiClient.post(ENDPOINTS.ALLOCATIONS.CREATE, payload);
     // The interceptor transforms the response
     return response.data || response;
   },

@@ -14,7 +14,10 @@ import {
     EditOutlined,
     UserAddOutlined,
     DeleteOutlined,
-    EyeOutlined
+    EyeOutlined,
+    ClockCircleOutlined,
+    CheckCircleOutlined,
+    InfoCircleOutlined
 } from '@ant-design/icons';
 import { Doughnut, Bar } from 'react-chartjs-2';
 import { commonOptions, colors } from '@utils/chartConfig';
@@ -435,11 +438,11 @@ const AccountManagerReport = () => {
                     });
                 }
 
-                // Update allocation data and pagination ONLY if a project is selected
-                // If no project is selected, clear the allocation data
-                if (selectedProjectId && data.allocations && data.allocations.data) {
+                // Update allocation data - show all allocations (filtered by account manager)
+                // When a project is selected, it will be further filtered on the backend
+                if (data.allocations && data.allocations.data) {
                     const transformedAllocations = data.allocations.data.map((allocation) => {
-                        const allocationPercentage = parseFloat(allocation.allocation_percentage) || 0;
+                        const allocationPercentage = parseFloat(allocation.allocation_percentage || allocation.project_allocation) || 0;
                         const billingPercentage = parseFloat(allocation.billing_percentage) || 0;
                         const billingStatus = billingPercentage > 0 ? 'Billing' : 'Non-Billing';
 
@@ -447,16 +450,21 @@ const AccountManagerReport = () => {
                             key: allocation.id,
                             id: allocation.id,
                             resource_id: allocation.resource_id,
-                            resource_name: allocation.resource_name || 'N/A',
+                            resource_name: allocation.resource_name || allocation.employee_name || 'N/A',
+                            employeeName: allocation.resource_name || allocation.employee_name || 'N/A',
                             project_id: allocation.project_id,
-                            project_name: allocation.project_name || 'N/A',
-                            project: allocation.project_name || 'N/A',
-                            allocatedDate: allocation.start_date ? dayjs(allocation.start_date).format('DD MMM YYYY') : '',
-                            deallocatedDate: allocation.end_date ? dayjs(allocation.end_date).format('DD MMM YYYY') : '',
+                            project_name: allocation.project_name || allocation.project || 'N/A',
+                            project: allocation.project_name || allocation.project || 'N/A',
+                            allocatedDate: allocation.allocated_date
+                                ? dayjs(allocation.allocated_date).format('DD MMM YYYY')
+                                : (allocation.project_allocated_date || ''),
+                            deallocatedDate: allocation.deallocated_date
+                                ? dayjs(allocation.deallocated_date).format('DD MMM YYYY')
+                                : (allocation.project_deallocated_date || ''),
                             billingStatus: billingStatus,
                             billingPercentage: billingPercentage ? `${billingPercentage.toFixed(2)}%` : '0.00%',
                             projectAllocation: allocationPercentage ? `${allocationPercentage.toFixed(2)}%` : '0.00%',
-                            duration: allocation.duration || 0,
+                            duration: allocation.duration || allocation.duration_days || 0,
                             status: allocation.is_active ? 'Active' : 'Inactive',
                         };
                     });
@@ -468,7 +476,7 @@ const AccountManagerReport = () => {
                         total: data.allocations.pagination?.total || 0,
                     });
                 } else {
-                    // Clear allocation data when no project is selected
+                    // Clear allocation data if no data available
                     setAllocationData([]);
                     setAllocationPagination({
                         current: 1,
@@ -1657,13 +1665,17 @@ const AccountManagerReport = () => {
             console.log('Final parsed allocations data:', allocationsData);
             console.log('Allocations count:', allocationsData.length);
 
-            // Transform allocations data to match table format
-            const transformedAllocations = allocationsData.map((allocation, index) => {
+            // Separate active and future allocations
+            const activeAllocations = allocationsData.filter(a => a.allocation_status !== 'future');
+            const futureAllocations = allocationsData.filter(a => a.allocation_status === 'future');
+
+            // Transform active allocations data to match table format
+            const transformedActiveAllocations = activeAllocations.map((allocation, index) => {
                 // Calculate duration in days
                 let duration = 0;
-                if (allocation.start_date) {
-                    const startDate = dayjs(allocation.start_date);
-                    const endDate = allocation.end_date ? dayjs(allocation.end_date) : dayjs();
+                if (allocation.allocated_date) {
+                    const startDate = dayjs(allocation.allocated_date);
+                    const endDate = allocation.deallocated_date ? dayjs(allocation.deallocated_date) : dayjs();
                     duration = endDate.diff(startDate, 'day');
                 }
 
@@ -1676,7 +1688,6 @@ const AccountManagerReport = () => {
                     : (allocation.billing_percentage || 0);
 
                 // Determine billing status based on project_type
-                // API provides: project_type (e.g., "Client", "Bench", "Pre-Sales", "Training")
                 let billingStatus = 'Non-Billing';
                 if (allocation.project_type === 'Client' || allocation.project_is_billable) {
                     billingStatus = 'Billing';
@@ -1692,16 +1703,74 @@ const AccountManagerReport = () => {
                     key: allocation.id || `allocation-${index}`,
                     id: allocation.id,
                     project: allocation.project_name || 'N/A',
-                    allocatedDate: allocation.start_date ? dayjs(allocation.start_date).format('YYYY-MM-DD') : '-',
-                    deallocatedDate: allocation.end_date ? dayjs(allocation.end_date).format('YYYY-MM-DD') : '-',
+                    allocatedDate: allocation.allocated_date ? dayjs(allocation.allocated_date).format('YYYY-MM-DD') : '-',
+                    deallocatedDate: allocation.deallocated_date ? dayjs(allocation.deallocated_date).format('YYYY-MM-DD') : '-',
                     billingStatus: billingStatus,
                     billingPercentage: billingPercentage ? `${billingPercentage.toFixed(0)}%` : '0%',
                     projectAllocation: allocationPercentage ? `${allocationPercentage.toFixed(0)}%` : '0%',
                     duration: duration,
                     status: allocation.is_active !== undefined ? (allocation.is_active ? 'Active' : 'Inactive') : (allocation.status || 'Active'),
                     project_id: allocation.project_id,
+                    allocationType: 'active'
                 };
             });
+
+            // Transform future allocations data
+            const transformedFutureAllocations = futureAllocations.map((allocation, index) => {
+                // Calculate duration in days
+                let duration = 0;
+                if (allocation.allocated_date) {
+                    const startDate = dayjs(allocation.allocated_date);
+                    const endDate = allocation.deallocated_date ? dayjs(allocation.deallocated_date) : dayjs();
+                    duration = endDate.diff(startDate, 'day');
+                }
+
+                // Calculate days until activation
+                const daysUntilActivation = allocation.effective_date
+                    ? dayjs(allocation.effective_date).diff(dayjs(), 'day')
+                    : 0;
+
+                // Handle allocation_percentage and billing_percentage
+                const allocationPercentage = typeof allocation.allocation_percentage === 'string'
+                    ? parseFloat(allocation.allocation_percentage)
+                    : (allocation.allocation_percentage || 0);
+                const billingPercentage = typeof allocation.billing_percentage === 'string'
+                    ? parseFloat(allocation.billing_percentage)
+                    : (allocation.billing_percentage || 0);
+
+                // Determine billing status based on project_type
+                let billingStatus = 'Non-Billing';
+                if (allocation.project_type === 'Client' || allocation.project_is_billable) {
+                    billingStatus = 'Billing';
+                } else if (allocation.project_type === 'Bench') {
+                    billingStatus = 'Bench';
+                } else if (allocation.project_type === 'Pre-Sales' || allocation.project_type === 'Presale' || allocation.project_type === 'Pre-Sale') {
+                    billingStatus = 'Presale';
+                } else if (allocation.project_type === 'Training') {
+                    billingStatus = 'Training';
+                }
+
+                return {
+                    key: allocation.id || `future-allocation-${index}`,
+                    id: allocation.id,
+                    project: allocation.project_name || 'N/A',
+                    allocatedDate: allocation.allocated_date ? dayjs(allocation.allocated_date).format('YYYY-MM-DD') : '-',
+                    deallocatedDate: allocation.deallocated_date ? dayjs(allocation.deallocated_date).format('YYYY-MM-DD') : '-',
+                    effectiveDate: allocation.effective_date ? dayjs(allocation.effective_date).format('YYYY-MM-DD') : '-',
+                    daysUntilActivation: daysUntilActivation,
+                    billingStatus: billingStatus,
+                    billingPercentage: billingPercentage ? `${billingPercentage.toFixed(0)}%` : '0%',
+                    projectAllocation: allocationPercentage ? `${allocationPercentage.toFixed(0)}%` : '0%',
+                    duration: duration,
+                    status: 'Scheduled',
+                    changeType: allocation.change_type || 'new',
+                    project_id: allocation.project_id,
+                    allocationType: 'future'
+                };
+            });
+
+            // Combine both arrays for display
+            const transformedAllocations = [...transformedActiveAllocations, ...transformedFutureAllocations];
 
             setResourceAllocationsData(transformedAllocations);
 
@@ -1963,8 +2032,8 @@ const AccountManagerReport = () => {
                     id: allocation.id,
                     employeeName: resourceName,
                     project: projectName,
-                    allocatedDate: allocation.start_date ? dayjs(allocation.start_date).format('DD MMM YYYY') : '',
-                    deallocatedDate: allocation.end_date ? dayjs(allocation.end_date).format('DD MMM YYYY') : '',
+                    allocatedDate: allocation.allocated_date ? dayjs(allocation.allocated_date).format('DD MMM YYYY') : '',
+                    deallocatedDate: allocation.deallocated_date ? dayjs(allocation.deallocated_date).format('DD MMM YYYY') : '',
                     billingStatus: billingStatus,
                     billingPercentage: billingPercentage ? `${billingPercentage.toFixed(2)}%` : '0.00%',
                     projectAllocation: allocationPercentage ? `${allocationPercentage.toFixed(2)}%` : '0.00%',
@@ -3295,20 +3364,27 @@ const AccountManagerReport = () => {
                         </Col>
                         <Col xs={24} sm={12}>
                             <Form.Item
-                                label="Start Date"
+                                label={
+                                    <span>
+                                        Effective Date{' '}
+                                        <Tooltip title="When the allocation takes effect. Future dates will be scheduled for automatic activation.">
+                                            <InfoCircleOutlined style={{ color: '#1890ff', cursor: 'help' }} />
+                                        </Tooltip>
+                                    </span>
+                                }
                                 name="start_date"
-                                rules={[{ required: true, message: 'Start date is required' }]}
+                                rules={[{ required: true, message: 'Effective date is required' }]}
                             >
                                 <DatePicker
                                     style={{ width: '100%' }}
-                                    placeholder="Select start date"
+                                    placeholder="Select effective date"
                                     format="YYYY-MM-DD"
                                 />
                             </Form.Item>
                         </Col>
                         <Col xs={24} sm={12}>
                             <Form.Item
-                                label="End Date"
+                                label="Deallocation Date"
                                 name="end_date"
                                 dependencies={['start_date']}
                                 rules={[
@@ -3318,14 +3394,14 @@ const AccountManagerReport = () => {
                                             if (!value || !startDate || value >= startDate) {
                                                 return Promise.resolve();
                                             }
-                                            return Promise.reject(new Error('End date must be greater than or equal to start date'));
+                                            return Promise.reject(new Error('Deallocation date must be after effective date'));
                                         },
                                     }),
                                 ]}
                             >
                                 <DatePicker
                                     style={{ width: '100%' }}
-                                    placeholder="Select end date (optional)"
+                                    placeholder="Select deallocation date (optional)"
                                     format="YYYY-MM-DD"
                                 />
                             </Form.Item>
@@ -3369,66 +3445,269 @@ const AccountManagerReport = () => {
                     setSelectedResourceId(null);
                     setSelectedResourceName('');
                 }}
-                width={1200}
+                width={1400}
                 footer={null}
             >
-                <CustomTable
-                    columns={[
-                        {
-                            title: 'Project',
-                            dataIndex: 'project',
-                            key: 'project',
-                            width: 200,
-                        },
-                        {
-                            title: 'Project Allocated Date',
-                            dataIndex: 'allocatedDate',
-                            key: 'allocatedDate',
-                            width: 160,
-                        },
-                        {
-                            title: 'Project Deallocated Date',
-                            dataIndex: 'deallocatedDate',
-                            key: 'deallocatedDate',
-                            width: 180,
-                        },
-                        {
-                            title: 'Billing Status',
-                            dataIndex: 'billingStatus',
-                            key: 'billingStatus',
-                            width: 130,
-                        },
-                        {
-                            title: 'Billing Percentage',
-                            dataIndex: 'billingPercentage',
-                            key: 'billingPercentage',
-                            width: 140,
-                        },
-                        {
-                            title: 'Project Allocation',
-                            dataIndex: 'projectAllocation',
-                            key: 'projectAllocation',
-                            width: 140,
-                        },
-                        {
-                            title: 'Duration (Days)',
-                            dataIndex: 'duration',
-                            key: 'duration',
-                            width: 130,
-                        },
-                        {
-                            title: 'Status',
-                            dataIndex: 'status',
-                            key: 'status',
-                            width: 100,
-                        },
-                    ]}
-                    dataSource={resourceAllocationsData}
-                    pagination={false}
-                    scroll={{ x: 1000 }}
-                    size="small"
-                    loading={loadingResourceAllocations}
-                />
+                {/* Active Allocations Section */}
+                <div style={{ marginBottom: 24 }}>
+                    <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        marginBottom: 12,
+                        padding: '8px 12px',
+                        backgroundColor: '#f0f5ff',
+                        borderLeft: '4px solid #1890ff',
+                        borderRadius: 4
+                    }}>
+                        <CheckCircleOutlined style={{ color: '#52c41a', fontSize: 18, marginRight: 8 }} />
+                        <span style={{ fontSize: 16, fontWeight: 600, color: '#262626' }}>
+                            Current Allocations
+                        </span>
+                        <span style={{
+                            marginLeft: 8,
+                            padding: '2px 8px',
+                            backgroundColor: '#52c41a',
+                            color: 'white',
+                            borderRadius: 10,
+                            fontSize: 12,
+                            fontWeight: 500
+                        }}>
+                            {resourceAllocationsData.filter(a => a.allocationType === 'active').length}
+                        </span>
+                    </div>
+                    <CustomTable
+                        columns={[
+                            {
+                                title: 'Project',
+                                dataIndex: 'project',
+                                key: 'project',
+                                width: 200,
+                                ellipsis: true,
+                            },
+                            {
+                                title: 'Allocated Date',
+                                dataIndex: 'allocatedDate',
+                                key: 'allocatedDate',
+                                width: 140,
+                            },
+                            {
+                                title: 'Deallocated Date',
+                                dataIndex: 'deallocatedDate',
+                                key: 'deallocatedDate',
+                                width: 150,
+                            },
+                            {
+                                title: 'Billing Status',
+                                dataIndex: 'billingStatus',
+                                key: 'billingStatus',
+                                width: 120,
+                                render: (text) => (
+                                    <span style={{
+                                        padding: '2px 8px',
+                                        borderRadius: 4,
+                                        fontSize: 12,
+                                        fontWeight: 500,
+                                        backgroundColor: text === 'Billing' ? '#e6f7ff' :
+                                            text === 'Bench' ? '#fff7e6' :
+                                                text === 'Presale' ? '#f9f0ff' : '#f0f0f0',
+                                        color: text === 'Billing' ? '#1890ff' :
+                                            text === 'Bench' ? '#fa8c16' :
+                                                text === 'Presale' ? '#722ed1' : '#595959'
+                                    }}>
+                                        {text}
+                                    </span>
+                                ),
+                            },
+                            {
+                                title: 'Billing %',
+                                dataIndex: 'billingPercentage',
+                                key: 'billingPercentage',
+                                width: 100,
+                                align: 'center',
+                            },
+                            {
+                                title: 'Allocation %',
+                                dataIndex: 'projectAllocation',
+                                key: 'projectAllocation',
+                                width: 110,
+                                align: 'center',
+                            },
+                            {
+                                title: 'Duration',
+                                dataIndex: 'duration',
+                                key: 'duration',
+                                width: 90,
+                                align: 'center',
+                                render: (days) => `${days} days`,
+                            },
+                            {
+                                title: 'Status',
+                                dataIndex: 'status',
+                                key: 'status',
+                                width: 90,
+                                align: 'center',
+                                render: (text) => (
+                                    <span style={{
+                                        padding: '2px 8px',
+                                        borderRadius: 4,
+                                        fontSize: 12,
+                                        fontWeight: 500,
+                                        backgroundColor: text === 'Active' ? '#f6ffed' : '#fff1f0',
+                                        color: text === 'Active' ? '#52c41a' : '#ff4d4f'
+                                    }}>
+                                        {text}
+                                    </span>
+                                ),
+                            },
+                        ]}
+                        dataSource={resourceAllocationsData.filter(a => a.allocationType === 'active')}
+                        pagination={false}
+                        scroll={{ x: 1100 }}
+                        size="small"
+                        loading={loadingResourceAllocations}
+                        locale={{
+                            emptyText: 'No current allocations'
+                        }}
+                    />
+                </div>
+
+                {/* Future Allocations Section */}
+                {resourceAllocationsData.filter(a => a.allocationType === 'future').length > 0 && (
+                    <div>
+                        <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            marginBottom: 12,
+                            padding: '8px 12px',
+                            backgroundColor: '#fff7e6',
+                            borderLeft: '4px solid #faad14',
+                            borderRadius: 4
+                        }}>
+                            <ClockCircleOutlined style={{ color: '#faad14', fontSize: 18, marginRight: 8 }} />
+                            <span style={{ fontSize: 16, fontWeight: 600, color: '#262626' }}>
+                                Future Allocations
+                            </span>
+                            <span style={{
+                                marginLeft: 8,
+                                padding: '2px 8px',
+                                backgroundColor: '#faad14',
+                                color: 'white',
+                                borderRadius: 10,
+                                fontSize: 12,
+                                fontWeight: 500
+                            }}>
+                                {resourceAllocationsData.filter(a => a.allocationType === 'future').length}
+                            </span>
+                        </div>
+                        <CustomTable
+                            columns={[
+                                {
+                                    title: 'Project',
+                                    dataIndex: 'project',
+                                    key: 'project',
+                                    width: 180,
+                                    ellipsis: true,
+                                },
+                                {
+                                    title: 'Effective Date',
+                                    dataIndex: 'effectiveDate',
+                                    key: 'effectiveDate',
+                                    width: 130,
+                                    render: (text, record) => (
+                                        <div>
+                                            <div style={{ fontWeight: 500 }}>{text}</div>
+                                            <div style={{
+                                                fontSize: 11,
+                                                color: '#8c8c8c',
+                                                fontStyle: 'italic'
+                                            }}>
+                                                {record.daysUntilActivation > 0 ?
+                                                    `in ${record.daysUntilActivation} days` :
+                                                    'activates today'}
+                                            </div>
+                                        </div>
+                                    ),
+                                },
+                                {
+                                    title: 'Allocated Date',
+                                    dataIndex: 'allocatedDate',
+                                    key: 'allocatedDate',
+                                    width: 130,
+                                },
+                                {
+                                    title: 'Deallocated Date',
+                                    dataIndex: 'deallocatedDate',
+                                    key: 'deallocatedDate',
+                                    width: 140,
+                                },
+                                {
+                                    title: 'Billing Status',
+                                    dataIndex: 'billingStatus',
+                                    key: 'billingStatus',
+                                    width: 120,
+                                    render: (text) => (
+                                        <span style={{
+                                            padding: '2px 8px',
+                                            borderRadius: 4,
+                                            fontSize: 12,
+                                            fontWeight: 500,
+                                            backgroundColor: text === 'Billing' ? '#e6f7ff' :
+                                                text === 'Bench' ? '#fff7e6' :
+                                                    text === 'Presale' ? '#f9f0ff' : '#f0f0f0',
+                                            color: text === 'Billing' ? '#1890ff' :
+                                                text === 'Bench' ? '#fa8c16' :
+                                                    text === 'Presale' ? '#722ed1' : '#595959'
+                                        }}>
+                                            {text}
+                                        </span>
+                                    ),
+                                },
+                                {
+                                    title: 'Allocation %',
+                                    dataIndex: 'projectAllocation',
+                                    key: 'projectAllocation',
+                                    width: 110,
+                                    align: 'center',
+                                },
+                                {
+                                    title: 'Duration',
+                                    dataIndex: 'duration',
+                                    key: 'duration',
+                                    width: 90,
+                                    align: 'center',
+                                    render: (days) => `${days} days`,
+                                },
+                                {
+                                    title: 'Status',
+                                    dataIndex: 'status',
+                                    key: 'status',
+                                    width: 100,
+                                    align: 'center',
+                                    render: (text) => (
+                                        <span style={{
+                                            padding: '2px 8px',
+                                            borderRadius: 4,
+                                            fontSize: 12,
+                                            fontWeight: 500,
+                                            backgroundColor: '#fffbe6',
+                                            color: '#faad14'
+                                        }}>
+                                            {text}
+                                        </span>
+                                    ),
+                                },
+                            ]}
+                            dataSource={resourceAllocationsData.filter(a => a.allocationType === 'future')}
+                            pagination={false}
+                            scroll={{ x: 1100 }}
+                            size="small"
+                            loading={loadingResourceAllocations}
+                            locale={{
+                                emptyText: 'No future allocations'
+                            }}
+                        />
+                    </div>
+                )}
             </CustomModal>
         </div>
     );
