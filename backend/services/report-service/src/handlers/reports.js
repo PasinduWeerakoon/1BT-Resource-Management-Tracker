@@ -822,6 +822,8 @@ export const getAccountManagerReport = async (event) => {
                     a.id,
                     r.name as employee_name,
                     r.id as resource_id,
+                    r.total_allocation,
+                    r.total_billing,
                     p.project_name as project,
                     p.id as project_id,
                     TO_CHAR(a.allocated_date, 'DD Mon YYYY') as project_allocated_date,

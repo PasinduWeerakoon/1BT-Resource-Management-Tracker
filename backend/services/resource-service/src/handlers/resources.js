@@ -216,7 +216,7 @@ const createInitialBenchAllocation = async (tx, resourceId, trackId, userId, log
                 projectId: benchProjectId,
                 allocationPercentage: '100',
                 billingPercentage: '0', // Bench is non-billing
-                startDate: new Date().toISOString().split('T')[0], // YYYY-MM-DD format
+                allocatedDate: new Date().toISOString().split('T')[0], // YYYY-MM-DD format
                 isActive: true,
                 notes: 'Auto-created bench allocation for new resource',
                 createdBy: userId
@@ -309,7 +309,7 @@ export const list = async (event) => {
         const total = parseInt(countResult.rows[0].total);
 
         // Get paginated results with joins and tags
-        // Note: r.* includes all resource columns including employee_type
+        // Note: r.* includes all resource columns including employee_type, total_allocation, and total_billing
         // Tags are aggregated using json_agg for the many-to-many relationship
         const dataQuery = `
             SELECT 

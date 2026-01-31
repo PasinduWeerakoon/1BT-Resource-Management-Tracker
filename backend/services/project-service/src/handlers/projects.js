@@ -140,13 +140,15 @@ export const list = async (event) => {
         const countResult = await db.query(countQuery, params);
         const total = parseInt(countResult.rows[0].total);
 
-        // Get paginated results with client join
+        // Get paginated results with client join and account manager name
         const dataQuery = `
             SELECT 
                 p.*,
-                c.client_name
+                c.client_name,
+                r.name as account_manager_name
             FROM projects p
             LEFT JOIN clients c ON p.client_id = c.id
+            LEFT JOIN resources r ON p.account_manager_id = r.id AND r.deleted_at IS NULL
             ${whereClause}
             ORDER BY p.project_name ASC
             LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
@@ -184,9 +186,11 @@ export const getById = async (event) => {
         const query = `
             SELECT 
                 p.*,
-                c.client_name
+                c.client_name,
+                r.name as account_manager_name
             FROM projects p
             LEFT JOIN clients c ON p.client_id = c.id
+            LEFT JOIN resources r ON p.account_manager_id = r.id AND r.deleted_at IS NULL
             WHERE p.id = $1 AND p.deleted_at IS NULL
         `;
 
@@ -228,14 +232,27 @@ export const create = async (event) => {
         const billingStatus = validated.billing_type === 'Non-Billing' ? 'Non-Billing' : 'Billing';
         const isBillable = billingStatus === 'Billing';
 
+        // Fetch account manager name if ID is provided
+        let accountManagerName = null;
+        if (validated.account_manager_id) {
+            const amResult = await db.query(
+                'SELECT name FROM resources WHERE id = $1 AND deleted_at IS NULL',
+                [validated.account_manager_id]
+            );
+            if (amResult.rows.length === 0) {
+                return validationError([{ field: 'account_manager_id', message: 'Account manager not found' }]);
+            }
+            accountManagerName = amResult.rows[0].name;
+        }
+
         const query = `
             INSERT INTO projects (
                 project_name, project_code, client_id, project_type, account_type,
-                billing_status, is_billable, status, team_size, account_manager,
-                account_reg_sales_owner, budget, start_date, end_date,
+                billing_status, is_billable, status, team_size, account_manager_id,
+                account_manager, account_reg_sales_owner, budget, start_date, end_date,
                 description, created_by
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
             RETURNING *
         `;
 
@@ -249,7 +266,8 @@ export const create = async (event) => {
             isBillable,
             validated.status || 'Active',
             validated.team_size || 1,
-            validated.account_manager,
+            validated.account_manager_id || null,
+            accountManagerName,
             validated.account_reg_sales_owner || null,
             validated.budget || null,
             validated.start_date || null,
@@ -318,13 +336,29 @@ export const update = async (event) => {
             return conflict('Project has been modified by another user. Please refresh and try again.');
         }
 
+        // Fetch account manager name if ID is being updated
+        if (updateData.account_manager_id !== undefined) {
+            if (updateData.account_manager_id) {
+                const amResult = await db.query(
+                    'SELECT name FROM resources WHERE id = $1 AND deleted_at IS NULL',
+                    [updateData.account_manager_id]
+                );
+                if (amResult.rows.length === 0) {
+                    return validationError([{ field: 'account_manager_id', message: 'Account manager not found' }]);
+                }
+                updateData.account_manager = amResult.rows[0].name;
+            } else {
+                updateData.account_manager = null;
+            }
+        }
+
         // Build dynamic update query
-        const { version, ...updateData } = validated;
+        const { version, ...updateDataFiltered } = validated;
         const updates = [];
         const params = [id];
         let paramIndex = 2;
 
-        // No field mapping needed - API field names match DB column names
+        // Process updateData (which may include account_manager from above)
         for (const [key, value] of Object.entries(updateData)) {
             if (value !== undefined) {
                 // Handle billing_type -> also update is_billable

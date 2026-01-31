@@ -1409,6 +1409,42 @@ const migrations = [
 
             logger.info('Migration 022 completed: future_allocations created_by constraint removed and columns fixed');
         }
+    },
+    {
+        id: '023',
+        name: 'Update resource total_allocation and total_billing for all resources',
+        up: async (client) => {
+            logger.info('Running migration 023: Update resource totals');
+
+            // Update all resources' total_allocation and total_billing based on active allocations
+            await client.query(`
+                UPDATE resources r
+                SET 
+                    total_allocation = COALESCE((
+                        SELECT SUM(a.allocation_percentage)
+                        FROM allocations a
+                        JOIN projects p ON a.project_id = p.id
+                        WHERE a.resource_id = r.id
+                        AND a.is_active = true
+                        AND a.deleted_at IS NULL
+                        AND p.is_bench_project = false
+                    ), 0),
+                    total_billing = COALESCE((
+                        SELECT SUM(a.billing_percentage)
+                        FROM allocations a
+                        JOIN projects p ON a.project_id = p.id
+                        WHERE a.resource_id = r.id
+                        AND a.is_active = true
+                        AND a.deleted_at IS NULL
+                        AND p.billing_status = 'Billing'
+                        AND p.is_bench_project = false
+                    ), 0),
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE deleted_at IS NULL
+            `);
+
+            logger.info('Migration 023 completed: All resource totals updated');
+        }
     }
 ];
 

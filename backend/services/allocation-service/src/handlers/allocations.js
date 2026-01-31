@@ -50,6 +50,61 @@ const ALLOCATION_CONFIG = {
 let BENCH_PROJECT_ID = null;
 
 /**
+ * Update total_allocation and total_billing for a resource
+ * Called after allocation changes to keep resource totals in sync
+ */
+const updateResourceTotals = async (resourceId, log) => {
+    try {
+        const totalsQuery = `
+            UPDATE resources
+            SET 
+                total_allocation = (
+                    SELECT COALESCE(SUM(a.allocation_percentage), 0)
+                    FROM allocations a
+                    JOIN projects p ON a.project_id = p.id
+                    WHERE a.resource_id = $1
+                    AND a.is_active = true
+                    AND a.deleted_at IS NULL
+                    AND p.is_bench_project = false
+                ),
+                total_billing = (
+                    SELECT COALESCE(SUM(a.billing_percentage), 0)
+                    FROM allocations a
+                    JOIN projects p ON a.project_id = p.id
+                    WHERE a.resource_id = $1
+                    AND a.is_active = true
+                    AND a.deleted_at IS NULL
+                    AND p.billing_status = 'Billing'
+                    AND p.is_bench_project = false
+                ),
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = $1
+            RETURNING total_allocation, total_billing
+        `;
+
+        const result = await db.query(totalsQuery, [resourceId]);
+
+        if (result.rows.length > 0) {
+            log.info('Updated resource totals', {
+                resourceId,
+                totalAllocation: result.rows[0].total_allocation,
+                totalBilling: result.rows[0].total_billing
+            });
+        }
+
+        return result.rows[0];
+    } catch (err) {
+        log.error('Failed to update resource totals', {
+            resourceId,
+            error: err.message
+        });
+        // Don't throw - this is a background operation
+        return null;
+    }
+};
+
+
+/**
  * Get the Bench project ID (from database by is_bench_project flag)
  */
 const getBenchProjectId = async () => {
@@ -958,6 +1013,9 @@ export const create = async (event) => {
 
         log.info('Allocation created', { id: allocation.id, warning: validationResult.warning });
 
+        // Update resource total_allocation and total_billing
+        await updateResourceTotals(validated.resource_id, log);
+
         // Build response with optional warning and severity information
         const response = {
             ...allocation,
@@ -1255,6 +1313,9 @@ export const update = async (event) => {
 
         log.info('Allocation updated', { id, warning: validationResult?.warning });
 
+        // Update resource total_allocation and total_billing
+        await updateResourceTotals(existing.resource_id, log);
+
         // Build response with optional warning and severity information
         const response = {
             ...allocation,
@@ -1358,6 +1419,9 @@ export const remove = async (event) => {
         );
 
         log.info('Allocation deleted', { id, benchAdjustment });
+
+        // Update resource total_allocation and total_billing
+        await updateResourceTotals(existing.resource_id, log);
 
         return success({
             message: 'Allocation deleted successfully',
