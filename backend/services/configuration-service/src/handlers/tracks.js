@@ -71,9 +71,19 @@ export const create = async (event) => {
 
         log.info('Creating track', { name: validated.name });
 
+        // Check if a default track with this name already exists (case-insensitive)
+        const existingCheck = await db.query(
+            'SELECT id, name FROM tracks WHERE LOWER(name) = LOWER($1) AND is_default = true',
+            [validated.name]
+        );
+
+        if (existingCheck.rows.length > 0) {
+            return error(`A default track with this name already exists: ${existingCheck.rows[0].name}`, null, 409);
+        }
+
         const query = `
-            INSERT INTO tracks (name, description, is_active)
-            VALUES ($1, $2, $3)
+            INSERT INTO tracks (name, description, is_active, is_default)
+            VALUES ($1, $2, $3, false)
             RETURNING *
         `;
 
@@ -134,6 +144,11 @@ export const update = async (event) => {
             return notFound('Track not found');
         }
         const existing = existingResult.rows[0];
+
+        // Prevent editing default tracks
+        if (existing.is_default === true) {
+            return error('Cannot edit default track', null, 403);
+        }
 
         // Build dynamic update
         const { name, description, is_active } = validated;
@@ -213,6 +228,11 @@ export const remove = async (event) => {
             return notFound('Track not found');
         }
         const existing = existingResult.rows[0];
+
+        // Prevent deleting default tracks
+        if (existing.is_default === true) {
+            return error('Cannot delete default track', null, 403);
+        }
 
         // Check if track is being used by any resources
         const usageCheck = await db.query(

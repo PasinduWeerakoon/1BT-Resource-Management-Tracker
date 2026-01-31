@@ -309,3 +309,4 @@ functions:
           method: DELETE
           authorizer: ${self:custom.authorizer}
 
+

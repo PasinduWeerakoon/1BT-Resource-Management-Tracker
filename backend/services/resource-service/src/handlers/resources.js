@@ -1227,8 +1227,8 @@ export const updateTechStack = async (event) => {
         const body = JSON.parse(event.body || '{}');
         const { tech_stack } = body;
 
-        if (!tech_stack || typeof tech_stack !== 'string') {
-            return validationError('Tech stack is required and must be a string');
+        if (tech_stack !== null && tech_stack !== undefined && typeof tech_stack !== 'string') {
+            return validationError('Tech stack must be a string or null');
         }
 
         log.info('Updating resource tech stack', { id, tech_stack });
@@ -1251,7 +1251,7 @@ export const updateTechStack = async (event) => {
             RETURNING id, name, tech_stack
         `;
 
-        const result = await db.query(updateQuery, [tech_stack, id]);
+        const result = await db.query(updateQuery, [tech_stack || null, id]);
 
         log.info('Resource tech stack updated', { id, tech_stack });
 

@@ -26,6 +26,27 @@ const Resources = () => {
   const [designations, setDesignations] = useState([]);
   const [tracks, setTracks] = useState([]);
   const [tags, setTags] = useState([]);
+  // Hardcoded tech stack list
+  const techStacks = [
+    '.NET',
+    'Full Stack',
+    'BA/PM',
+    'QA',
+    'Data Science',
+    'Dynamics',
+    'Java',
+    'React',
+    'Angular',
+    'Vue.js',
+    'Python',
+    'Node.js',
+    'DevOps',
+    'UI/UX',
+    'Mobile',
+    'Business Central',
+    'F&O',
+    'Power Platform',
+  ];
   const [pagination, setPagination] = useState({
     current: 1,
     pageSize: 20,
@@ -397,7 +418,7 @@ const Resources = () => {
           address: employee.address,
           is_intern: employee.is_intern !== undefined ? employee.is_intern : (employee.intern_classification !== null ? employee.intern_classification : false),
           intern_classification: employee.intern_classification,
-          tech_stack: employee.tech_stack, // Keep API field name
+          tech_stack: employee.tech_stack || employee.tech_stack_name, // Keep tech_stack as string
           skills: employee.skills || [],
           employee_type: employee.employee_type || 'Internal',
           is_account_manager: employee.is_account_manager || false,
@@ -602,7 +623,7 @@ const Resources = () => {
   const handleUpdateTechStack = async (record, newTechStack) => {
     try {
       setUpdatingTechStack(prev => ({ ...prev, [record.id]: true }));
-      const response = await resourcesService.updateTechStack(record.id, { tech_stack: newTechStack });
+      const response = await resourcesService.updateTechStack(record.id, { tech_stack: newTechStack || null });
       if (response && (response.success !== false || response.data)) {
         message.success('Resource tech stack updated successfully');
         await fetchEmployees(pagination.current, pagination.pageSize);
@@ -655,14 +676,16 @@ const Resources = () => {
                   Modal.destroyAll();
                 }
               }}
+              showSearch
+              filterOption={(input, option) =>
+                (option?.children ?? '').toLowerCase().includes(input.toLowerCase())
+              }
             >
-              <Option value=".NET">.NET</Option>
-              <Option value="Full Stack">Full Stack</Option>
-              <Option value="QA">QA</Option>
-              <Option value="BA/PM">BA/PM</Option>
-              <Option value="Data Science">Data Science</Option>
-              <Option value="Java">Java</Option>
-              <Option value="React">React</Option>
+              {techStacks.map((techStack) => (
+                <Option key={techStack} value={techStack}>
+                  {techStack}
+                </Option>
+              ))}
             </Select>
           </div>
         </div>
@@ -1217,14 +1240,19 @@ const Resources = () => {
                 label="Tech Stack"
                 name="tech_stack"
               >
-                <Select placeholder="Select tech stack" allowClear>
-                  <Option value=".NET">.NET</Option>
-                  <Option value="Full Stack">Full Stack</Option>
-                  <Option value="QA">QA</Option>
-                  <Option value="BA/PM">BA/PM</Option>
-                  <Option value="Data Science">Data Science</Option>
-                  <Option value="Java">Java</Option>
-                  <Option value="React">React</Option>
+                <Select 
+                  placeholder="Select tech stack" 
+                  allowClear
+                  showSearch
+                  filterOption={(input, option) =>
+                    (option?.children ?? '').toLowerCase().includes(input.toLowerCase())
+                  }
+                >
+                  {techStacks.map((techStack) => (
+                    <Option key={techStack} value={techStack}>
+                      {techStack}
+                    </Option>
+                  ))}
                 </Select>
               </Form.Item>
             </Col>

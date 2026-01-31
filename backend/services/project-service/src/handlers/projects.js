@@ -140,13 +140,15 @@ export const list = async (event) => {
         const countResult = await db.query(countQuery, params);
         const total = parseInt(countResult.rows[0].total);
 
-        // Get paginated results with client join
+        // Get paginated results with client join and account manager join
         const dataQuery = `
             SELECT 
                 p.*,
-                c.client_name
+                c.client_name,
+                am.name as account_manager_name
             FROM projects p
             LEFT JOIN clients c ON p.client_id = c.id
+            LEFT JOIN resources am ON p.account_manager_id = am.id
             ${whereClause}
             ORDER BY p.project_name ASC
             LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
@@ -154,9 +156,15 @@ export const list = async (event) => {
         params.push(parseInt(limit), offset);
 
         const result = await db.query(dataQuery, params);
+        
+        // Merge account_manager_name into account_manager if account_manager is null
+        const processedRows = result.rows.map(row => ({
+            ...row,
+            account_manager: row.account_manager || row.account_manager_name || null
+        }));
 
         return success({
-            data: result.rows,
+            data: processedRows,
             pagination: {
                 page: parseInt(page),
                 limit: parseInt(limit),
@@ -184,9 +192,11 @@ export const getById = async (event) => {
         const query = `
             SELECT 
                 p.*,
-                c.client_name
+                c.client_name,
+                am.name as account_manager_name
             FROM projects p
             LEFT JOIN clients c ON p.client_id = c.id
+            LEFT JOIN resources am ON p.account_manager_id = am.id
             WHERE p.id = $1 AND p.deleted_at IS NULL
         `;
 
@@ -196,7 +206,11 @@ export const getById = async (event) => {
             return notFound('Project not found');
         }
 
-        return success(result.rows[0]);
+        const project = result.rows[0];
+        // Use account_manager_name if account_manager is null
+        project.account_manager = project.account_manager || project.account_manager_name || null;
+
+        return success(project);
 
     } catch (err) {
         log.error('Failed to get project', { id, error: err.message });
@@ -232,10 +246,10 @@ export const create = async (event) => {
             INSERT INTO projects (
                 project_name, project_code, client_id, project_type, account_type,
                 billing_status, is_billable, status, team_size, account_manager,
-                account_reg_sales_owner, budget, start_date, end_date,
+                account_manager_id, account_reg_sales_owner, budget, start_date, end_date,
                 description, created_by
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
             RETURNING *
         `;
 
@@ -249,7 +263,8 @@ export const create = async (event) => {
             isBillable,
             validated.status || 'Active',
             validated.team_size || 1,
-            validated.account_manager,
+            validated.account_manager || null,
+            validated.account_manager_id,
             validated.account_reg_sales_owner || null,
             validated.budget || null,
             validated.start_date || null,
