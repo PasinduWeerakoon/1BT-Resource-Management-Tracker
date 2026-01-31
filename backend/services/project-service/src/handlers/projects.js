@@ -135,17 +135,13 @@ export const list = async (event) => {
             paramIndex++;
         }
 
-        // Get total count
-        const countQuery = `SELECT COUNT(*) as total FROM projects p ${whereClause}`;
-        const countResult = await db.query(countQuery, params);
-        const total = parseInt(countResult.rows[0].total);
-
-        // Get paginated results with client join and account manager name
+        // Combined query with window function for count (single round-trip to DB)
         const dataQuery = `
             SELECT 
                 p.*,
                 c.client_name,
-                r.name as account_manager_name
+                r.name as account_manager_name,
+                COUNT(*) OVER() as total_count
             FROM projects p
             LEFT JOIN clients c ON p.client_id = c.id
             LEFT JOIN resources r ON p.account_manager_id = r.id AND r.deleted_at IS NULL
@@ -157,8 +153,14 @@ export const list = async (event) => {
 
         const result = await db.query(dataQuery, params);
 
+        // Extract total from first row (or 0 if no results)
+        const total = result.rows.length > 0 ? parseInt(result.rows[0].total_count) : 0;
+
+        // Remove total_count from each row before returning
+        const data = result.rows.map(({ total_count, ...row }) => row);
+
         return success({
-            data: result.rows,
+            data,
             pagination: {
                 page: parseInt(page),
                 limit: parseInt(limit),

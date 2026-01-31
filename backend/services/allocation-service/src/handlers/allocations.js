@@ -592,19 +592,15 @@ export const list = async (event) => {
             paramIndex++;
         }
 
-        // Get total count
-        const countQuery = `SELECT COUNT(*) as total FROM allocations a ${whereClause}`;
-        const countResult = await db.query(countQuery, params);
-        const total = parseInt(countResult.rows[0].total);
-
-        // Get paginated results with joins
+        // Optimized: Combined query using window function for count (single round-trip)
         const dataQuery = `
             SELECT 
                 a.*,
                 r.name as resource_name,
                 r.email as resource_email,
                 p.project_name,
-                c.client_name
+                c.client_name,
+                COUNT(*) OVER() as total_count
             FROM allocations a
             LEFT JOIN resources r ON a.resource_id = r.id
             LEFT JOIN projects p ON a.project_id = p.id
@@ -617,8 +613,14 @@ export const list = async (event) => {
 
         const result = await db.query(dataQuery, params);
 
+        // Extract total from first row (or 0 if no results)
+        const total = result.rows.length > 0 ? parseInt(result.rows[0].total_count) : 0;
+
+        // Remove total_count from each row
+        const data = result.rows.map(({ total_count, ...row }) => row);
+
         return success({
-            data: result.rows,
+            data,
             pagination: {
                 page: parseInt(page),
                 limit: parseInt(limit),

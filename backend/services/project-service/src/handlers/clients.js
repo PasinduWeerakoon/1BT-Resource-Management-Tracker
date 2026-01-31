@@ -41,14 +41,10 @@ export const list = async (event) => {
             paramIndex++;
         }
 
-        // Get total count
-        const countQuery = `SELECT COUNT(*) as total FROM clients ${whereClause}`;
-        const countResult = await db.query(countQuery, params);
-        const total = parseInt(countResult.rows[0].total);
-
-        // Get paginated results
+        // Optimized: Combined query using window function for count (single round-trip)
         const dataQuery = `
-            SELECT * FROM clients
+            SELECT *, COUNT(*) OVER() as total_count 
+            FROM clients
             ${whereClause}
             ORDER BY client_name ASC
             LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
@@ -57,8 +53,14 @@ export const list = async (event) => {
 
         const result = await db.query(dataQuery, params);
 
+        // Extract total from first row (or 0 if no results)
+        const total = result.rows.length > 0 ? parseInt(result.rows[0].total_count) : 0;
+
+        // Remove total_count from each row
+        const data = result.rows.map(({ total_count, ...row }) => row);
+
         return success({
-            data: result.rows,
+            data,
             pagination: {
                 page: parseInt(page),
                 limit: parseInt(limit),
