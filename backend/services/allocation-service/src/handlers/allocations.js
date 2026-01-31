@@ -2,6 +2,11 @@
  * Allocations Handler
  * Lambda handlers for resource allocation management
  * 
+ * 3-Table Temporal Architecture:
+ * - Future allocations (effective_date > TODAY) go to future_allocations table
+ * - Current/backdated allocations go directly to allocations table
+ * - Ended allocations are archived to allocation_history_archive table by scheduler
+ * 
  * Bench Auto-Allocation System:
  * - New resources are automatically allocated 100% to Bench
  * - When allocating to other projects, Bench allocation is automatically reduced
@@ -13,6 +18,7 @@ import logger from '/opt/nodejs/logger/index.js';
 import { success, error, notFound, validationError, conflict, badRequest } from '/opt/nodejs/utils/response.js';
 import { validate, allocationSchemas } from '/opt/nodejs/validation/index.js';
 import audit from '/opt/nodejs/lib/audit/index.js';
+import futureAllocationService from '../services/futureAllocationService.js';
 
 const SERVICE_NAME = 'allocation-service';
 
@@ -79,10 +85,10 @@ const getBenchProjectId = async () => {
 /**
  * Calculate total allocation for a resource (excluding bench)
  */
-const calculateNonBenchTotal = async (resourceId, excludeAllocationId, startDate, endDate) => {
+const calculateNonBenchTotal = async (resourceId, excludeAllocationId, allocatedDate, deallocatedDate) => {
     const benchProjectId = await getBenchProjectId();
-    const startDateStr = startDate instanceof Date ? startDate.toISOString().split('T')[0] : startDate;
-    const endDateStr = endDate instanceof Date ? endDate.toISOString().split('T')[0] : endDate;
+    const allocatedDateStr = allocatedDate instanceof Date ? allocatedDate.toISOString().split('T')[0] : allocatedDate;
+    const deallocatedDateStr = deallocatedDate instanceof Date ? deallocatedDate.toISOString().split('T')[0] : deallocatedDate;
 
     let query = `
         SELECT COALESCE(SUM(allocation_percentage), 0) as total
@@ -90,10 +96,10 @@ const calculateNonBenchTotal = async (resourceId, excludeAllocationId, startDate
         WHERE resource_id = $1
         AND project_id != $2
         AND is_active = true
-        AND (end_date IS NULL OR end_date >= $3::date)
-        AND start_date <= COALESCE($4::date, '9999-12-31'::date)
+        AND (deallocated_date IS NULL OR deallocated_date >= $3::date)
+        AND allocated_date <= COALESCE($4::date, '9999-12-31'::date)
     `;
-    const params = [resourceId, benchProjectId, startDateStr, endDateStr];
+    const params = [resourceId, benchProjectId, allocatedDateStr, deallocatedDateStr];
 
     if (excludeAllocationId) {
         query += ` AND id != $5`;
@@ -125,22 +131,22 @@ const getBenchAllocation = async (resourceId) => {
  * Enhancement 3.5: Check for overlapping date ranges with existing allocations
  * Returns conflicting allocation if found, null otherwise
  */
-const checkOverlappingAllocation = async (resourceId, projectId, startDate, endDate, excludeAllocationId = null) => {
-    const startDateStr = startDate instanceof Date ? startDate.toISOString().split('T')[0] : startDate;
-    const endDateStr = endDate instanceof Date ? endDate.toISOString().split('T')[0] : endDate;
+const checkOverlappingAllocation = async (resourceId, projectId, allocatedDate, deallocatedDate, excludeAllocationId = null) => {
+    const allocatedDateStr = allocatedDate instanceof Date ? allocatedDate.toISOString().split('T')[0] : allocatedDate;
+    const deallocatedDateStr = deallocatedDate instanceof Date ? deallocatedDate.toISOString().split('T')[0] : deallocatedDate;
 
     // Two date ranges overlap if:
     // (start1 <= end2 OR end2 IS NULL) AND (start2 <= end1 OR end1 IS NULL)
     let query = `
-        SELECT id, start_date, end_date, allocation_percentage
+        SELECT id, allocated_date, deallocated_date, allocation_percentage
         FROM allocations
         WHERE resource_id = $1
         AND project_id = $2
         AND is_active = true
-        AND (start_date <= COALESCE($4::date, '9999-12-31'))
-        AND (COALESCE(end_date, '9999-12-31') >= $3::date)
+        AND (allocated_date <= COALESCE($4::date, '9999-12-31'))
+        AND (COALESCE(deallocated_date, '9999-12-31') >= $3::date)
     `;
-    const params = [resourceId, projectId, startDateStr, endDateStr];
+    const params = [resourceId, projectId, allocatedDateStr, deallocatedDateStr];
 
     if (excludeAllocationId) {
         query += ` AND id != $5`;
@@ -161,7 +167,7 @@ const isShortStayBench = async (resourceId, log) => {
 
     // Get the current bench allocation
     const benchResult = await db.query(`
-        SELECT id, created_at, start_date
+        SELECT id, created_at, allocated_date
         FROM allocations
         WHERE resource_id = $1
         AND project_id = $2
@@ -274,8 +280,8 @@ const adjustBenchAllocation = async (resourceId, userId, log) => {
         // Create bench allocation if it doesn't exist and should have a value
         // Bench allocations have 0% billing
         await db.query(`
-            INSERT INTO allocations (resource_id, project_id, allocation_percentage, billing_percentage, start_date, is_active, notes, created_by)
-            VALUES ($1, $2, $3, 0, CURRENT_DATE, true, 'Auto-created bench allocation', $4)
+            INSERT INTO allocations (resource_id, project_id, allocation_percentage, billing_percentage, allocated_date, is_active, notes, created_by, change_type)
+            VALUES ($1, $2, $3, 0, CURRENT_DATE, true, 'Auto-created bench allocation', $4, 'NEW_ALLOCATION')
         `, [resourceId, benchProjectId, newBenchPercentage, userId || '00000000-0000-0000-0000-000000000000']);
         log.info('Bench allocation created', { resourceId, percentage: newBenchPercentage });
     }
@@ -307,9 +313,9 @@ const calculateOverallocationSeverity = (totalAllocation) => {
  * Enhancement 3.2: Now includes severity levels and required fields
  * Returns { valid: true, warning?: string, ... } instead of blocking
  */
-const validateAllocation = async (resourceId, newPercentage, excludeAllocationId, startDate, endDate) => {
-    const startDateStr = startDate instanceof Date ? startDate.toISOString().split('T')[0] : startDate;
-    const endDateStr = endDate instanceof Date ? endDate.toISOString().split('T')[0] : endDate;
+const validateAllocation = async (resourceId, newPercentage, excludeAllocationId, allocatedDate, deallocatedDate) => {
+    const allocatedDateStr = allocatedDate instanceof Date ? allocatedDate.toISOString().split('T')[0] : allocatedDate;
+    const deallocatedDateStr = deallocatedDate instanceof Date ? deallocatedDate.toISOString().split('T')[0] : deallocatedDate;
     const benchProjectId = await getBenchProjectId();
 
     // Calculate total excluding bench and current allocation
@@ -319,10 +325,10 @@ const validateAllocation = async (resourceId, newPercentage, excludeAllocationId
         WHERE resource_id = $1
         AND project_id != $2
         AND is_active = true
-        AND (end_date IS NULL OR end_date >= $3::date)
-        AND start_date <= COALESCE($4::date, '9999-12-31'::date)
+        AND (deallocated_date IS NULL OR deallocated_date >= $3::date)
+        AND allocated_date <= COALESCE($4::date, '9999-12-31'::date)
     `;
-    const params = [resourceId, benchProjectId, startDateStr, endDateStr];
+    const params = [resourceId, benchProjectId, allocatedDateStr, deallocatedDateStr];
 
     if (excludeAllocationId) {
         query += ` AND id != $5`;
@@ -490,7 +496,7 @@ const logAllocationHistory = async (allocation, changeType, userId) => {
         allocation.id,
         changeType,
         userId || '00000000-0000-0000-0000-000000000000',
-        JSON.stringify(['allocation_percentage', 'start_date', 'end_date']),
+        JSON.stringify(['allocation_percentage', 'allocated_date', 'deallocated_date']),
         JSON.stringify(allocation)
     ]);
 };
@@ -549,7 +555,7 @@ export const list = async (event) => {
             LEFT JOIN projects p ON a.project_id = p.id
             LEFT JOIN clients c ON p.client_id = c.id
             ${whereClause}
-            ORDER BY a.start_date DESC
+            ORDER BY a.allocated_date DESC
             LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
         `;
         params.push(parseInt(limit), offset);
@@ -608,6 +614,34 @@ export const getById = async (event) => {
         log.error('Failed to get allocation', { id, error: err.message });
         return error('Failed to get allocation', err);
     }
+};
+
+/**
+ * 3-Table Architecture: Determine routing based on effective_date
+ * - If effective_date > TODAY: Route to future_allocations table
+ * - If effective_date <= TODAY: Route directly to allocations table
+ * 
+ * @param {string|Date} effectiveDate - The effective/start date of the allocation
+ * @returns {Object} { isFuture: boolean, todayStr: string, effectiveDateStr: string }
+ */
+const determineAllocationRouting = (effectiveDate) => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayStr = today.toISOString().split('T')[0];
+
+    const effectiveDateObj = effectiveDate instanceof Date
+        ? effectiveDate
+        : new Date(effectiveDate);
+    effectiveDateObj.setHours(0, 0, 0, 0);
+    const effectiveDateStr = effectiveDateObj.toISOString().split('T')[0];
+
+    const isFuture = effectiveDateObj > today;
+
+    return {
+        isFuture,
+        todayStr,
+        effectiveDateStr
+    };
 };
 
 /**
@@ -676,8 +710,8 @@ export const create = async (event) => {
                 return conflict('Conflicting allocation exists for this resource and project with overlapping dates', {
                     existingAllocationId: overlappingAllocation.id,
                     existingDateRange: {
-                        start: overlappingAllocation.start_date,
-                        end: overlappingAllocation.end_date
+                        start: overlappingAllocation.allocated_date,
+                        end: overlappingAllocation.deallocated_date
                     },
                     requestedDateRange: {
                         start: validated.start_date,
@@ -753,20 +787,104 @@ export const create = async (event) => {
         const projectBillingStatus = projectResult.rows.length > 0 ? projectResult.rows[0].billing_status : null;
         const durationValidation = validateAllocationDuration(validated.start_date, validated.end_date, projectBillingStatus);
 
+        // =================================================================
+        // 3-TABLE TEMPORAL ARCHITECTURE: Route based on effective_date
+        // =================================================================
+        // Use effective_date if provided, otherwise fall back to start_date
+        const effectiveDate = validated.effective_date || validated.start_date;
+        const { isFuture, todayStr, effectiveDateStr } = determineAllocationRouting(effectiveDate);
+
+        // If effective_date is in the FUTURE, route to future_allocations table
+        if (isFuture && !isBenchAllocation) {
+            log.info('Routing to future_allocations table (effective_date > today)', {
+                resource_id: validated.resource_id,
+                project_id: validated.project_id,
+                effective_date: effectiveDateStr,
+                today: todayStr
+            });
+
+            try {
+                // Check for conflicting future allocations for same resource+project
+                const existingFuture = await futureAllocationService.checkConflictingFuture(
+                    validated.resource_id,
+                    validated.project_id,
+                    effectiveDateStr
+                );
+
+                if (existingFuture) {
+                    return conflict('A scheduled allocation already exists for this resource and project on the same effective date', {
+                        existingFutureAllocationId: existingFuture.id,
+                        existingEffectiveDate: existingFuture.effective_date,
+                        existingChangeType: existingFuture.change_type
+                    });
+                }
+
+                // Create future allocation record
+                const futureAllocation = await futureAllocationService.createFutureAllocation({
+                    resourceId: validated.resource_id,
+                    projectId: validated.project_id,
+                    effectiveDate: effectiveDateStr,
+                    changeType: 'NEW_ALLOCATION',
+                    newAllocationPercentage: validated.allocation_percentage,
+                    newBillingPercentage: validated.billing_percentage ?? 100,
+                    notes: validated.notes,
+                    createdBy: userId || '00000000-0000-0000-0000-000000000000'
+                });
+
+                // Send audit event for future allocation creation
+                await audit.create(
+                    event,
+                    'future_allocation',
+                    futureAllocation.id,
+                    `Scheduled: ${validated.resource_id} -> ${validated.project_id} on ${effectiveDateStr}`,
+                    futureAllocation,
+                    SERVICE_NAME,
+                    {
+                        resource_id: validated.resource_id,
+                        project_id: validated.project_id,
+                        effective_date: effectiveDateStr,
+                        change_type: 'NEW_ALLOCATION'
+                    }
+                );
+
+                log.info('Future allocation created', { id: futureAllocation.id, effective_date: effectiveDateStr });
+
+                return success({
+                    ...futureAllocation,
+                    isFutureAllocation: true,
+                    message: `Allocation scheduled for ${effectiveDateStr}. It will be activated automatically on that date.`,
+                    activationInfo: {
+                        scheduledDate: effectiveDateStr,
+                        currentDate: todayStr,
+                        daysUntilActivation: Math.ceil((new Date(effectiveDateStr) - new Date(todayStr)) / (1000 * 60 * 60 * 24))
+                    },
+                    // Include validation warnings if any
+                    warning: validationResult.warning,
+                    capacityWarning: capacityCheck.capacityWarning,
+                    durationWarnings: durationValidation.durationWarnings
+                }, 201);
+
+            } catch (futureErr) {
+                log.error('Failed to create future allocation', { error: futureErr.message });
+                return error('Failed to schedule future allocation: ' + futureErr.message, 500, 'FUTURE_ALLOCATION_ERROR');
+            }
+        }
+        // =================================================================
+        // END 3-TABLE ROUTING - Continue with immediate allocation below
+        // =================================================================
+
         const query = `
             INSERT INTO allocations (
-                resource_id, project_id, allocation_percentage, billing_percentage, start_date, end_date,
-                is_active, notes, created_by
+                resource_id, project_id, allocation_percentage, billing_percentage, allocated_date, deallocated_date,
+                is_active, notes, created_by, change_type
             )
-            VALUES ($1, $2, $3, $4, $5::date, $6::date, $7, $8, $9)
+            VALUES ($1, $2, $3, $4, $5::date, $6::date, $7, $8, $9, $10)
             RETURNING *
         `;
 
-        // Convert dates to ISO strings
-        const startDateStr = validated.start_date instanceof Date
-            ? validated.start_date.toISOString().split('T')[0]
-            : validated.start_date;
-        const endDateStr = validated.end_date
+        // Convert dates to ISO strings (using effective_date for allocated_date)
+        const allocatedDateStr = effectiveDateStr;
+        const deallocatedDateStr = validated.end_date
             ? (validated.end_date instanceof Date
                 ? validated.end_date.toISOString().split('T')[0]
                 : validated.end_date)
@@ -775,16 +893,20 @@ export const create = async (event) => {
         // Bench allocations have 0% billing, default 100% for project allocations
         const billingPercentage = isBenchAllocation ? 0 : (validated.billing_percentage ?? 100);
 
+        // Determine change_type: LEGACY for backdated, NEW_ALLOCATION for same-day
+        const changeType = effectiveDateStr < todayStr ? 'LEGACY' : 'NEW_ALLOCATION';
+
         const params = [
             validated.resource_id,
             validated.project_id,
             validated.allocation_percentage,
             billingPercentage,
-            startDateStr,
-            endDateStr,
+            allocatedDateStr,
+            deallocatedDateStr,
             true, // is_active
             validated.notes || null,
-            userId || '00000000-0000-0000-0000-000000000000'
+            userId || '00000000-0000-0000-0000-000000000000',
+            changeType
         ];
 
         const result = await db.query(query, params);
@@ -953,8 +1075,8 @@ export const update = async (event) => {
             const overlappingAllocation = await checkOverlappingAllocation(
                 existing.resource_id,
                 existing.project_id,
-                validated.start_date || existing.start_date,
-                validated.end_date !== undefined ? validated.end_date : existing.end_date,
+                validated.start_date || existing.allocated_date,
+                validated.end_date !== undefined ? validated.end_date : existing.deallocated_date,
                 id // Exclude current allocation from check
             );
 
@@ -968,12 +1090,12 @@ export const update = async (event) => {
                 return conflict('Conflicting allocation exists for this resource and project with overlapping dates', {
                     existingAllocationId: overlappingAllocation.id,
                     existingDateRange: {
-                        start: overlappingAllocation.start_date,
-                        end: overlappingAllocation.end_date
+                        start: overlappingAllocation.allocated_date,
+                        end: overlappingAllocation.deallocated_date
                     },
                     requestedDateRange: {
-                        start: validated.start_date || existing.start_date,
-                        end: validated.end_date !== undefined ? validated.end_date : existing.end_date
+                        start: validated.start_date || existing.allocated_date,
+                        end: validated.end_date !== undefined ? validated.end_date : existing.deallocated_date
                     }
                 });
             }
@@ -986,8 +1108,8 @@ export const update = async (event) => {
                 existing.resource_id,
                 validated.allocation_percentage,
                 id,
-                validated.start_date || existing.start_date,
-                validated.end_date || existing.end_date
+                validated.start_date || existing.allocated_date,
+                validated.end_date || existing.deallocated_date
             );
 
             // Enhancement 3.2: Block CRITICAL overallocation unless force flag is provided
@@ -1051,13 +1173,13 @@ export const update = async (event) => {
             const projectResult = await db.query('SELECT billing_status FROM projects WHERE id = $1', [existing.project_id]);
             const projectBillingStatus = projectResult.rows.length > 0 ? projectResult.rows[0].billing_status : null;
             durationValidation = validateAllocationDuration(
-                validated.start_date || existing.start_date,
-                validated.end_date !== undefined ? validated.end_date : existing.end_date,
+                validated.start_date || existing.allocated_date,
+                validated.end_date !== undefined ? validated.end_date : existing.deallocated_date,
                 projectBillingStatus
             );
         }
 
-        // Build dynamic update query
+        // Build dynamic update query - map start_date/end_date to allocated_date/deallocated_date
         const { version, ...updateData } = validated;
         const updates = [];
         const params = [id];
@@ -1065,7 +1187,12 @@ export const update = async (event) => {
 
         for (const [key, value] of Object.entries(updateData)) {
             if (value !== undefined) {
-                updates.push(`${key} = $${paramIndex}`);
+                // Map frontend field names to database column names
+                let dbColumn = key;
+                if (key === 'start_date') dbColumn = 'allocated_date';
+                if (key === 'end_date') dbColumn = 'deallocated_date';
+
+                updates.push(`${dbColumn} = $${paramIndex}`);
                 params.push(value);
                 paramIndex++;
             }
@@ -1274,8 +1401,8 @@ export const getResourceUtilization = async (event) => {
             LEFT JOIN projects p ON a.project_id = p.id
             WHERE a.resource_id = $1
             AND a.is_active = true
-            AND (a.end_date IS NULL OR a.end_date >= CURRENT_DATE)
-            AND a.start_date <= CURRENT_DATE
+            AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
+            AND a.allocated_date <= CURRENT_DATE
         `;
 
         const allocationsResult = await db.query(allocationsQuery, [id]);
@@ -1350,8 +1477,8 @@ const detectAndFillGaps = async (resourceId, userId, log) => {
         WHERE resource_id = $1
         AND project_id != $2
         AND is_active = true
-        AND (end_date IS NULL OR end_date >= CURRENT_DATE)
-        AND start_date <= CURRENT_DATE
+        AND (deallocated_date IS NULL OR deallocated_date >= CURRENT_DATE)
+        AND allocated_date <= CURRENT_DATE
     `;
 
     const totalResult = await db.query(totalQuery, [resourceId, benchProjectId]);
@@ -1385,8 +1512,8 @@ const detectAndFillGaps = async (resourceId, userId, log) => {
     } else {
         // Create new Bench allocation
         await db.query(`
-            INSERT INTO allocations (resource_id, project_id, allocation_percentage, billing_percentage, start_date, is_active, notes, created_by)
-            VALUES ($1, $2, $3, 0, CURRENT_DATE, true, 'Auto-created to fill allocation gap', $4)
+            INSERT INTO allocations (resource_id, project_id, allocation_percentage, billing_percentage, allocated_date, is_active, notes, created_by, change_type)
+            VALUES ($1, $2, $3, 0, CURRENT_DATE, true, 'Auto-created to fill allocation gap', $4, 'AUTO_BENCH_ADJUSTMENT')
         `, [resourceId, benchProjectId, gapPercentage, userId || '00000000-0000-0000-0000-000000000000']);
 
         log.info('Created new Bench allocation to fill gap', { resourceId, gapPercentage });
@@ -1469,7 +1596,7 @@ export const billingStatusTransitionJob = async (event) => {
             SELECT a.id, a.resource_id, a.project_id, p.billing_status as project_billing_status
             FROM allocations a
             JOIN projects p ON a.project_id = p.id
-            WHERE a.start_date = CURRENT_DATE
+            WHERE a.allocated_date = CURRENT_DATE
             AND a.is_active = true
             AND p.is_bench_project = false
             AND p.project_type NOT IN ('Bench', 'Training')
@@ -1608,8 +1735,8 @@ export const utilizationSnapshotJob = async (event) => {
                     WHERE a.resource_id = $1
                     AND a.is_active = true
                     AND a.deleted_at IS NULL
-                    AND a.start_date <= $2
-                    AND (a.end_date IS NULL OR a.end_date >= $2)
+                    AND a.allocated_date <= $2
+                    AND (a.deallocated_date IS NULL OR a.deallocated_date >= $2)
                 `;
 
                 const metricsResult = await db.query(metricsQuery, [resource.id, snapshotDateStr]);

@@ -1127,6 +1127,288 @@ const migrations = [
 
             logger.info('Migration 018 completed: employee_type column added to resources');
         }
+    },
+    {
+        id: '019_future_allocations_table',
+        name: 'Create future_allocations Table for 3-Table Architecture',
+        up: async (client) => {
+            // Create future_allocations table for scheduled allocations
+            // Note: Uses billing_percentage (DECIMAL) to match existing allocations table
+            await client.query(`
+                CREATE TABLE IF NOT EXISTS future_allocations (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    resource_id UUID NOT NULL REFERENCES resources(id) ON DELETE RESTRICT,
+                    project_id UUID NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+                    allocation_percentage DECIMAL(5,2) NOT NULL CHECK (allocation_percentage >= 0 AND allocation_percentage <= 100),
+                    billing_percentage DECIMAL(5,2) DEFAULT 100 CHECK (billing_percentage >= 0 AND billing_percentage <= 100),
+                    effective_date DATE NOT NULL,
+                    allocated_date DATE NOT NULL,
+                    deallocated_date DATE,
+                    change_type VARCHAR(50) NOT NULL CHECK (change_type IN ('NEW_ALLOCATION', 'MODIFY_PERCENTAGE', 'MODIFY_BILLING', 'DEALLOCATE', 'AUTO_BENCH_ADJUSTMENT')),
+                    status VARCHAR(20) NOT NULL DEFAULT 'scheduled' CHECK (status IN ('scheduled', 'activated', 'cancelled')),
+                    linked_future_id UUID,
+                    target_allocation_id UUID REFERENCES allocations(id),
+                    notes TEXT,
+                    created_by UUID NOT NULL REFERENCES users(id),
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    CONSTRAINT future_allocations_date_range CHECK (deallocated_date IS NULL OR deallocated_date >= allocated_date)
+                )
+            `);
+
+            // Self-referential FK for linked_future_id
+            await client.query(`
+                ALTER TABLE future_allocations 
+                ADD CONSTRAINT future_allocations_linked_fk 
+                FOREIGN KEY (linked_future_id) REFERENCES future_allocations(id) ON DELETE SET NULL
+            `);
+
+            // Indexes
+            await client.query('CREATE INDEX IF NOT EXISTS idx_future_allocations_resource ON future_allocations(resource_id)');
+            await client.query('CREATE INDEX IF NOT EXISTS idx_future_allocations_project ON future_allocations(project_id)');
+            await client.query('CREATE INDEX IF NOT EXISTS idx_future_allocations_effective_date ON future_allocations(effective_date)');
+            await client.query('CREATE INDEX IF NOT EXISTS idx_future_allocations_status ON future_allocations(status)');
+            await client.query(`CREATE INDEX IF NOT EXISTS idx_future_allocations_scheduler ON future_allocations(effective_date, status) WHERE status = 'scheduled'`);
+            await client.query('CREATE INDEX IF NOT EXISTS idx_future_allocations_resource_date ON future_allocations(resource_id, effective_date)');
+
+            // Trigger for updated_at
+            await client.query(`
+                CREATE TRIGGER future_allocations_updated_at 
+                BEFORE UPDATE ON future_allocations 
+                FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()
+            `);
+
+            logger.info('Migration 019 completed: future_allocations table created');
+        }
+    },
+    {
+        id: '020_modify_allocations_table',
+        name: 'Modify allocations Table for 3-Table Architecture',
+        up: async (client) => {
+            // STEP 1: Drop triggers and functions that reference old column names
+            // This prevents errors when we rename columns
+            await client.query(`DROP TRIGGER IF EXISTS allocations_update_resource_totals ON allocations`);
+
+            // STEP 2: Rename columns
+            // Rename start_date to allocated_date
+            await client.query(`
+                DO $$ BEGIN
+                    ALTER TABLE allocations RENAME COLUMN start_date TO allocated_date;
+                EXCEPTION WHEN undefined_column THEN NULL;
+                END $$;
+            `);
+
+            // Rename end_date to deallocated_date
+            await client.query(`
+                DO $$ BEGIN
+                    ALTER TABLE allocations RENAME COLUMN end_date TO deallocated_date;
+                EXCEPTION WHEN undefined_column THEN NULL;
+                END $$;
+            `);
+
+            // STEP 3: Add new columns
+
+            // Add effective_date column
+            await client.query(`
+                ALTER TABLE allocations 
+                ADD COLUMN IF NOT EXISTS effective_date DATE
+            `);
+
+            // Add allocation_changed_on column
+            await client.query(`
+                ALTER TABLE allocations 
+                ADD COLUMN IF NOT EXISTS allocation_changed_on TIMESTAMPTZ
+            `);
+
+            // Add original_allocated_date column
+            await client.query(`
+                ALTER TABLE allocations 
+                ADD COLUMN IF NOT EXISTS original_allocated_date DATE
+            `);
+
+            // Add change_type column
+            await client.query(`
+                ALTER TABLE allocations 
+                ADD COLUMN IF NOT EXISTS change_type VARCHAR(50)
+            `);
+
+            // Add source_future_id column
+            await client.query(`
+                ALTER TABLE allocations 
+                ADD COLUMN IF NOT EXISTS source_future_id UUID
+            `);
+
+            // Backfill data for existing records
+            await client.query(`
+                UPDATE allocations 
+                SET effective_date = allocated_date 
+                WHERE effective_date IS NULL
+            `);
+
+            await client.query(`
+                UPDATE allocations 
+                SET allocation_changed_on = created_at 
+                WHERE allocation_changed_on IS NULL
+            `);
+
+            await client.query(`
+                UPDATE allocations 
+                SET original_allocated_date = allocated_date 
+                WHERE original_allocated_date IS NULL
+            `);
+
+            await client.query(`
+                UPDATE allocations 
+                SET change_type = 'LEGACY' 
+                WHERE change_type IS NULL
+            `);
+
+            // Add change_type constraint
+            await client.query(`
+                DO $$ BEGIN
+                    ALTER TABLE allocations 
+                    ADD CONSTRAINT allocations_change_type_valid 
+                    CHECK (change_type IN ('NEW_ALLOCATION', 'MODIFY_PERCENTAGE', 'MODIFY_BILLING', 'DEALLOCATE', 'AUTO_BENCH_ADJUSTMENT', 'LEGACY'));
+                EXCEPTION WHEN duplicate_object THEN NULL;
+                END $$;
+            `);
+
+            // Add new indexes
+            await client.query('CREATE INDEX IF NOT EXISTS idx_allocations_effective_date ON allocations(effective_date)');
+            await client.query('CREATE INDEX IF NOT EXISTS idx_allocations_changed_on ON allocations(allocation_changed_on)');
+            await client.query('CREATE INDEX IF NOT EXISTS idx_allocations_resource_effective ON allocations(resource_id, effective_date)');
+
+            // STEP 4: Update the existing function to use new column names
+            await client.query(`
+                CREATE OR REPLACE FUNCTION update_resource_allocation_totals(p_resource_id UUID)
+                RETURNS void AS $$
+                BEGIN
+                    UPDATE resources
+                    SET 
+                        total_allocation = COALESCE((
+                            SELECT SUM(a.allocation_percentage)
+                            FROM allocations a
+                            JOIN projects p ON a.project_id = p.id
+                            WHERE a.resource_id = p_resource_id
+                                AND a.is_active = true
+                                AND p.is_bench_project = false
+                                AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
+                                AND a.allocated_date <= CURRENT_DATE
+                        ), 0),
+                        total_billing = COALESCE((
+                            SELECT SUM(a.billing_percentage)
+                            FROM allocations a
+                            JOIN projects p ON a.project_id = p.id
+                            WHERE a.resource_id = p_resource_id
+                                AND a.is_active = true
+                                AND p.is_bench_project = false
+                                AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
+                                AND a.allocated_date <= CURRENT_DATE
+                        ), 0),
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = p_resource_id;
+                END;
+                $$ LANGUAGE plpgsql;
+            `);
+
+            // STEP 5: Recreate the trigger
+            await client.query(`
+                CREATE TRIGGER allocations_update_resource_totals
+                AFTER INSERT OR UPDATE OR DELETE ON allocations
+                FOR EACH ROW
+                EXECUTE FUNCTION trigger_update_resource_totals();
+            `);
+
+            logger.info('Migration 020 completed: allocations table modified for 3-table architecture');
+        }
+    },
+    {
+        id: '021_allocation_history_archive_table',
+        name: 'Create allocation_history_archive Table for 3-Table Architecture',
+        up: async (client) => {
+            // Create allocation_history_archive table for archived allocations
+            await client.query(`
+                CREATE TABLE IF NOT EXISTS allocation_history_archive (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    original_allocation_id UUID NOT NULL,
+                    resource_id UUID NOT NULL REFERENCES resources(id) ON DELETE RESTRICT,
+                    project_id UUID NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+                    allocation_percentage DECIMAL(5,2) NOT NULL,
+                    billing_percentage DECIMAL(5,2),
+                    effective_date DATE,
+                    allocated_date DATE NOT NULL,
+                    deallocated_date DATE,
+                    original_allocated_date DATE,
+                    change_type VARCHAR(50),
+                    notes TEXT,
+                    is_active BOOLEAN,
+                    original_created_by UUID REFERENCES users(id),
+                    original_created_at TIMESTAMPTZ,
+                    original_updated_at TIMESTAMPTZ,
+                    archived_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    archive_reason VARCHAR(50) NOT NULL CHECK (archive_reason IN ('ALLOCATION_ENDED', 'DEALLOCATED', 'RESOURCE_TERMINATED', 'PROJECT_CLOSED', 'MANUAL_ARCHIVE')),
+                    archived_by UUID REFERENCES users(id)
+                )
+            `);
+
+            // Indexes
+            await client.query('CREATE INDEX IF NOT EXISTS idx_allocation_history_archive_resource ON allocation_history_archive(resource_id)');
+            await client.query('CREATE INDEX IF NOT EXISTS idx_allocation_history_archive_project ON allocation_history_archive(project_id)');
+            await client.query('CREATE INDEX IF NOT EXISTS idx_allocation_history_archive_archived_at ON allocation_history_archive(archived_at)');
+            await client.query('CREATE INDEX IF NOT EXISTS idx_allocation_history_archive_original_id ON allocation_history_archive(original_allocation_id)');
+            await client.query('CREATE INDEX IF NOT EXISTS idx_allocation_history_archive_resource_dates ON allocation_history_archive(resource_id, allocated_date, deallocated_date)');
+
+            logger.info('Migration 021 completed: allocation_history_archive table created');
+        }
+    },
+    {
+        id: '022_fix_future_allocations_created_by',
+        name: 'Fix future_allocations created_by constraint and column mismatches',
+        up: async (client) => {
+            // Drop the foreign key constraint on created_by (Cognito IDs don't match users table)
+            await client.query(`
+                ALTER TABLE future_allocations 
+                DROP CONSTRAINT IF EXISTS future_allocations_created_by_fkey
+            `);
+
+            // Check if billing_status column exists and needs to be replaced with billing_percentage
+            const columnCheck = await client.query(`
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name='future_allocations' 
+                AND column_name IN ('billing_status', 'is_billable', 'billing_percentage')
+            `);
+
+            const existingColumns = columnCheck.rows.map(r => r.column_name);
+
+            // Drop billing_status if exists
+            if (existingColumns.includes('billing_status')) {
+                await client.query('ALTER TABLE future_allocations DROP COLUMN billing_status');
+            }
+
+            // Drop is_billable if exists
+            if (existingColumns.includes('is_billable')) {
+                await client.query('ALTER TABLE future_allocations DROP COLUMN is_billable');
+            }
+
+            // Add billing_percentage if not exists
+            if (!existingColumns.includes('billing_percentage')) {
+                await client.query('ALTER TABLE future_allocations ADD COLUMN billing_percentage INTEGER NOT NULL DEFAULT 100');
+            }
+
+            // Add constraint for billing_percentage range
+            await client.query(`
+                DO $$ 
+                BEGIN
+                    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'future_allocations_billing_range') THEN
+                        ALTER TABLE future_allocations ADD CONSTRAINT future_allocations_billing_range 
+                        CHECK (billing_percentage >= 0 AND billing_percentage <= 100);
+                    END IF;
+                END $$
+            `);
+
+            logger.info('Migration 022 completed: future_allocations created_by constraint removed and columns fixed');
+        }
     }
 ];
 

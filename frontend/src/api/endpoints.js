@@ -122,6 +122,29 @@ export const ENDPOINTS = {
     DELETE: (id) => `${BASE_URL}/allocations/${id}`,
     MONTHLY: `${BASE_URL}/allocations/monthly`,
     HISTORY: (resourceId) => `${BASE_URL}/allocations/history/${resourceId}`,
+    SCHEDULER_ACTIVATE: `${BASE_URL}/allocations/scheduler/activate`,
+  },
+
+  // Future Allocations (3-Table Architecture)
+  FUTURE_ALLOCATIONS: {
+    BASE: `${BASE_URL}/future-allocations`,
+    LIST: `${BASE_URL}/future-allocations`,
+    GET_BY_ID: (id) => `${BASE_URL}/future-allocations/${id}`,
+    BY_RESOURCE: (resourceId) => `${BASE_URL}/future-allocations/resource/${resourceId}`,
+    PENDING: `${BASE_URL}/future-allocations/pending`,
+    STATS: `${BASE_URL}/future-allocations/stats`,
+    CANCEL: (id) => `${BASE_URL}/future-allocations/${id}`,
+  },
+
+  // Allocation History Archive (3-Table Architecture)
+  ALLOCATION_HISTORY: {
+    BASE: `${BASE_URL}/allocation-history`,
+    LIST: `${BASE_URL}/allocation-history`,
+    GET_BY_ID: (id) => `${BASE_URL}/allocation-history/${id}`,
+    BY_RESOURCE: (resourceId) => `${BASE_URL}/allocation-history/resource/${resourceId}`,
+    BY_PROJECT: (projectId) => `${BASE_URL}/allocation-history/project/${projectId}`,
+    STATS: `${BASE_URL}/allocation-history/stats`,
+    TIMELINE: (resourceId) => `${BASE_URL}/allocation-history/timeline/${resourceId}`,
   },
 
   // Reports

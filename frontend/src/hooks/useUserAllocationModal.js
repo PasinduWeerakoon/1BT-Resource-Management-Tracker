@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Form } from 'antd';
+import { Form, message } from 'antd';
 import dayjs from 'dayjs';
 
-export const useUserAllocationModal = (allocationData = []) => {
+export const useUserAllocationModal = (allocationData = [], { onSave, resourceId } = {}) => {
     const [isUserAllocationModalVisible, setIsUserAllocationModalVisible] = useState(false);
     const [selectedEmployee, setSelectedEmployee] = useState(null);
     const [userAllocationsList, setUserAllocationsList] = useState([]);
@@ -14,15 +14,15 @@ export const useUserAllocationModal = (allocationData = []) => {
     const handleRowClick = (record) => {
         const employeeName = record.employeeName;
         setSelectedEmployee(employeeName);
-        
+
         // Get all allocations for this employee
         const employeeAllocations = allocationData.filter(item => item.employeeName === employeeName);
-        
+
         // Transform to modal format
         const allocationsList = employeeAllocations.map((allocation, index) => {
             let allocatedDate = undefined;
             let deallocatedDate = undefined;
-            
+
             // Parse allocated date
             if (allocation.allocatedDate) {
                 allocatedDate = dayjs(allocation.allocatedDate, 'DD MMM YYYY');
@@ -33,7 +33,7 @@ export const useUserAllocationModal = (allocationData = []) => {
                     allocatedDate = undefined;
                 }
             }
-            
+
             // Parse deallocated date
             if (allocation.deallocatedDate && allocation.deallocatedDate.toString().trim() !== '') {
                 deallocatedDate = dayjs(allocation.deallocatedDate, 'DD MMM YYYY');
@@ -44,21 +44,21 @@ export const useUserAllocationModal = (allocationData = []) => {
                     deallocatedDate = undefined;
                 }
             }
-            
+
             // Parse billing percentage
             let billingPercentage = 0;
             if (allocation.billingPercentage) {
                 const bpStr = allocation.billingPercentage.toString().replace('%', '').trim();
                 billingPercentage = parseFloat(bpStr) || 0;
             }
-            
+
             // Parse project allocation
             let projectAllocation = 0;
             if (allocation.projectAllocation) {
                 const paStr = allocation.projectAllocation.toString().replace('%', '').trim();
                 projectAllocation = parseFloat(paStr) || 0;
             }
-            
+
             return {
                 key: `existing-${allocation.key || index}`,
                 projectName: allocation.project,
@@ -72,7 +72,7 @@ export const useUserAllocationModal = (allocationData = []) => {
                 isExisting: true,
             };
         });
-        
+
         setUserAllocationsList(allocationsList);
         setIsUserAllocationModalVisible(true);
     };
@@ -105,7 +105,7 @@ export const useUserAllocationModal = (allocationData = []) => {
     };
 
     const handleUserAllocationFieldChange = (allocationKey, field, value) => {
-        setUserAllocationsList(userAllocationsList.map(allocation => 
+        setUserAllocationsList(userAllocationsList.map(allocation =>
             allocation.key === allocationKey ? { ...allocation, [field]: value } : allocation
         ));
     };
@@ -114,7 +114,7 @@ export const useUserAllocationModal = (allocationData = []) => {
         try {
             const formValues = await userAllocationsForm.getFieldsValue();
             const errors = [];
-            
+
             userAllocationsList.forEach((allocation, index) => {
                 if (!allocation.projectName) {
                     errors.push(`Allocation ${index + 1}: Project name is required`);
@@ -141,23 +141,52 @@ export const useUserAllocationModal = (allocationData = []) => {
             // Get form values and merge with userAllocationsList
             const allocationsToSave = userAllocationsList.map((allocation) => {
                 const allocationFormData = formValues.allocations?.[allocation.key] || {};
+
+                // Format dates for API (YYYY-MM-DD)
+                const effectiveDate = allocation.allocatedDate
+                    ? (allocation.allocatedDate.format ? allocation.allocatedDate.format('YYYY-MM-DD') : allocation.allocatedDate)
+                    : null;
+                const deallocatedDate = allocation.deallocatedDate
+                    ? (allocation.deallocatedDate.format ? allocation.deallocatedDate.format('YYYY-MM-DD') : allocation.deallocatedDate)
+                    : null;
+
                 return {
                     employeeName: selectedEmployee,
+                    // Map to API field names
+                    effective_date: effectiveDate,
+                    end_date: deallocatedDate,
+                    allocation_percentage: allocation.projectAllocation,
+                    billing_percentage: allocation.billingPercentage,
+                    // Keep original data for reference
                     ...allocation,
                     ...allocationFormData,
                 };
             });
 
             console.log('Saving user allocations:', allocationsToSave);
-            // TODO: Add API call to save user allocations
-            // await saveUserAllocations(selectedEmployee, allocationsToSave);
-            
+
+            // Call onSave callback if provided
+            if (onSave) {
+                try {
+                    const result = await onSave(allocationsToSave, resourceId);
+
+                    // Check if any allocations were scheduled for future
+                    const futureAllocations = result?.filter(r => r.isFutureAllocation);
+                    if (futureAllocations?.length > 0) {
+                        message.info(`${futureAllocations.length} allocation(s) scheduled for future activation`);
+                    } else {
+                        message.success('Allocations saved successfully');
+                    }
+                } catch (saveError) {
+                    message.error('Failed to save allocations: ' + saveError.message);
+                    return;
+                }
+            }
+
             setIsUserAllocationModalVisible(false);
             setSelectedEmployee(null);
             setUserAllocationsList([]);
             userAllocationsForm.resetFields();
-            
-            // TODO: Show success message and refresh data
         } catch (error) {
             console.error('Validation failed:', error);
         }

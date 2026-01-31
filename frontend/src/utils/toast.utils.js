@@ -90,8 +90,13 @@ export const getErrorMessage = (error) => {
     return error.response.data.message;
   }
 
-  // Check if error has response data with error field
-  if (error.response?.data?.error) {
+  // Check if error has response data with nested error.message
+  if (error.response?.data?.error?.message) {
+    return error.response.data.error.message;
+  }
+
+  // Check if error has response data with error field (string)
+  if (error.response?.data?.error && typeof error.response.data.error === 'string') {
     return error.response.data.error;
   }
 

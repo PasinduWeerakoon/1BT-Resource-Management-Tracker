@@ -2,7 +2,7 @@
 
 **Date:** January 31, 2026  
 **Status:** Implementation Specification  
-**Version:** 2.0  
+**Version:** 3.0  
 **Related Files:**
 
 - `backend/services/allocation-service/src/handlers/allocations.js`
@@ -14,13 +14,208 @@
 
 ## Executive Summary
 
-This document defines an **industry-standard bi-temporal allocation management system** that tracks:
+This document defines an **industry-standard temporal allocation management system** using a **3-Table Architecture**:
 
-1. **Allocated Date** - When the resource was first assigned to a project
-2. **Effective Date** - When a change to the allocation takes effect
-3. **Allocation Changed On** - The effective date of the most recent change
+| Table                  | Purpose                      | Data State                              |
+| ---------------------- | ---------------------------- | --------------------------------------- |
+| **future_allocations** | Scheduled allocations        | `effective_date > TODAY`                |
+| **allocations**        | Current active allocations   | `effective_date <= TODAY` and not ended |
+| **allocation_history** | Historical/ended allocations | Deallocated or archived                 |
 
-This approach follows **Slowly Changing Dimension Type 2 (SCD-2)** principles used in enterprise resource planning systems.
+This approach follows the **Event Sourcing** and **Temporal Tables** pattern used in enterprise HR/ERP systems like SAP, Workday, and Oracle HCM.
+
+### Allocation Lifecycle
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         ALLOCATION LIFECYCLE                                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│   User Creates Allocation                                                    │
+│            │                                                                 │
+│            ▼                                                                 │
+│   ┌────────────────────┐                                                    │
+│   │ Is effective_date  │                                                    │
+│   │   > TODAY?         │                                                    │
+│   └─────────┬──────────┘                                                    │
+│             │                                                                │
+│      ┌──────┴──────┐                                                        │
+│      │             │                                                         │
+│     YES           NO                                                         │
+│      │             │                                                         │
+│      ▼             ▼                                                         │
+│ ┌──────────┐  ┌──────────┐                                                  │
+│ │ FUTURE   │  │ALLOCATIONS│  ← Direct insert (today or past effective)      │
+│ │ALLOCATIONS│  └─────┬────┘                                                  │
+│ └────┬─────┘        │                                                        │
+│      │              │                                                        │
+│      │ Scheduler    │ When deallocated                                       │
+│      │ (daily 1AM)  │ or ended                                               │
+│      │              │                                                        │
+│      ▼              ▼                                                        │
+│ ┌──────────┐  ┌──────────────┐                                              │
+│ │ALLOCATIONS│  │ ALLOCATION   │                                              │
+│ │(on eff.  │  │ HISTORY      │                                              │
+│ │  date)   │──▶│              │                                              │
+│ └──────────┘  └──────────────┘                                              │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Core Business Scenarios
+
+### Scenario 1: Backdated Allocation (Effective Date < Today)
+
+**Context:** Today is **31/01/2026**  
+**Action:** Allocate employee 50% to **ABC Project** with effective date **25/01/2026**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ SCENARIO 1: Backdated Allocation                                            │
+│ Today: 31/01/2026 | Effective Date: 25/01/2026 (PAST)                       │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│ CASE A: Employee was on BENCH (50%+ on bench)                               │
+│ ─────────────────────────────────────────────                               │
+│                                                                              │
+│   AUTOMATIC ACTIONS:                                                         │
+│   1. INSERT into allocations:                                               │
+│      • resource_id, project_id = ABC                                        │
+│      • allocation_percentage = 50%                                          │
+│      • effective_date = 25/01/2026                                          │
+│      • allocated_date = 25/01/2026                                          │
+│                                                                              │
+│   2. UPDATE bench allocation:                                               │
+│      • allocation_percentage -= 50%                                         │
+│      • allocation_changed_on = 25/01/2026                                   │
+│      • IF bench becomes 0% → move to allocation_history                     │
+│                                                                              │
+│ ────────────────────────────────────────────────────────────────────────── │
+│                                                                              │
+│ CASE B: Employee was on DCB Project (needs capacity freed)                  │
+│ ──────────────────────────────────────────────────────────                  │
+│                                                                              │
+│   MANUAL ACTION REQUIRED:                                                    │
+│   ⚠️ System shows warning: "Employee at 100% capacity on 25/01/2026"        │
+│   ⚠️ User must first reduce DCB allocation by 50%                           │
+│                                                                              │
+│   Then same as Case A (allocation created, bench not affected)              │
+│                                                                              │
+│ ────────────────────────────────────────────────────────────────────────── │
+│                                                                              │
+│ TABLE FLOW:                                                                  │
+│ • Goes DIRECTLY to → allocations (effective_date is past)                   │
+│ • Bench adjustment is IMMEDIATE                                             │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Scenario 2: Same-Day Allocation (Effective Date = Today)
+
+**Context:** Today is **31/01/2026**  
+**Action:** Allocate employee 50% to **ABC Project** with effective date **31/01/2026**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ SCENARIO 2: Same-Day Allocation                                             │
+│ Today: 31/01/2026 | Effective Date: 31/01/2026 (TODAY)                      │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│ CASE A: Employee was on BENCH                                               │
+│ ─────────────────────────────                                               │
+│                                                                              │
+│   AUTOMATIC ACTIONS:                                                         │
+│   1. INSERT into allocations:                                               │
+│      • project_id = ABC, allocation_percentage = 50%                        │
+│      • effective_date = 31/01/2026                                          │
+│      • allocated_date = 31/01/2026                                          │
+│                                                                              │
+│   2. UPDATE bench allocation:                                               │
+│      • allocation_percentage -= 50%                                         │
+│      • allocation_changed_on = 31/01/2026                                   │
+│                                                                              │
+│ ────────────────────────────────────────────────────────────────────────── │
+│                                                                              │
+│ CASE B: Employee was on DCB Project                                         │
+│ ────────────────────────────────                                            │
+│                                                                              │
+│   MANUAL ACTION REQUIRED:                                                    │
+│   ⚠️ System shows warning: "Employee at 100% capacity"                      │
+│   ⚠️ User must first reduce DCB allocation by 50%                           │
+│                                                                              │
+│ ────────────────────────────────────────────────────────────────────────── │
+│                                                                              │
+│ TABLE FLOW:                                                                  │
+│ • Goes DIRECTLY to → allocations (effective_date is today)                  │
+│ • Bench adjustment is IMMEDIATE                                             │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Scenario 3: Future Allocation (Effective Date > Today) ⭐ NEW TABLE
+
+**Context:** Today is **31/01/2026**  
+**Action:** Allocate employee 50% to **ABC Project** with effective date **01/02/2026**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ SCENARIO 3: Future Allocation                                               │
+│ Today: 31/01/2026 | Effective Date: 01/02/2026 (FUTURE)                     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│ STEP 1: On 31/01/2026 (Today - when user creates allocation)                │
+│ ─────────────────────────────────────────────────────────────               │
+│                                                                              │
+│   1. INSERT into future_allocations:                                        │
+│      • resource_id, project_id = ABC                                        │
+│      • allocation_percentage = 50%                                          │
+│      • effective_date = 01/02/2026                                          │
+│      • scheduled_at = 31/01/2026 (when it was scheduled)                    │
+│      • scheduled_by = [user_id]                                             │
+│      • status = 'SCHEDULED'                                                 │
+│                                                                              │
+│   2. IF employee on BENCH:                                                  │
+│      • INSERT into future_allocations (for bench reduction):                │
+│        - project_id = BENCH                                                 │
+│        - allocation_percentage = -50% (reduction)                           │
+│        - effective_date = 01/02/2026                                        │
+│        - change_type = 'AUTO_BENCH_ADJUSTMENT'                              │
+│        - linked_allocation_id = [ABC allocation id]                         │
+│                                                                              │
+│   3. IF employee on DCB Project:                                            │
+│      • ⚠️ System shows warning:                                             │
+│        "On 01/02/2026, employee will exceed 100% capacity"                  │
+│      • ⚠️ User must schedule DCB reduction for 01/02/2026                   │
+│                                                                              │
+│ ────────────────────────────────────────────────────────────────────────── │
+│                                                                              │
+│ STEP 2: On 01/02/2026 at 1:00 AM UTC (Scheduler runs)                       │
+│ ─────────────────────────────────────────────────────                       │
+│                                                                              │
+│   The Allocation Activation Scheduler:                                       │
+│                                                                              │
+│   1. Finds all future_allocations WHERE effective_date = TODAY              │
+│                                                                              │
+│   2. FOR EACH scheduled allocation:                                         │
+│      a. INSERT/UPDATE allocations table                                     │
+│      b. UPDATE future_allocations.status = 'ACTIVATED'                      │
+│      c. MOVE record to allocation_history (optional, or delete)             │
+│                                                                              │
+│   3. FOR bench adjustments (change_type = 'AUTO_BENCH_ADJUSTMENT'):         │
+│      a. UPDATE existing bench allocation in allocations table               │
+│      b. IF bench becomes 0% → move to allocation_history                    │
+│                                                                              │
+│ ────────────────────────────────────────────────────────────────────────── │
+│                                                                              │
+│ TABLE FLOW:                                                                  │
+│ Day 1 (31/01): future_allocations (SCHEDULED)                               │
+│ Day 2 (01/02): Scheduler moves to → allocations (ACTIVE)                    │
+│ Later: When ended → allocation_history (ARCHIVED)                           │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
@@ -883,90 +1078,476 @@ Total: 100%
 
 ---
 
-## Database Schema Changes
+## Database Schema - 3-Table Architecture
 
-### Migration 019: Effective Date & Allocation Tracking
+### Overview
 
-```sql
--- Migration: 019_effective_date_tracking.sql
-
--- Step 1: Add new columns to allocations table
-ALTER TABLE allocations
-ADD COLUMN IF NOT EXISTS original_allocated_date DATE,
-ADD COLUMN IF NOT EXISTS allocation_changed_on DATE,
-ADD COLUMN IF NOT EXISTS allocation_status VARCHAR(20) DEFAULT 'Active'
-    CHECK (allocation_status IN ('Pending', 'Active', 'Ended', 'Cancelled'));
-
--- Step 2: Rename existing columns for clarity (optional - can keep as aliases)
--- Note: If renaming, update all queries in codebase
--- ALTER TABLE allocations RENAME COLUMN start_date TO allocated_date;
--- ALTER TABLE allocations RENAME COLUMN end_date TO deallocated_date;
-
--- Step 3: Create indexes for performance
-CREATE INDEX IF NOT EXISTS idx_allocations_status ON allocations(allocation_status);
-CREATE INDEX IF NOT EXISTS idx_allocations_changed_on ON allocations(allocation_changed_on);
-CREATE INDEX IF NOT EXISTS idx_allocations_effective_lookup
-    ON allocations(resource_id, allocation_status, start_date);
-
--- Step 4: Backfill existing data
-UPDATE allocations
-SET
-    original_allocated_date = start_date,
-    allocation_changed_on = COALESCE(updated_at::date, start_date),
-    allocation_status = CASE
-        WHEN start_date > CURRENT_DATE THEN 'Pending'
-        WHEN end_date IS NOT NULL AND end_date < CURRENT_DATE THEN 'Ended'
-        WHEN is_active = false THEN 'Ended'
-        ELSE 'Active'
-    END
-WHERE original_allocated_date IS NULL;
-
--- Step 5: Add comment for documentation
-COMMENT ON COLUMN allocations.original_allocated_date IS 'Original date when resource was first allocated to project (never changes)';
-COMMENT ON COLUMN allocations.allocation_changed_on IS 'Effective date of the most recent modification';
-COMMENT ON COLUMN allocations.allocation_status IS 'Pending=future, Active=current, Ended=past, Cancelled=never activated';
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                       3-TABLE TEMPORAL ARCHITECTURE                          │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ┌─────────────────────┐                                                    │
+│  │  FUTURE_ALLOCATIONS │  ← Scheduled allocations (effective_date > TODAY)  │
+│  │  ─────────────────  │                                                    │
+│  │  • Holds future     │                                                    │
+│  │    scheduled changes│                                                    │
+│  │  • Auto bench adj.  │                                                    │
+│  │    scheduled here   │                                                    │
+│  └──────────┬──────────┘                                                    │
+│             │                                                                │
+│             │ Scheduler (Daily 1:00 AM UTC)                                  │
+│             │ Moves records where effective_date = TODAY                     │
+│             ▼                                                                │
+│  ┌─────────────────────┐                                                    │
+│  │    ALLOCATIONS      │  ← Current active allocations                       │
+│  │  ─────────────────  │                                                    │
+│  │  • Active project   │                                                    │
+│  │    assignments      │                                                    │
+│  │  • Bench allocations│                                                    │
+│  │  • Real-time data   │                                                    │
+│  └──────────┬──────────┘                                                    │
+│             │                                                                │
+│             │ When deallocated/ended                                         │
+│             │ Or archived (>1 year old)                                      │
+│             ▼                                                                │
+│  ┌─────────────────────┐                                                    │
+│  │ ALLOCATION_HISTORY  │  ← Historical/ended allocations                     │
+│  │  ─────────────────  │                                                    │
+│  │  • Past allocations │                                                    │
+│  │  • Audit trail      │                                                    │
+│  │  • Reporting data   │                                                    │
+│  └─────────────────────┘                                                    │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Optional: Allocation Change History Table
+### Table 1: future_allocations (NEW)
 
 ```sql
--- For full audit trail of all changes (SCD-2 approach)
-CREATE TABLE IF NOT EXISTS allocation_changes (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    allocation_id UUID NOT NULL REFERENCES allocations(id),
+-- Migration: 019_create_future_allocations.sql
 
-    -- What changed
-    previous_percentage DECIMAL(5,2),
-    new_percentage DECIMAL(5,2),
-    previous_billing_percentage DECIMAL(5,2),
-    new_billing_percentage DECIMAL(5,2),
-    change_type VARCHAR(20) NOT NULL CHECK (change_type IN (
-        'CREATE', 'MODIFY_ALLOCATION', 'MODIFY_BILLING',
-        'DEALLOCATE', 'REACTIVATE', 'CANCEL'
+CREATE TABLE IF NOT EXISTS future_allocations (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+
+    -- Core allocation data (same as allocations table)
+    resource_id UUID NOT NULL REFERENCES resources(id) ON DELETE CASCADE,
+    project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    allocation_percentage DECIMAL(5,2) NOT NULL CHECK (allocation_percentage >= 0 AND allocation_percentage <= 100),
+    billing_percentage DECIMAL(5,2) DEFAULT 0 CHECK (billing_percentage >= 0 AND billing_percentage <= 100),
+
+    -- Effective date - MUST be in the future
+    effective_date DATE NOT NULL,
+    CONSTRAINT chk_future_effective_date CHECK (effective_date > CURRENT_DATE),
+
+    -- Original allocation start date (when they first joined the project)
+    allocated_date DATE NOT NULL,
+
+    -- Optional end date
+    deallocated_date DATE,
+
+    -- Scheduling metadata
+    scheduled_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    scheduled_by UUID REFERENCES users(id),
+
+    -- Change type for understanding what this record represents
+    change_type VARCHAR(30) NOT NULL CHECK (change_type IN (
+        'NEW_ALLOCATION',           -- Brand new allocation to a project
+        'MODIFY_PERCENTAGE',        -- Changing allocation %
+        'MODIFY_BILLING',           -- Changing billing %
+        'DEALLOCATE',               -- Ending an allocation
+        'AUTO_BENCH_ADJUSTMENT'     -- System-generated bench adjustment
     )),
 
-    -- When
-    effective_date DATE NOT NULL,
-    recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    -- Status of the scheduled allocation
+    status VARCHAR(20) DEFAULT 'SCHEDULED' CHECK (status IN (
+        'SCHEDULED',    -- Waiting for effective date
+        'ACTIVATED',    -- Moved to allocations table
+        'CANCELLED'     -- Cancelled before activation
+    )),
 
-    -- Who
-    changed_by UUID REFERENCES users(id),
+    -- Link to related allocation (for modifications) or related future allocation (for bench adj)
+    related_allocation_id UUID,  -- References allocations(id) for modifications
+    linked_future_id UUID,       -- References future_allocations(id) for auto-bench
 
-    -- Why
-    change_reason TEXT,
+    -- Notes
+    notes TEXT,
 
-    -- Indexes
-    CONSTRAINT idx_allocation_changes_lookup
-        UNIQUE (allocation_id, effective_date, change_type)
+    -- Audit
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_by UUID REFERENCES users(id),
+
+    -- Unique constraint: One scheduled change per resource-project-effective_date
+    CONSTRAINT uq_future_allocation UNIQUE (resource_id, project_id, effective_date, change_type)
 );
 
-CREATE INDEX idx_allocation_changes_date ON allocation_changes(effective_date);
-CREATE INDEX idx_allocation_changes_allocation ON allocation_changes(allocation_id);
+-- Indexes for performance
+CREATE INDEX idx_future_allocations_effective ON future_allocations(effective_date);
+CREATE INDEX idx_future_allocations_status ON future_allocations(status);
+CREATE INDEX idx_future_allocations_resource ON future_allocations(resource_id);
+CREATE INDEX idx_future_allocations_project ON future_allocations(project_id);
+CREATE INDEX idx_future_allocations_lookup ON future_allocations(resource_id, status, effective_date);
+
+-- Comments
+COMMENT ON TABLE future_allocations IS 'Scheduled/future allocations that will be activated on their effective_date';
+COMMENT ON COLUMN future_allocations.effective_date IS 'Date when this allocation becomes active (must be > today)';
+COMMENT ON COLUMN future_allocations.change_type IS 'Type of change: NEW, MODIFY, DEALLOCATE, or AUTO_BENCH';
+COMMENT ON COLUMN future_allocations.linked_future_id IS 'For AUTO_BENCH_ADJUSTMENT, links to the allocation that triggered it';
+```
+
+### Table 2: allocations (MODIFIED)
+
+```sql
+-- Migration: 020_modify_allocations_table.sql
+
+-- Add new columns to existing allocations table
+ALTER TABLE allocations
+ADD COLUMN IF NOT EXISTS effective_date DATE,
+ADD COLUMN IF NOT EXISTS allocated_date DATE,
+ADD COLUMN IF NOT EXISTS deallocated_date DATE,
+ADD COLUMN IF NOT EXISTS allocation_changed_on DATE,
+ADD COLUMN IF NOT EXISTS original_allocated_date DATE;
+
+-- Backfill existing data
+UPDATE allocations
+SET
+    effective_date = COALESCE(start_date, created_at::date),
+    allocated_date = start_date,
+    original_allocated_date = start_date,
+    allocation_changed_on = COALESCE(updated_at::date, start_date)
+WHERE effective_date IS NULL;
+
+-- Create indexes
+CREATE INDEX IF NOT EXISTS idx_allocations_effective_date ON allocations(effective_date);
+CREATE INDEX IF NOT EXISTS idx_allocations_allocated_date ON allocations(allocated_date);
+CREATE INDEX IF NOT EXISTS idx_allocations_changed_on ON allocations(allocation_changed_on);
+CREATE INDEX IF NOT EXISTS idx_allocations_resource_active ON allocations(resource_id, is_active);
+
+-- Comments
+COMMENT ON COLUMN allocations.effective_date IS 'Date when this allocation version became effective';
+COMMENT ON COLUMN allocations.allocated_date IS 'Date when resource was allocated (may differ from effective_date for modifications)';
+COMMENT ON COLUMN allocations.allocation_changed_on IS 'Most recent change effective date';
+COMMENT ON COLUMN allocations.original_allocated_date IS 'Original allocation date (never changes, for audit)';
+```
+
+### Table 3: allocation_history (NEW)
+
+```sql
+-- Migration: 021_create_allocation_history.sql
+
+CREATE TABLE IF NOT EXISTS allocation_history (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+
+    -- Original allocation ID for traceability
+    original_allocation_id UUID NOT NULL,
+
+    -- Core allocation data (copied from allocations)
+    resource_id UUID NOT NULL,
+    project_id UUID NOT NULL,
+    allocation_percentage DECIMAL(5,2) NOT NULL,
+    billing_percentage DECIMAL(5,2) DEFAULT 0,
+
+    -- Date fields
+    effective_date DATE NOT NULL,
+    allocated_date DATE NOT NULL,
+    deallocated_date DATE,
+    allocation_changed_on DATE,
+    original_allocated_date DATE,
+
+    -- Why it was archived
+    archive_reason VARCHAR(30) NOT NULL CHECK (archive_reason IN (
+        'DEALLOCATED',      -- Normal end of allocation
+        'REPLACED',         -- Replaced by new allocation
+        'ARCHIVED',         -- Periodic archival (old records)
+        'CANCELLED',        -- Cancelled before becoming active
+        'RESOURCE_DELETED', -- Resource was deleted
+        'PROJECT_DELETED'   -- Project was deleted
+    )),
+
+    -- Metadata
+    notes TEXT,
+
+    -- Original audit fields
+    original_created_at TIMESTAMP,
+    original_created_by UUID,
+    original_updated_at TIMESTAMP,
+    original_updated_by UUID,
+
+    -- Archive audit
+    archived_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    archived_by UUID REFERENCES users(id),
+
+    -- Indexes on commonly queried fields
+    CONSTRAINT idx_history_resource_project UNIQUE (original_allocation_id, archived_at)
+);
+
+-- Indexes for reporting and lookups
+CREATE INDEX idx_allocation_history_resource ON allocation_history(resource_id);
+CREATE INDEX idx_allocation_history_project ON allocation_history(project_id);
+CREATE INDEX idx_allocation_history_dates ON allocation_history(allocated_date, deallocated_date);
+CREATE INDEX idx_allocation_history_archived ON allocation_history(archived_at);
+CREATE INDEX idx_allocation_history_reason ON allocation_history(archive_reason);
+
+-- Comments
+COMMENT ON TABLE allocation_history IS 'Historical record of all past allocations for audit and reporting';
+COMMENT ON COLUMN allocation_history.original_allocation_id IS 'UUID of the allocation when it was in allocations table';
+COMMENT ON COLUMN allocation_history.archive_reason IS 'Why this allocation was moved to history';
 ```
 
 ---
 
-## API Specification
+## Scheduler: Allocation Activation Job
+
+### Job Specification
+
+```javascript
+// File: backend/services/allocation-service/src/handlers/scheduledJobs.js
+
+/**
+ * Allocation Activation Scheduler
+ * Runs daily at 1:00 AM UTC (before gap detection at 2:00 AM)
+ *
+ * Responsibilities:
+ * 1. Move future_allocations → allocations when effective_date = TODAY
+ * 2. Handle AUTO_BENCH_ADJUSTMENT records
+ * 3. Archive ended allocations → allocation_history
+ */
+
+export const activateScheduledAllocations = async (event) => {
+  const log = createLogger("ActivationScheduler");
+  const today = new Date().toISOString().split("T")[0];
+
+  log.info(`Running activation scheduler for ${today}`);
+
+  try {
+    // STEP 1: Get all scheduled allocations for today
+    const scheduledAllocations = await db.query(
+      `
+            SELECT * FROM future_allocations 
+            WHERE effective_date = $1 
+            AND status = 'SCHEDULED'
+            ORDER BY 
+                CASE change_type 
+                    WHEN 'DEALLOCATE' THEN 1      -- Process deallocations first
+                    WHEN 'MODIFY_PERCENTAGE' THEN 2
+                    WHEN 'NEW_ALLOCATION' THEN 3
+                    WHEN 'AUTO_BENCH_ADJUSTMENT' THEN 4  -- Bench last
+                    ELSE 5
+                END,
+                created_at ASC
+        `,
+      [today],
+    );
+
+    log.info(
+      `Found ${scheduledAllocations.rows.length} scheduled allocations to activate`,
+    );
+
+    for (const scheduled of scheduledAllocations.rows) {
+      await processScheduledAllocation(scheduled, today, log);
+    }
+
+    // STEP 2: Archive ended allocations (deallocated_date < TODAY)
+    await archiveEndedAllocations(today, log);
+
+    // STEP 3: Run gap detection as backup
+    await detectAndFillGaps(null, "SYSTEM", log);
+
+    log.info("Activation scheduler completed successfully");
+  } catch (error) {
+    log.error("Activation scheduler failed", { error: error.message });
+    throw error;
+  }
+};
+
+const processScheduledAllocation = async (scheduled, today, log) => {
+  const {
+    id,
+    resource_id,
+    project_id,
+    allocation_percentage,
+    billing_percentage,
+    allocated_date,
+    deallocated_date,
+    change_type,
+    related_allocation_id,
+    notes,
+  } = scheduled;
+
+  try {
+    switch (change_type) {
+      case "NEW_ALLOCATION":
+        // Insert new allocation into allocations table
+        await db.query(
+          `
+                    INSERT INTO allocations (
+                        resource_id, project_id, allocation_percentage, billing_percentage,
+                        start_date, end_date, effective_date, allocated_date, 
+                        allocation_changed_on, original_allocated_date,
+                        is_active, notes, created_by, created_at
+                    ) VALUES (
+                        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, true, $11, $12, CURRENT_TIMESTAMP
+                    )
+                `,
+          [
+            resource_id,
+            project_id,
+            allocation_percentage,
+            billing_percentage,
+            allocated_date,
+            deallocated_date,
+            today,
+            allocated_date,
+            today,
+            allocated_date,
+            notes,
+            scheduled.scheduled_by,
+          ],
+        );
+        break;
+
+      case "MODIFY_PERCENTAGE":
+      case "MODIFY_BILLING":
+        // Update existing allocation
+        await db.query(
+          `
+                    UPDATE allocations 
+                    SET allocation_percentage = $2,
+                        billing_percentage = $3,
+                        allocation_changed_on = $4,
+                        updated_at = CURRENT_TIMESTAMP,
+                        updated_by = $5
+                    WHERE id = $1
+                `,
+          [
+            related_allocation_id,
+            allocation_percentage,
+            billing_percentage,
+            today,
+            scheduled.scheduled_by,
+          ],
+        );
+        break;
+
+      case "DEALLOCATE":
+        // Move to history
+        await archiveAllocation(
+          related_allocation_id,
+          "DEALLOCATED",
+          scheduled.scheduled_by,
+        );
+        break;
+
+      case "AUTO_BENCH_ADJUSTMENT":
+        // Update bench allocation
+        await adjustBenchFromScheduled(
+          resource_id,
+          allocation_percentage,
+          today,
+          log,
+        );
+        break;
+    }
+
+    // Mark as activated
+    await db.query(
+      `
+            UPDATE future_allocations 
+            SET status = 'ACTIVATED', updated_at = CURRENT_TIMESTAMP 
+            WHERE id = $1
+        `,
+      [id],
+    );
+
+    log.info(`Activated ${change_type} for resource ${resource_id}`);
+  } catch (error) {
+    log.error(`Failed to process scheduled allocation ${id}`, {
+      error: error.message,
+    });
+    // Don't throw - continue processing other allocations
+  }
+};
+
+const archiveAllocation = async (allocationId, reason, archivedBy) => {
+  // Copy to history
+  await db.query(
+    `
+        INSERT INTO allocation_history (
+            original_allocation_id, resource_id, project_id,
+            allocation_percentage, billing_percentage,
+            effective_date, allocated_date, deallocated_date,
+            allocation_changed_on, original_allocated_date,
+            archive_reason, notes,
+            original_created_at, original_created_by,
+            original_updated_at, original_updated_by,
+            archived_by
+        )
+        SELECT 
+            id, resource_id, project_id,
+            allocation_percentage, billing_percentage,
+            effective_date, allocated_date, deallocated_date,
+            allocation_changed_on, original_allocated_date,
+            $2, notes,
+            created_at, created_by,
+            updated_at, updated_by,
+            $3
+        FROM allocations WHERE id = $1
+    `,
+    [allocationId, reason, archivedBy],
+  );
+
+  // Delete from allocations
+  await db.query(`DELETE FROM allocations WHERE id = $1`, [allocationId]);
+};
+
+const archiveEndedAllocations = async (today, log) => {
+  // Find allocations that ended (deallocated_date < today)
+  const ended = await db.query(
+    `
+        SELECT id FROM allocations 
+        WHERE deallocated_date IS NOT NULL 
+        AND deallocated_date < $1
+        AND is_active = true
+    `,
+    [today],
+  );
+
+  for (const allocation of ended.rows) {
+    await archiveAllocation(allocation.id, "DEALLOCATED", "SYSTEM");
+  }
+
+  log.info(`Archived ${ended.rows.length} ended allocations`);
+};
+```
+
+### Serverless Configuration
+
+```yaml
+# In serverless.yml - allocation-service
+
+functions:
+  # ... existing functions ...
+
+  activationScheduler:
+    handler: src/handlers/scheduledJobs.activateScheduledAllocations
+    description: Activates scheduled allocations and archives ended ones
+    timeout: 300 # 5 minutes
+    events:
+      - schedule:
+          rate: cron(0 1 * * ? *) # 1:00 AM UTC daily
+          enabled: true
+          description: "Daily allocation activation"
+    layers:
+      - ${self:custom.sharedLayerArn}
+    environment:
+      DB_HOST: ${self:custom.dbHost}
+      DB_NAME: ${self:custom.dbName}
+```
+
+---
+
+## API Specification (Updated for 3-Table Architecture)
 
 ### Updated Endpoints
 
@@ -1134,6 +1715,72 @@ CREATE INDEX idx_allocation_changes_allocation ON allocation_changes(allocation_
 
 ## Frontend Specifications
 
+### Page Structure - 3 Tables View
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────────────────┐
+│  ALLOCATIONS                                                               [+ Add Allocation]│
+├─────────────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────────────────────┐   │
+│  │ 📅 FUTURE ALLOCATIONS (Scheduled)                                    [2 scheduled]   │   │
+│  ├─────────────────────────────────────────────────────────────────────────────────────┤   │
+│  │ Employee      │ Project      │ Alloc % │ Effective Date │ Scheduled By │ Actions    │   │
+│  │───────────────┼──────────────┼─────────┼────────────────┼──────────────┼────────────│   │
+│  │ Test User     │ ABC Project  │ 50%     │ 01 Feb 2026    │ Admin        │ ✏️ 🗑️ ❌   │   │
+│  │ John Doe      │ XYZ Project  │ 25%     │ 15 Feb 2026    │ Manager      │ ✏️ 🗑️ ❌   │   │
+│  └─────────────────────────────────────────────────────────────────────────────────────┘   │
+│                                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────────────────────┐   │
+│  │ 📋 CURRENT ALLOCATIONS (Active)                                     [15 active]      │   │
+│  ├─────────────────────────────────────────────────────────────────────────────────────┤   │
+│  │ Employee      │ Project      │ Alloc % │ Billing % │ Allocated │ Changed On │Actions │   │
+│  │───────────────┼──────────────┼─────────┼───────────┼───────────┼────────────┼────────│   │
+│  │ Test User     │ DCB Project  │ 100%    │ 100%      │01 Jan 2026│01 Jan 2026 │ 👁️ ✏️ │   │
+│  │ Hirun Chamara │ Test Pasindu │ 100%    │ 100%      │01 Jan 2026│01 Jan 2026 │ 👁️ ✏️ │   │
+│  │ Pasindu W.    │ Test Pasindu │ 100%    │ 100%      │01 Jan 2026│01 Jan 2026 │ 👁️ ✏️ │   │
+│  │ Jane Smith    │ Bench        │ 50%     │ 0%        │15 Jan 2026│15 Jan 2026 │ 👁️    │   │
+│  └─────────────────────────────────────────────────────────────────────────────────────┘   │
+│                                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────────────────────┐   │
+│  │ 📚 ALLOCATION HISTORY (Past)                              [View All] [Export CSV]    │   │
+│  ├─────────────────────────────────────────────────────────────────────────────────────┤   │
+│  │ Employee      │ Project      │ Alloc % │ Allocated │ Deallocated │ Reason     │View │   │
+│  │───────────────┼──────────────┼─────────┼───────────┼─────────────┼────────────┼─────│   │
+│  │ Test User     │ Old Project  │ 100%    │01 Jun 2025│ 31 Dec 2025 │Deallocated │ 👁️  │   │
+│  │ John Doe      │ Beta Project │ 50%     │01 Mar 2025│ 30 Nov 2025 │Replaced    │ 👁️  │   │
+│  └─────────────────────────────────────────────────────────────────────────────────────┘   │
+│                                                                                              │
+└─────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### By Allocation View (Per Project)
+
+```
+┌────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ BY ALLOCATION - Test Pasindu 0001                                                          + Add Allocation   │
+├────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                                                │
+│  Tabs: [ Active Allocations (3) ] [ Future Scheduled (1) ] [ History (5) ]                                    │
+│                                                                                                                │
+├──────────────────┬─────────────────┬──────────────────┬────────────────────┬───────────┬──────────┬──────────┤
+│ Employee Name    │ Project         │ Allocated Date   │ Allocation Changed │ Billing % │ Alloc %  │ Actions  │
+│                  │                 │                  │ On                 │           │          │          │
+├──────────────────┼─────────────────┼──────────────────┼────────────────────┼───────────┼──────────┼──────────┤
+│ Test User        │ Test Pasindu    │ 01 Jan 2026      │ 01 Jan 2026       │ 100.00%   │ 50.00%   │ 👁️ ✏️   │
+│                  │ 0001            │                  │                    │           │          │          │
+│                  │                 │                  │ ⏰ 01 Feb: +25%    │           │ → 75%    │          │
+├──────────────────┼─────────────────┼──────────────────┼────────────────────┼───────────┼──────────┼──────────┤
+│ Hirun Chamara    │ Test Pasindu    │ 01 Jan 2026      │ 01 Jan 2026       │ 100.00%   │ 100.00%  │ 👁️ ✏️   │
+│                  │ 0001            │                  │                    │           │          │          │
+├──────────────────┼─────────────────┼──────────────────┼────────────────────┼───────────┼──────────┼──────────┤
+│ Pasindu W.       │ Test Pasindu    │ 01 Jan 2026      │ 01 Jan 2026       │ 100.00%   │ 100.00%  │ 👁️ ✏️   │
+│                  │ 0001            │                  │                    │           │          │          │
+└──────────────────┴─────────────────┴──────────────────┴────────────────────┴───────────┴──────────┴──────────┘
+
+Legend: ⏰ = Scheduled change pending
+```
+
 ### 1. Create Allocation Modal
 
 ```
@@ -1151,20 +1798,37 @@ CREATE INDEX idx_allocation_changes_allocation ON allocation_changes(allocation_
 │  │ 50%                 │        │ 100%                │    │
 │  └─────────────────────┘        └─────────────────────┘    │
 │                                                             │
-│  * Allocated Date               Deallocated Date            │
+│  * Effective Date               Deallocated Date            │
 │  ┌─────────────────────┐        ┌─────────────────────┐    │
 │  │ 📅 2026-02-01      │        │ 📅 (Optional)       │    │
 │  └─────────────────────┘        └─────────────────────┘    │
-│  ℹ️ When resource starts        ℹ️ When allocation ends    │
-│     on this project                (leave empty if ongoing) │
+│  ℹ️ When allocation becomes     ℹ️ When allocation ends    │
+│     active                         (leave empty if ongoing) │
+│  ⚡ Quick: [Today] [Tomorrow] [Next Week] [Next Month]     │
 │                                                             │
 │  Notes                                                      │
 │  ┌─────────────────────────────────────────────────────┐   │
 │  │ Enter allocation notes (optional)                    │   │
 │  └─────────────────────────────────────────────────────┘   │
 │                                                             │
-│  ⚠️ This allocation will be PENDING until Feb 1, 2026      │
-│  ℹ️ 50% bench allocation will be auto-created              │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │ 📋 ALLOCATION PREVIEW                                │   │
+│  │                                                       │   │
+│  │ IF effective_date > today:                           │   │
+│  │ ⏰ This will be SCHEDULED for Feb 1, 2026            │   │
+│  │ • Goes to: Future Allocations table                  │   │
+│  │ • Auto-activates on effective date                   │   │
+│  │                                                       │   │
+│  │ Bench Impact:                                        │   │
+│  │ ✅ Employee currently on Bench (100%)                │   │
+│  │ ✅ Bench will auto-reduce to 50% on Feb 1           │   │
+│  │                                                       │   │
+│  │ -- OR --                                             │   │
+│  │                                                       │   │
+│  │ ⚠️ Employee currently at 100% on DCB Project        │   │
+│  │ ⚠️ You must reduce DCB allocation first             │   │
+│  │ [→ Edit DCB Allocation]                              │   │
+│  └─────────────────────────────────────────────────────┘   │
 │                                                             │
 │                              ┌─────────┐  ┌─────────────┐  │
 │                              │ Cancel  │  │   Create    │  │
@@ -1183,6 +1847,7 @@ CREATE INDEX idx_allocation_changes_allocation ON allocation_changes(allocation_
 │  ┌─────────────────────┐        ┌─────────────────────┐    │
 │  │ Test User        🔒 │        │ Test Pasindu 0001🔒 │    │
 │  └─────────────────────┘        └─────────────────────┘    │
+│  Allocated since: 01 Jan 2026                               │
 │                                                             │
 │  * Allocation Percentage        * Billing Percentage        │
 │  ┌─────────────────────┐        ┌─────────────────────┐    │
@@ -1209,9 +1874,18 @@ CREATE INDEX idx_allocation_changes_allocation ON allocation_changes(allocation_
 │                                                             │
 │  ┌─────────────────────────────────────────────────────┐   │
 │  │ 📋 CHANGE SUMMARY                                    │   │
+│  │                                                       │   │
+│  │ Changes:                                             │   │
 │  │ • Allocation: 100% → 75% (-25%)                     │   │
 │  │ • Effective: Feb 15, 2026 (in 15 days)              │   │
-│  │ • Bench will increase: 0% → 25%                     │   │
+│  │                                                       │   │
+│  │ Table Flow:                                          │   │
+│  │ • Change scheduled in: Future Allocations           │   │
+│  │ • Will update Allocations table on: Feb 15          │   │
+│  │                                                       │   │
+│  │ Bench Impact:                                        │   │
+│  │ • Current bench: 0%                                  │   │
+│  │ • Bench on Feb 15: 25% (auto-created)               │   │
 │  └─────────────────────────────────────────────────────┘   │
 │                                                             │
 │                              ┌─────────┐  ┌─────────────┐  │
@@ -1220,52 +1894,77 @@ CREATE INDEX idx_allocation_changes_allocation ON allocation_changes(allocation_
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### 3. By Allocation Table (Updated Columns)
+### 3. Cancel Future Allocation Modal
 
 ```
-┌────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ BY ALLOCATION - Test Pasindu 0001                                                          + Add Allocation   │
-├──────────────────┬─────────────────┬──────────────────┬────────────────────┬───────────┬──────────┬──────────┤
-│ Employee Name    │ Project         │ Allocated Date   │ Allocation Changed │ Billing % │ Alloc %  │ Status   │
-│                  │                 │                  │ On                 │           │          │          │
-├──────────────────┼─────────────────┼──────────────────┼────────────────────┼───────────┼──────────┼──────────┤
-│ Test User        │ Test Pasindu    │ 01 Jan 2026      │ 15 Feb 2026       │ 100.00%   │ 75.00%   │ 🟡Pending│
-│                  │ 0001            │                  │ (in 15 days)       │           │          │          │
-├──────────────────┼─────────────────┼──────────────────┼────────────────────┼───────────┼──────────┼──────────┤
-│ Hirun Chamara    │ Test Pasindu    │ 01 Jan 2026      │ 01 Jan 2026       │ 100.00%   │ 100.00%  │ 🟢Active │
-│                  │ 0001            │                  │                    │           │          │          │
-├──────────────────┼─────────────────┼──────────────────┼────────────────────┼───────────┼──────────┼──────────┤
-│ Pasindu W.       │ Test Pasindu    │ 01 Jan 2026      │ 01 Jan 2026       │ 100.00%   │ 100.00%  │ 🟢Active │
-│                  │ 0001            │                  │                    │           │          │          │
-└──────────────────┴─────────────────┴──────────────────┴────────────────────┴───────────┴──────────┴──────────┘
+┌─────────────────────────────────────────────────────────────┐
+│  Cancel Scheduled Allocation                            ✕   │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  ⚠️ You are about to cancel a scheduled allocation         │
+│                                                             │
+│  Details:                                                   │
+│  • Employee: Test User                                     │
+│  • Project: ABC Project                                    │
+│  • Allocation: 50%                                         │
+│  • Scheduled for: Feb 1, 2026                              │
+│                                                             │
+│  Related Changes:                                           │
+│  • Bench reduction (50%) will also be cancelled            │
+│                                                             │
+│  Reason for cancellation (optional):                        │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │ Project requirements changed                         │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                                                             │
+│                      ┌──────────────┐  ┌────────────────┐  │
+│                      │ Keep Scheduled│  │ Yes, Cancel   │  │
+│                      └──────────────┘  └────────────────┘  │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-### 4. Status Badges
+### 4. Status Badges & Indicators
 
 ```css
-/* Status color scheme */
-.status-pending {
-  background: #fef3c7; /* Yellow-100 */
-  color: #92400e; /* Yellow-800 */
-  border: 1px solid #fcd34d;
+/* Status badges for allocation tables */
+.badge-scheduled {
+  background: #dbeafe; /* Blue-100 */
+  color: #1e40af; /* Blue-800 */
+  border: 1px solid #93c5fd;
+}
+.badge-scheduled::before {
+  content: "⏰ ";
 }
 
-.status-active {
+.badge-active {
   background: #d1fae5; /* Green-100 */
   color: #065f46; /* Green-800 */
   border: 1px solid #6ee7b7;
 }
+.badge-active::before {
+  content: "✓ ";
+}
 
-.status-ended {
+.badge-history {
   background: #e5e7eb; /* Gray-200 */
   color: #374151; /* Gray-700 */
   border: 1px solid #9ca3af;
 }
+.badge-history::before {
+  content: "📚 ";
+}
 
-.status-cancelled {
-  background: #fee2e2; /* Red-100 */
-  color: #991b1b; /* Red-800 */
-  border: 1px solid #fca5a5;
+/* Pending change indicator in table */
+.pending-change-indicator {
+  font-size: 0.75rem;
+  color: #2563eb; /* Blue-600 */
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.pending-change-indicator::before {
+  content: "⏰";
+}
 }
 ```
 
@@ -1327,165 +2026,279 @@ const ChangeSummary = ({ currentAllocation, newValues, effectiveDate }) => {
 
 ---
 
-## Implementation Phases (Updated)
+## Implementation Phases (Updated for 3-Table Architecture)
 
-### Phase 1: Database & Backend Core (Week 1)
+### Phase 1: Database Migration (Week 1) ✅ COMPLETED
 
-**Day 1-2: Database Migration**
+**Day 1-2: Create New Tables**
 
-- [ ] Create Migration 019 with new columns
-- [ ] Add indexes for performance
-- [ ] Backfill existing data
-- [ ] Test migration rollback
+- [x] Migration 019: Create `future_allocations` table
+  - All allocation fields plus change_type, status, linked_future_id
+  - Indexes: resource_id, project_id, effective_date, status
+- [x] Migration 020: Modify `allocations` table
+  - Add: effective_date, allocated_date, deallocated_date, allocation_changed_on
+  - Add: original_allocated_date, change_type
+  - Rename: start_date → allocated_date, end_date → deallocated_date
+- [x] Migration 021: Create `allocation_history_archive` table
+  - Archive of ended allocations with archive_reason
+  - Indexes: resource_id, project_id, archived_at
 
-**Day 3-4: Backend Model Updates**
+**Day 3-4: Data Backfill**
 
-- [ ] Update allocation model with new fields
-- [ ] Update validation schemas (Joi)
-- [ ] Add effective_date to create/update handlers
-- [ ] Implement allocation_status logic
+- [x] Backfill existing allocations with new fields
+  - Set effective_date = allocated_date for existing records
+  - Set allocation_changed_on = updated_at
+  - Set change_type = 'LEGACY'
+- [x] Test migration on staging environment
+- [x] Prepare rollback scripts
 
-**Day 5: Bench Adjustment Logic**
+**Day 5: Validation**
 
-- [ ] Modify `adjustBenchAllocation()` to accept effectiveDate
-- [ ] Implement immediate bench creation for future dates
-- [ ] Update bench allocation_changed_on field
-- [ ] Test all bench scenarios
+- [x] Verify all tables created correctly
+- [x] Verify indexes are working
+- [x] Test foreign key constraints
 
-### Phase 2: API & Scheduled Jobs (Week 2)
+### Phase 2: Backend Core Logic (Week 2) ✅ COMPLETED
 
-**Day 1-2: API Updates**
+**Day 1-2: 3-Table Service Layer**
 
-- [ ] Update POST /allocations with new field names
-- [ ] Update PUT /allocations with effective_date
-- [ ] Add response field mapping
-- [ ] Update API validation
+- [x] Create `futureAllocationService.js`
+  - createFutureAllocation()
+  - getFutureAllocations()
+  - cancelFutureAllocation()
+  - processFutureAllocation() - moves to allocations table
+- [x] Create `allocationHistoryService.js`
+  - archiveAllocation()
+  - getHistory()
+  - searchHistory()
+- [x] Modify `allocationService.js`
+  - Route to correct table based on effective_date
+  - Handle 3 scenarios (backdated, same-day, future)
+
+**Day 3-4: Scheduler Implementation**
+
+- [x] Create `activateScheduledAllocations` Lambda function
+- [x] Implement `processScheduledAllocation()` with change_type handling
+  - NEW_ALLOCATION: Move from future to allocations
+  - MODIFY_PERCENTAGE: Update existing allocation
+  - MODIFY_BILLING: Update billing status
+  - DEALLOCATE: End allocation, move to history
+  - AUTO_BENCH_ADJUSTMENT: Handle bench
+- [x] Create `archiveEndedAllocations` helper
+- [x] Add serverless.yml schedule configuration (1:00 AM UTC)
+
+**Day 5: Bench Logic**
+
+- [x] Modify `adjustBenchAllocation()` for 3-table architecture
+- [x] Implement immediate bench creation (same-day/backdated)
+- [x] Implement future bench scheduling
+- [ ] Test bench auto-adjustment scenarios
+
+### Phase 3: API & Frontend Updates (Week 3) ✅ COMPLETED
+
+**Day 1-2: Modified Endpoints**
+
+- [x] POST /allocations - Route to correct table based on effective_date
+- [x] PUT /allocations/{id} - Update with effective_date handling
+- [x] DELETE /allocations/{id} - Archive to history
+- [x] Update validation schemas (Joi)
 
 **Day 3-4: New Endpoints**
 
-- [ ] GET /allocations/scheduled
-- [ ] GET /resources/{id}/allocation-timeline
-- [ ] GET /allocations/upcoming
-- [ ] POST /allocations/{id}/cancel
+- [x] GET /future-allocations - List scheduled allocations
+- [x] GET /future-allocations/{id} - Get specific future allocation
+- [x] DELETE /future-allocations/{id} - Cancel scheduled allocation
+- [x] GET /allocation-history - List archived allocations
+- [x] GET /allocation-history/resource/{id} - Resource's history
+- [x] GET /allocation-history/timeline/{id} - Combined view all 3 tables
 
-**Day 5: Scheduled Jobs**
+**Day 5: Frontend API Services**
 
-- [ ] Create activationJob (1:00 AM UTC)
-- [ ] Update gapDetectionJob for new fields
-- [ ] Add status transition logic
-- [ ] Test job execution
+- [x] Create `futureAllocations.service.js` with all API methods
+- [x] Create `allocationHistory.service.js` with all API methods
+- [x] Update `allocations.service.js` to use effective_date
+- [x] Add new endpoints to `endpoints.js`
+- [x] Export services from `api/index.js`
 
-### Phase 3: Frontend - Forms (Week 3)
+**Day 6: Frontend Component Updates**
 
-**Day 1-2: Create Allocation Modal**
+- [x] Update `UserAllocationModal` with scheduling indicators
+  - Add `getAllocationScheduleStatus()` helper
+  - Show "Scheduled", "Active Today", "Active" tags
+  - Add tooltip with activation date info
+- [x] Add alert for future-dated allocations
+- [x] Rename label to "Effective Date" with help tooltip
+- [x] Update `useUserAllocationModal` hook
+  - Format dates for API (YYYY-MM-DD)
+  - Map fields to API names (effective_date, allocation_percentage)
+  - Add onSave callback support
+  - Show message for future allocations
 
-- [ ] Rename Start Date → Allocated Date
-- [ ] Rename End Date → Deallocated Date
-- [ ] Add info tooltips
-- [ ] Add pending status warning
-- [ ] Add bench preview
+### Phase 4: Frontend - 3-Table View (Week 4)
 
-**Day 3-4: Edit Allocation Modal**
+**Day 1-2: Allocation Page Structure**
 
-- [ ] Add Effective Date field
-- [ ] Add quick date buttons
-- [ ] Add Change Summary component
-- [ ] Add bench impact preview
-- [ ] Disable Resource/Project fields
+- [ ] Add 3 tabs: "Active Allocations" | "Future Scheduled" | "History"
+- [ ] Implement `FutureAllocationsTable` component
+- [ ] Implement `AllocationHistoryTable` component
+- [ ] Add counts to tab headers
 
-**Day 5: Form Validation**
+**Day 3-4: Modals**
 
-- [ ] Effective date validation
-- [ ] Backdating warning/confirmation
-- [ ] Capacity validation with effective date
-- [ ] Error message updates
+- [ ] Update Create Allocation Modal
+  - Add allocation preview showing target table
+  - Add bench impact preview
+- [ ] Update Edit Allocation Modal
+  - Show which table change will affect
+  - Add change summary component
+- [ ] Create Cancel Future Allocation Modal
+  - Confirmation with impact preview
 
-### Phase 4: Frontend - Tables & Display (Week 4)
+**Day 5: Resource View**
 
-**Day 1-2: Allocation Table Updates**
+- [ ] Update resource detail page
+- [ ] Show combined timeline from all 3 tables
+- [ ] Add scheduled changes indicator
 
-- [ ] Replace "Deallocated Date" → "Allocation Changed On"
-- [ ] Add Status column with badges
-- [ ] Add "days until effective" indicator
-- [ ] Update column sorting
+### Phase 5: Frontend - Polish & Reports (Week 5)
 
-**Day 3-4: Resource Views**
+**Day 1-2: Status Badges & Indicators**
 
-- [ ] Update resource allocation display
-- [ ] Add scheduled changes section
-- [ ] Add timeline visualization (optional)
+- [ ] Add status badges (Active, Scheduled, Archived)
+- [ ] Add "effective in X days" indicator
+- [ ] Add change_type icons
 
-**Day 5: Reports**
+**Day 3-4: Reports**
 
-- [ ] Update allocation reports
-- [ ] Add scheduled changes filter
-- [ ] Update export formats
+- [ ] Update allocation reports for 3 tables
+- [ ] Add "Include History" toggle
+- [ ] Add "Include Scheduled" toggle
+- [ ] Update exports (Excel/PDF)
 
-### Phase 5: Testing & Documentation (Week 5)
+**Day 5: Testing**
 
-**Day 1-2: Unit Tests**
+- [ ] End-to-end testing all scenarios
+- [ ] Test scheduler activation
+- [ ] Test concurrent modifications
 
-- [ ] Test all scenario combinations
-- [ ] Test status transitions
-- [ ] Test bench auto-adjustment
-- [ ] Test effective date edge cases
+### Phase 6: Final Testing & Deployment (Week 6)
 
-**Day 3-4: Integration Tests**
+**Day 1-2: Integration Tests**
 
-- [ ] End-to-end allocation workflows
-- [ ] Scheduled job testing
-- [ ] API contract tests
+- [ ] Test backdated allocation flow
+- [ ] Test same-day allocation flow
+- [ ] Test future allocation → activation flow
+- [ ] Test bench auto-adjustment all cases
 
-**Day 5: Documentation**
+**Day 3-4: Performance & Edge Cases**
+
+- [ ] Load test with many scheduled allocations
+- [ ] Test scheduler with 1000+ pending activations
+- [ ] Test edge cases (midnight, timezone)
+
+**Day 5: Documentation & Deployment**
 
 - [ ] Update API documentation
-- [ ] Update user guide
+- [ ] Update user guide with 3-table explanation
 - [ ] Create release notes
+- [ ] Deploy to staging, then production
 
 ---
 
-## Edge Cases & Validation Rules
+## Edge Cases & Validation Rules (3-Table Architecture)
 
-### 1. Effective Date Rules
+### 1. Table Routing Rules
 
-| Scenario                             | Allowed?   | Behavior                                 |
-| ------------------------------------ | ---------- | ---------------------------------------- |
-| Effective date = today               | ✅ Yes     | Immediate change                         |
-| Effective date = future              | ✅ Yes     | Scheduled change                         |
-| Effective date = past (last 30 days) | ✅ Yes     | Backdated correction (audit logged)      |
-| Effective date = past (>30 days)     | ⚠️ Warning | Requires confirmation                    |
-| Effective date before allocated_date | ❌ No      | Error: Cannot be before allocation start |
+| effective_date   | Target Table         | Immediate Action                             |
+| ---------------- | -------------------- | -------------------------------------------- |
+| Past (backdated) | `allocations`        | Insert directly, adjust bench immediately    |
+| Today            | `allocations`        | Insert directly, adjust bench immediately    |
+| Future (> today) | `future_allocations` | Insert as scheduled, scheduler handles later |
 
-### 2. Percentage Validation
+### 2. Effective Date Validation
+
+| Scenario                             | Allowed?   | Behavior                                  |
+| ------------------------------------ | ---------- | ----------------------------------------- |
+| Effective date = today               | ✅ Yes     | Goes to `allocations` table               |
+| Effective date = future              | ✅ Yes     | Goes to `future_allocations` table        |
+| Effective date = past (last 30 days) | ✅ Yes     | Backdated to `allocations` (audit logged) |
+| Effective date = past (>30 days)     | ⚠️ Warning | Requires confirmation dialog              |
+| Effective date before allocated_date | ❌ No      | Error: Cannot be before allocation start  |
+
+### 3. Table Routing Logic
 
 ```javascript
-// Capacity validation must consider effective date
+// Determine which table to use based on effective_date
+const routeAllocation = (effectiveDate) => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const effective = new Date(effectiveDate);
+  effective.setHours(0, 0, 0, 0);
+
+  if (effective > today) {
+    return "future_allocations"; // Future - scheduler will move it
+  } else {
+    return "allocations"; // Today or past - immediate
+  }
+};
+
+// Usage in create allocation handler
+const createAllocation = async (allocationData) => {
+  const targetTable = routeAllocation(allocationData.effective_date);
+
+  if (targetTable === "future_allocations") {
+    // Insert into future_allocations with status = 'scheduled'
+    return await futureAllocationService.create(allocationData);
+  } else {
+    // Insert directly into allocations
+    // Also auto-adjust bench immediately
+    return await allocationService.createWithBenchAdjustment(allocationData);
+  }
+};
+```
+
+### 4. Capacity Validation (Cross-Table)
+
+```javascript
+// Must check capacity across BOTH active allocations AND future_allocations
 const validateCapacity = async (
   resourceId,
   newPercentage,
   effectiveDate,
   excludeId,
 ) => {
-  // Get all active allocations for the resource ON THE EFFECTIVE DATE
-  const allocations = await db.query(
+  // Step 1: Get active allocations on effective date
+  const activeAllocations = await db.query(
     `
-        SELECT SUM(allocation_percentage) as total
-        FROM allocations
-        WHERE resource_id = $1
-        AND id != COALESCE($4, '00000000-0000-0000-0000-000000000000')
-        AND is_active = true
-        AND (
-            (allocation_changed_on <= $2 AND start_date <= $2)
-            OR 
-            (allocation_changed_on > CURRENT_DATE AND allocation_changed_on <= $2)
-        )
-        AND (end_date IS NULL OR end_date >= $2)
-    `,
-    [resourceId, effectiveDate, effectiveDate, excludeId],
+    SELECT SUM(allocation_percentage) as total
+    FROM allocations
+    WHERE resource_id = $1
+    AND id != COALESCE($3, '00000000-0000-0000-0000-000000000000')
+    AND is_active = true
+    AND effective_date <= $2
+    AND (deallocated_date IS NULL OR deallocated_date >= $2)
+  `,
+    [resourceId, effectiveDate, excludeId],
   );
 
-  const currentTotal = allocations.rows[0].total || 0;
-  const newTotal = currentTotal + newPercentage;
+  // Step 2: Get future allocations that will be active on effective date
+  const futureAllocations = await db.query(
+    `
+    SELECT SUM(allocation_percentage) as total
+    FROM future_allocations
+    WHERE resource_id = $1
+    AND linked_future_id != COALESCE($3, '00000000-0000-0000-0000-000000000000')
+    AND status = 'scheduled'
+    AND effective_date <= $2
+    AND change_type = 'NEW_ALLOCATION'
+  `,
+    [resourceId, effectiveDate, excludeId],
+  );
+
+  const activeTotal = activeAllocations.rows[0].total || 0;
+  const futureTotal = futureAllocations.rows[0].total || 0;
+  const newTotal = activeTotal + futureTotal + newPercentage;
 
   if (newTotal > 100) {
     throw new Error(`Capacity exceeded: ${newTotal}% on ${effectiveDate}`);
@@ -1493,24 +2306,121 @@ const validateCapacity = async (
 };
 ```
 
-### 3. Conflicting Changes
+### 5. Cancellation Rules
 
 ```javascript
-// Prevent overlapping scheduled changes
-const checkConflictingChanges = async (allocationId, effectiveDate) => {
+// Only future_allocations can be cancelled
+const cancelFutureAllocation = async (futureAllocationId) => {
+  const future = await db.query(
+    `SELECT * FROM future_allocations WHERE id = $1 AND status = 'scheduled'`,
+    [futureAllocationId],
+  );
+
+  if (!future.rows[0]) {
+    throw new Error("Future allocation not found or already processed");
+  }
+
+  // Mark as cancelled (don't delete - keep audit trail)
+  await db.query(
+    `UPDATE future_allocations SET status = 'cancelled', updated_at = NOW() WHERE id = $1`,
+    [futureAllocationId],
+  );
+
+  // If this was for a bench adjustment, also cancel that
+  if (future.rows[0].linked_future_id) {
+    await db.query(
+      `UPDATE future_allocations SET status = 'cancelled', updated_at = NOW() WHERE id = $1`,
+      [future.rows[0].linked_future_id],
+    );
+  }
+
+  return { success: true, message: "Future allocation cancelled" };
+};
+```
+
+### 6. Archive Rules
+
+```javascript
+// Move ended allocations to history (run nightly at 3:00 AM UTC)
+const archiveEndedAllocations = async () => {
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+
+  // Find allocations that ended yesterday or before
+  const ended = await db.query(
+    `
+    SELECT * FROM allocations 
+    WHERE deallocated_date IS NOT NULL 
+    AND deallocated_date <= $1
+    AND is_active = true
+  `,
+    [yesterday],
+  );
+
+  for (const allocation of ended.rows) {
+    // Insert into history
+    await db.query(
+      `
+      INSERT INTO allocation_history (
+        id, original_allocation_id, resource_id, project_id,
+        allocation_percentage, billing_status, is_billable,
+        allocated_date, deallocated_date, effective_date,
+        change_type, notes, created_by, archived_at, archive_reason
+      ) VALUES (
+        gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), 'ALLOCATION_ENDED'
+      )
+    `,
+      [
+        allocation.id,
+        allocation.resource_id,
+        allocation.project_id,
+        allocation.allocation_percentage,
+        allocation.billing_status,
+        allocation.is_billable,
+        allocation.allocated_date,
+        allocation.deallocated_date,
+        allocation.effective_date,
+        allocation.change_type,
+        allocation.notes,
+        allocation.created_by,
+      ],
+    );
+
+    // Mark original as inactive (or delete if preferred)
+    await db.query(`UPDATE allocations SET is_active = false WHERE id = $1`, [
+      allocation.id,
+    ]);
+  }
+
+  return { archived: ended.rows.length };
+};
+```
+
+### 7. Conflicting Future Allocations
+
+```javascript
+// Prevent overlapping scheduled changes for same resource+project
+const checkConflictingFuture = async (
+  resourceId,
+  projectId,
+  effectiveDate,
+  excludeId,
+) => {
   const existing = await db.query(
     `
-        SELECT * FROM allocations
-        WHERE id = $1
-        AND allocation_changed_on > CURRENT_DATE
-        AND allocation_changed_on != $2
-    `,
-    [allocationId, effectiveDate],
+    SELECT * FROM future_allocations
+    WHERE resource_id = $1
+    AND project_id = $2
+    AND effective_date = $3
+    AND status = 'scheduled'
+    AND id != COALESCE($4, '00000000-0000-0000-0000-000000000000')
+  `,
+    [resourceId, projectId, effectiveDate, excludeId],
   );
 
   if (existing.rows.length > 0) {
     throw new Error(
-      `Conflicting scheduled change exists for ${existing.rows[0].allocation_changed_on}`,
+      `A scheduled allocation already exists for this resource on ${effectiveDate}`,
     );
   }
 };
@@ -1521,11 +2431,15 @@ const checkConflictingChanges = async (allocationId, effectiveDate) => {
 ## Success Metrics
 
 1. **Accuracy:** Future utilization projections match actual allocations on effective date
-2. **Timeliness:** Scheduled changes visible immediately (not waiting for nightly job)
+2. **Timeliness:** Scheduled allocations activate exactly on effective date (1:00 AM UTC)
 3. **User Satisfaction:** Can schedule changes in advance without manual intervention
-4. **System Health:** Nightly jobs complete successfully with new logic
-5. **Data Integrity:** No orphaned bench allocations, all resources at 100% capacity
-6. **Audit Compliance:** All changes tracked with effective dates and timestamps
+4. **System Health:** Scheduler completes successfully even with 1000+ pending activations
+5. **Data Integrity:**
+   - All 3 tables maintain referential integrity
+   - No orphaned bench allocations
+   - Resources always sum to 100% capacity
+6. **Audit Compliance:** Full audit trail across all 3 tables with timestamps
+7. **Query Performance:** All table queries complete in <100ms with proper indexing
 
 ---
 
@@ -1537,47 +2451,189 @@ const checkConflictingChanges = async (allocationId, effectiveDate) => {
 
 ---
 
-## Appendix: Field Mapping Reference
+## Appendix A: 3-Table Field Mapping Reference
 
-### Database to API
+### Table 1: future_allocations
 
-| Database Column           | API Field (Create) | API Field (Update)    | UI Label              |
-| ------------------------- | ------------------ | --------------------- | --------------------- |
-| `start_date`              | `allocated_date`   | - (not editable)      | Allocated Date        |
-| `end_date`                | `deallocated_date` | `deallocated_date`    | Deallocated Date      |
-| `original_allocated_date` | auto-set           | - (not editable)      | -                     |
-| `allocation_changed_on`   | auto-set           | from `effective_date` | Allocation Changed On |
-| `allocation_status`       | auto-calculated    | auto-calculated       | Status                |
+| Column                  | Type        | Description                                 |
+| ----------------------- | ----------- | ------------------------------------------- |
+| `id`                    | UUID (PK)   | Unique identifier                           |
+| `resource_id`           | UUID (FK)   | Reference to resources table                |
+| `project_id`            | UUID (FK)   | Reference to projects table                 |
+| `allocation_percentage` | INTEGER     | 0-100                                       |
+| `billing_status`        | VARCHAR(50) | Billable/Non-Billable/Shadow                |
+| `is_billable`           | BOOLEAN     | true/false                                  |
+| `effective_date`        | DATE        | When this should activate (must be > today) |
+| `allocated_date`        | DATE        | When allocation period starts               |
+| `deallocated_date`      | DATE        | When allocation period ends (nullable)      |
+| `change_type`           | VARCHAR(50) | NEW_ALLOCATION, MODIFY_PERCENTAGE, etc.     |
+| `status`                | VARCHAR(20) | scheduled, activated, cancelled             |
+| `linked_future_id`      | UUID        | Links bench adjustment to main allocation   |
+| `notes`                 | TEXT        | Optional notes                              |
+| `created_by`            | UUID (FK)   | User who created                            |
+| `created_at`            | TIMESTAMP   | Creation timestamp                          |
+| `updated_at`            | TIMESTAMP   | Last update timestamp                       |
 
-### Status Determination Logic
+### Table 2: allocations (Modified)
+
+| Column                    | Type        | Description                                    |
+| ------------------------- | ----------- | ---------------------------------------------- |
+| `id`                      | UUID (PK)   | Unique identifier                              |
+| `resource_id`             | UUID (FK)   | Reference to resources table                   |
+| `project_id`              | UUID (FK)   | Reference to projects table                    |
+| `allocation_percentage`   | INTEGER     | 0-100                                          |
+| `billing_status`          | VARCHAR(50) | Billable/Non-Billable/Shadow                   |
+| `is_billable`             | BOOLEAN     | true/false                                     |
+| `effective_date`          | DATE        | **NEW** - When change became effective         |
+| `allocated_date`          | DATE        | **RENAMED** from start_date                    |
+| `deallocated_date`        | DATE        | **RENAMED** from end_date (nullable)           |
+| `original_allocated_date` | DATE        | **NEW** - Original start (for tracking)        |
+| `allocation_changed_on`   | TIMESTAMP   | **NEW** - When this record was created/changed |
+| `change_type`             | VARCHAR(50) | **NEW** - Type of change that created record   |
+| `notes`                   | TEXT        | Optional notes                                 |
+| `is_active`               | BOOLEAN     | Active status                                  |
+| `created_by`              | UUID (FK)   | User who created                               |
+| `created_at`              | TIMESTAMP   | Creation timestamp                             |
+| `updated_at`              | TIMESTAMP   | Last update timestamp                          |
+
+### Table 3: allocation_history
+
+| Column                    | Type        | Description                          |
+| ------------------------- | ----------- | ------------------------------------ |
+| `id`                      | UUID (PK)   | Unique identifier for history record |
+| `original_allocation_id`  | UUID        | ID from allocations table            |
+| `resource_id`             | UUID (FK)   | Reference to resources table         |
+| `project_id`              | UUID (FK)   | Reference to projects table          |
+| `allocation_percentage`   | INTEGER     | 0-100 at time of archive             |
+| `billing_status`          | VARCHAR(50) | Billable/Non-Billable/Shadow         |
+| `is_billable`             | BOOLEAN     | true/false                           |
+| `effective_date`          | DATE        | When change was effective            |
+| `allocated_date`          | DATE        | When allocation started              |
+| `deallocated_date`        | DATE        | When allocation ended                |
+| `original_allocated_date` | DATE        | Original start date                  |
+| `change_type`             | VARCHAR(50) | Type of change                       |
+| `notes`                   | TEXT        | Optional notes                       |
+| `created_by`              | UUID (FK)   | User who created original            |
+| `archived_at`             | TIMESTAMP   | When moved to history                |
+| `archive_reason`          | VARCHAR(50) | ALLOCATION_ENDED, DEALLOCATED, etc.  |
+
+---
+
+## Appendix B: API Field Mapping
+
+### POST /allocations (Create)
+
+| Request Field           | Target Table Logic                      | Notes           |
+| ----------------------- | --------------------------------------- | --------------- |
+| `resource_id`           | Both tables                             | Required        |
+| `project_id`            | Both tables                             | Required        |
+| `allocation_percentage` | Both tables                             | Required, 0-100 |
+| `billing_status`        | Both tables                             | Required        |
+| `effective_date`        | Determines table: future or allocations | Required        |
+| `allocated_date`        | Both tables                             | Required        |
+| `deallocated_date`      | Both tables                             | Optional        |
+| `notes`                 | Both tables                             | Optional        |
+
+### GET /allocations Response
 
 ```javascript
-const determineStatus = (allocation) => {
+// Response includes allocations + future_allocations combined
+{
+  "allocations": [
+    {
+      "id": "uuid",
+      "resource_id": "uuid",
+      "project_id": "uuid",
+      "allocation_percentage": 50,
+      "billing_status": "Billable",
+      "effective_date": "2026-01-25",
+      "allocated_date": "2026-01-25",
+      "deallocated_date": null,
+      "change_type": "NEW_ALLOCATION",
+      "status": "active",           // calculated
+      "source_table": "allocations" // indicates which table
+    },
+    {
+      "id": "uuid",
+      "resource_id": "uuid",
+      "project_id": "uuid",
+      "allocation_percentage": 30,
+      "billing_status": "Non-Billable",
+      "effective_date": "2026-02-01",
+      "allocated_date": "2026-02-01",
+      "deallocated_date": null,
+      "change_type": "NEW_ALLOCATION",
+      "status": "scheduled",         // calculated
+      "source_table": "future_allocations"
+    }
+  ]
+}
+```
+
+---
+
+## Appendix C: Status Determination Logic
+
+```javascript
+const determineAllocationStatus = (allocation, sourceTable) => {
   const today = new Date().toISOString().split("T")[0];
 
-  if (allocation.is_active === false) {
-    return "Cancelled";
+  // Future allocations
+  if (sourceTable === "future_allocations") {
+    if (allocation.status === "cancelled") return "Cancelled";
+    if (allocation.status === "activated") return "Activated";
+    return "Scheduled"; // Pending activation
   }
 
-  if (allocation.end_date && allocation.end_date < today) {
-    return "Ended";
+  // Active allocations
+  if (sourceTable === "allocations") {
+    if (allocation.is_active === false) return "Inactive";
+    if (allocation.deallocated_date && allocation.deallocated_date < today) {
+      return "Ended"; // Should be in history
+    }
+    return "Active";
   }
 
-  if (allocation.start_date > today) {
-    return "Pending";
+  // History
+  if (sourceTable === "allocation_history") {
+    return "Archived";
   }
 
-  if (allocation.allocation_changed_on > today) {
-    return "Active"; // But with pending changes
-  }
+  return "Unknown";
+};
 
-  return "Active";
+// UI Badge colors
+const statusBadgeColors = {
+  Scheduled: "bg-blue-100 text-blue-800", // Future
+  Active: "bg-green-100 text-green-800", // Current
+  Ended: "bg-gray-100 text-gray-800", // Past
+  Archived: "bg-gray-100 text-gray-600", // History
+  Cancelled: "bg-red-100 text-red-800", // Cancelled future
+  Inactive: "bg-yellow-100 text-yellow-800", // Deactivated
 };
 ```
 
 ---
 
-**Document Version:** 2.0  
+## Appendix D: Scheduler Job Schedule
+
+| Job Name                       | Schedule    | Description                                 |
+| ------------------------------ | ----------- | ------------------------------------------- |
+| `activateScheduledAllocations` | 1:00 AM UTC | Move future_allocations → allocations       |
+| `archiveEndedAllocations`      | 3:00 AM UTC | Move ended allocations → allocation_history |
+| `gapDetectionJob`              | 2:00 AM UTC | Detect bench allocation gaps (existing)     |
+
+**Job Order:** Activation (1 AM) → Gap Detection (2 AM) → Archive (3 AM)
+
+This ensures:
+
+1. Future allocations activate first
+2. Gap detection runs on fresh data
+3. Archive runs last to clean up ended allocations
+
+---
+
+**Document Version:** 3.0  
 **Last Updated:** January 31, 2026  
-**Status:** Approved for Implementation  
+**Status:** Approved for Implementation - 3-Table Architecture  
 **Author:** Development Team
