@@ -96,6 +96,14 @@ functions:
           method: PUT
           authorizer: ${self:custom.authorizer}
 
+  deleteDesignation:
+    handler: src/handlers/designations.remove
+    events:
+      - httpApi:
+          path: /api/v1/designations/{id}
+          method: DELETE
+          authorizer: ${self:custom.authorizer}
+
   # ==================== TRACKS ====================
   listTracks:
     handler: src/handlers/tracks.list
@@ -127,6 +135,14 @@ functions:
       - httpApi:
           path: /api/v1/tracks/{id}
           method: PUT
+          authorizer: ${self:custom.authorizer}
+
+  deleteTrack:
+    handler: src/handlers/tracks.remove
+    events:
+      - httpApi:
+          path: /api/v1/tracks/{id}
+          method: DELETE
           authorizer: ${self:custom.authorizer}
 
   # ==================== TIERS ====================

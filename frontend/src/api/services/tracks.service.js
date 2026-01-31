@@ -71,6 +71,17 @@ export const tracksService = {
     // Status: 200 OK, 404 Not Found, 409 Conflict (if name already exists)
     return response.data || response;
   },
+
+  /**
+   * Delete track
+   * @param {string} id - Track ID
+   * @returns {Promise<{success: boolean, message: string}>}
+   */
+  delete: async (id) => {
+    const response = await apiClient.delete(ENDPOINTS.TRACKS.DELETE(id));
+    // The interceptor transforms the response
+    return response.data || response;
+  },
 };
 
 export default tracksService;

@@ -48,6 +48,7 @@ export const ENDPOINTS = {
     GET_BY_ID: (id) => `${BASE_URL}/tracks/${id}`,
     CREATE: `${BASE_URL}/tracks`,
     UPDATE: (id) => `${BASE_URL}/tracks/${id}`,
+    DELETE: (id) => `${BASE_URL}/tracks/${id}`,
   },
 
   // Tags
@@ -67,6 +68,7 @@ export const ENDPOINTS = {
     GET_BY_ID: (id) => `${BASE_URL}/designations/${id}`,
     CREATE: `${BASE_URL}/designations`,
     UPDATE: (id) => `${BASE_URL}/designations/${id}`,
+    DELETE: (id) => `${BASE_URL}/designations/${id}`,
     HISTORY: (id) => `${BASE_URL}/designations/${id}/history`,
   },
 

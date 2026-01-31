@@ -173,19 +173,28 @@ const Configurations = () => {
               disabled: true,
             },
           });
-          // Note: API doesn't have DELETE endpoint, so we'll deactivate instead
-          await designationsService.update(record.id, {
-            name: record.name,
-            level: record.level,
-            is_active: false,
-          });
 
-          message.success('Designation deactivated successfully');
-          fetchDesignations();
-          modal.destroy();
+          const response = await designationsService.delete(record.id);
+
+          if (response && (response.success !== false || response.message)) {
+            showSuccessToast('Designation deleted successfully');
+            await fetchDesignations();
+            modal.destroy();
+          } else {
+            showErrorToast(response?.message || 'Failed to delete designation');
+            modal.update({
+              okButtonProps: {
+                loading: false,
+                disabled: false,
+              },
+              cancelButtonProps: {
+                disabled: false,
+              },
+            });
+          }
         } catch (error) {
           console.error('Failed to delete designation:', error);
-          message.error(error?.message || 'Failed to delete designation');
+          showErrorToast(error?.message || 'Failed to delete designation');
           modal.update({
             okButtonProps: {
               loading: false,
@@ -289,23 +298,28 @@ const Configurations = () => {
               disabled: true,
             },
           });
-          // Note: API doesn't have DELETE endpoint, so we'll deactivate instead
-          // If DELETE endpoint exists, uncomment below:
-          // await tracksService.delete(record.id);
 
-          // For now, update to inactive
-          await tracksService.update(record.id, {
-            name: record.name,
-            description: record.description,
-            is_active: false,
-          });
+          const response = await tracksService.delete(record.id);
 
-          message.success('Track deactivated successfully');
-          fetchTracks();
-          modal.destroy();
+          if (response && (response.success !== false || response.message)) {
+            showSuccessToast('Track deleted successfully');
+            await fetchTracks();
+            modal.destroy();
+          } else {
+            showErrorToast(response?.message || 'Failed to delete track');
+            modal.update({
+              okButtonProps: {
+                loading: false,
+                disabled: false,
+              },
+              cancelButtonProps: {
+                disabled: false,
+              },
+            });
+          }
         } catch (error) {
           console.error('Failed to delete track:', error);
-          message.error(error?.message || 'Failed to delete track');
+          showErrorToast(error?.message || 'Failed to delete track');
           modal.update({
             okButtonProps: {
               loading: false,
@@ -561,6 +575,7 @@ const Configurations = () => {
           if (response && (response.success !== false || response.data)) {
             showSuccessToast('Billing status deleted successfully');
             await fetchBillingStatuses();
+            modal.destroy();
           } else {
             showErrorToast(response?.message || 'Failed to delete billing status');
             modal.update({
@@ -691,6 +706,7 @@ const Configurations = () => {
           if (response && (response.success !== false || response.data)) {
             showSuccessToast('Project type deleted successfully');
             await fetchProjectTypesConfig();
+            modal.destroy();
           } else {
             showErrorToast(response?.message || 'Failed to delete project type');
             modal.update({
@@ -1173,11 +1189,11 @@ const Configurations = () => {
           const response = await projectsService.delete(record.id);
 
           if (response && (response.success !== false || response.message)) {
-            message.success('Project deleted successfully');
+            showSuccessToast('Project deleted successfully');
             await fetchProjectTypes(projectTypePagination.current, projectTypePagination.pageSize);
             modal.destroy();
           } else {
-            message.error(response?.message || 'Failed to delete project');
+            showErrorToast(response?.message || 'Failed to delete project');
             modal.update({
               okButtonProps: {
                 loading: false,
@@ -1190,7 +1206,7 @@ const Configurations = () => {
           }
         } catch (error) {
           console.error('Failed to delete project:', error);
-          message.error(error?.message || 'Failed to delete project');
+          showErrorToast(error?.message || 'Failed to delete project');
           modal.update({
             okButtonProps: {
               loading: false,
@@ -1263,6 +1279,8 @@ const Configurations = () => {
           client_id: client_id,
           status: status,
           description: values.description || '',
+          start_date: values.start_date ? values.start_date.format('YYYY-MM-DD') : null,
+          end_date: values.end_date ? values.end_date.format('YYYY-MM-DD') : null,
         };
 
         const response = await projectsService.update(selectedItem.id, updatePayload);
@@ -1484,11 +1502,11 @@ const Configurations = () => {
           const response = await clientsService.delete(record.id);
 
           if (response && (response.success !== false || response.message)) {
-            message.success('Client deleted successfully');
+            showSuccessToast('Client deleted successfully');
             await fetchClientsList(clientPagination.current, clientPagination.pageSize);
             modal.destroy();
           } else {
-            message.error(response?.message || 'Failed to delete client');
+            showErrorToast(response?.message || 'Failed to delete client');
             modal.update({
               okButtonProps: {
                 loading: false,
@@ -1501,7 +1519,7 @@ const Configurations = () => {
           }
         } catch (error) {
           console.error('Failed to delete client:', error);
-          message.error(error?.message || 'Failed to delete client');
+          showErrorToast(error?.message || 'Failed to delete client');
           modal.update({
             okButtonProps: {
               loading: false,

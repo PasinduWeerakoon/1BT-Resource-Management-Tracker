@@ -195,3 +195,54 @@ export const update = async (event) => {
         return error('Failed to update track', err);
     }
 };
+
+/**
+ * Delete a track
+ */
+export const remove = async (event) => {
+    const log = logger.child({ handler: 'tracks.remove' });
+    const { id } = event.pathParameters;
+    const userId = event.requestContext?.authorizer?.jwt?.claims?.sub;
+
+    try {
+        log.info('Deleting track', { id, userId });
+
+        // Check if exists and get current data for audit
+        const existingResult = await db.query('SELECT * FROM tracks WHERE id = $1', [id]);
+        if (existingResult.rows.length === 0) {
+            return notFound('Track not found');
+        }
+        const existing = existingResult.rows[0];
+
+        // Check if track is being used by any resources
+        const usageCheck = await db.query(
+            'SELECT COUNT(*) as count FROM resources WHERE track_id = $1',
+            [id]
+        );
+
+        if (parseInt(usageCheck.rows[0].count) > 0) {
+            return error('Cannot delete track that is in use by resources', null, 409);
+        }
+
+        const query = 'DELETE FROM tracks WHERE id = $1 RETURNING *';
+        const result = await db.query(query, [id]);
+
+        // Send audit event for track deletion
+        await audit.delete(
+            event,
+            'track',
+            id,
+            existing.name,
+            existing,
+            SERVICE_NAME
+        );
+
+        log.info('Track deleted', { id });
+
+        return success({ message: 'Track deleted successfully', data: result.rows[0] });
+
+    } catch (err) {
+        log.error('Failed to delete track', { id, error: err.message });
+        return error('Failed to delete track', err);
+    }
+};

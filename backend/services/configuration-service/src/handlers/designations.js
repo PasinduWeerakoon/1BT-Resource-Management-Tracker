@@ -200,3 +200,54 @@ export const update = async (event) => {
         return error('Failed to update designation', err);
     }
 };
+
+/**
+ * Delete a designation
+ */
+export const remove = async (event) => {
+    const log = logger.child({ handler: 'designations.remove' });
+    const { id } = event.pathParameters;
+    const userId = event.requestContext?.authorizer?.jwt?.claims?.sub;
+
+    try {
+        log.info('Deleting designation', { id, userId });
+
+        // Check if exists and get current data for audit
+        const existingResult = await db.query('SELECT * FROM designations WHERE id = $1', [id]);
+        if (existingResult.rows.length === 0) {
+            return notFound('Designation not found');
+        }
+        const existing = existingResult.rows[0];
+
+        // Check if designation is being used by any resources
+        const usageCheck = await db.query(
+            'SELECT COUNT(*) as count FROM resources WHERE designation_id = $1',
+            [id]
+        );
+
+        if (parseInt(usageCheck.rows[0].count) > 0) {
+            return error('Cannot delete designation that is in use by resources', null, 409);
+        }
+
+        const query = 'DELETE FROM designations WHERE id = $1 RETURNING *';
+        const result = await db.query(query, [id]);
+
+        // Send audit event for designation deletion
+        await audit.delete(
+            event,
+            'designation',
+            id,
+            existing.name,
+            existing,
+            SERVICE_NAME
+        );
+
+        log.info('Designation deleted', { id });
+
+        return success({ message: 'Designation deleted successfully', data: result.rows[0] });
+
+    } catch (err) {
+        log.error('Failed to delete designation', { id, error: err.message });
+        return error('Failed to delete designation', err);
+    }
+};

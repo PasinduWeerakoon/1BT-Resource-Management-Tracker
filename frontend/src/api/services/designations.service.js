@@ -68,6 +68,17 @@ export const designationsService = {
   },
 
   /**
+   * Delete designation
+   * @param {string} id - Designation ID
+   * @returns {Promise<{success: boolean, message: string}>}
+   */
+  delete: async (id) => {
+    const response = await apiClient.delete(ENDPOINTS.DESIGNATIONS.DELETE(id));
+    // The interceptor transforms the response
+    return response.data || response;
+  },
+
+  /**
    * Get designation history
    * @param {string} id - Designation ID
    * @returns {Promise<{success: boolean, data: Array<{resource_name: string, effective_date: string, end_date: string}>}>}
