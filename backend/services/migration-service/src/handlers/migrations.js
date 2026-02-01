@@ -1409,6 +1409,138 @@ const migrations = [
 
             logger.info('Migration 022 completed: future_allocations created_by constraint removed and columns fixed');
         }
+    },
+    {
+        id: '023',
+        name: 'Update resource total_allocation and total_billing for all resources',
+        up: async (client) => {
+            logger.info('Running migration 023: Update resource totals');
+
+            // Update all resources' total_allocation and total_billing based on active allocations
+            await client.query(`
+                UPDATE resources r
+                SET 
+                    total_allocation = COALESCE((
+                        SELECT SUM(a.allocation_percentage)
+                        FROM allocations a
+                        JOIN projects p ON a.project_id = p.id
+                        WHERE a.resource_id = r.id
+                        AND a.is_active = true
+                        AND a.deleted_at IS NULL
+                        AND p.is_bench_project = false
+                    ), 0),
+                    total_billing = COALESCE((
+                        SELECT SUM(a.billing_percentage)
+                        FROM allocations a
+                        JOIN projects p ON a.project_id = p.id
+                        WHERE a.resource_id = r.id
+                        AND a.is_active = true
+                        AND a.deleted_at IS NULL
+                        AND p.billing_status = 'Billing'
+                        AND p.is_bench_project = false
+                    ), 0),
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE deleted_at IS NULL
+            `);
+
+            logger.info('Migration 023 completed: All resource totals updated');
+        }
+    },
+    {
+        id: '024',
+        name: 'Performance Indexes for common query patterns',
+        up: async (client) => {
+            logger.info('Running migration 024: Add performance indexes');
+
+            // Projects table indexes
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS idx_projects_status_deleted 
+                ON projects(status) WHERE deleted_at IS NULL
+            `);
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS idx_projects_account_manager_id 
+                ON projects(account_manager_id) WHERE deleted_at IS NULL
+            `);
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS idx_projects_client_id 
+                ON projects(client_id) WHERE deleted_at IS NULL
+            `);
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS idx_projects_is_bench 
+                ON projects(is_bench_project) WHERE deleted_at IS NULL AND is_bench_project = true
+            `);
+
+            // Resources table indexes
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS idx_resources_status_deleted 
+                ON resources(status) WHERE deleted_at IS NULL
+            `);
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS idx_resources_track_id 
+                ON resources(track_id) WHERE deleted_at IS NULL
+            `);
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS idx_resources_designation_id 
+                ON resources(designation_id) WHERE deleted_at IS NULL
+            `);
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS idx_resources_is_account_manager 
+                ON resources(is_account_manager) WHERE deleted_at IS NULL AND is_account_manager = true
+            `);
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS idx_resources_active_list 
+                ON resources(status, track_id, designation_id) WHERE deleted_at IS NULL
+            `);
+
+            // Allocations table indexes
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS idx_allocations_resource_active 
+                ON allocations(resource_id) WHERE is_active = true AND deleted_at IS NULL
+            `);
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS idx_allocations_project_active 
+                ON allocations(project_id) WHERE is_active = true AND deleted_at IS NULL
+            `);
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS idx_allocations_date_range 
+                ON allocations(allocated_date, deallocated_date) WHERE is_active = true AND deleted_at IS NULL
+            `);
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS idx_allocations_totals_calc 
+                ON allocations(resource_id, allocation_percentage, billing_percentage) 
+                WHERE is_active = true AND deleted_at IS NULL
+            `);
+
+            // Future allocations table indexes
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS idx_future_alloc_effective_date_pending 
+                ON future_allocations(effective_date) WHERE status = 'scheduled'
+            `);
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS idx_future_alloc_resource_pending 
+                ON future_allocations(resource_id) WHERE status = 'scheduled'
+            `);
+
+            // Clients table indexes
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS idx_clients_is_active 
+                ON clients(is_active)
+            `);
+
+            // Tracks table indexes
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS idx_tracks_billable 
+                ON tracks(is_billable_track) WHERE is_billable_track = true
+            `);
+
+            // Designations table indexes
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS idx_designations_active 
+                ON designations(is_active) WHERE is_active = true
+            `);
+
+            logger.info('Migration 024 completed: Performance indexes created');
+        }
     }
 ];
 

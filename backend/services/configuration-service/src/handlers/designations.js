@@ -69,11 +69,15 @@ export const create = async (event) => {
         const body = JSON.parse(event.body || '{}');
         const validated = validate(body, designationSchemas.create);
 
+        // Get user info from auth context
+        const cognitoSub = event.requestContext?.authorizer?.jwt?.claims?.sub;
+        let createdBy = '00000000-0000-0000-0000-000000000000'; // Default system user
+
         log.info('Creating designation', { name: validated.name });
 
         const query = `
-            INSERT INTO designations (name, level, is_intern_role, is_active)
-            VALUES ($1, $2, $3, $4)
+            INSERT INTO designations (name, level, is_intern_role, is_active, created_by)
+            VALUES ($1, $2, $3, $4, $5)
             RETURNING *
         `;
 
@@ -81,7 +85,8 @@ export const create = async (event) => {
             validated.name,
             validated.level,
             validated.is_intern_role ?? false,
-            validated.is_active ?? true
+            validated.is_active ?? true,
+            createdBy
         ];
 
         const result = await db.query(query, params);

@@ -78,6 +78,8 @@ const AccountManagerReport = () => {
     const [loadingResourceAllocations, setLoadingResourceAllocations] = useState(false);
     const [selectedResourceId, setSelectedResourceId] = useState(null);
     const [selectedResourceName, setSelectedResourceName] = useState('');
+    const [selectedResourceTotalAllocation, setSelectedResourceTotalAllocation] = useState(0);
+    const [selectedResourceTotalBilling, setSelectedResourceTotalBilling] = useState(0);
     const [accountManagersList, setAccountManagersList] = useState([]);
     const [loadingAccountManagers, setLoadingAccountManagers] = useState(false);
     const [projectsForFilter, setProjectsForFilter] = useState([]);
@@ -1603,6 +1605,8 @@ const AccountManagerReport = () => {
 
         setSelectedResourceId(record.resource_id);
         setSelectedResourceName(record.employeeName || 'N/A');
+        setSelectedResourceTotalAllocation(parseFloat(record.total_allocation || 0));
+        setSelectedResourceTotalBilling(parseFloat(record.total_billing || 0));
         setIsResourceAllocationsModalVisible(true);
 
         try {
@@ -3444,11 +3448,47 @@ const AccountManagerReport = () => {
                     setResourceAllocationsData([]);
                     setSelectedResourceId(null);
                     setSelectedResourceName('');
+                    setSelectedResourceTotalAllocation(0);
+                    setSelectedResourceTotalBilling(0);
                 }}
                 width={1400}
                 footer={null}
             >
-                {/* Active Allocations Section */}
+                {/* Resource Summary Card */}
+                <div style={{
+                    marginBottom: 20,
+                    padding: '16px 20px',
+                    backgroundColor: '#fafafa',
+                    borderRadius: 8,
+                    border: '1px solid #d9d9d9'
+                }}>
+                    <Row gutter={24}>
+                        <Col span={12}>
+                            <div style={{ display: 'flex', alignItems: 'center' }}>
+                                <PercentageOutlined style={{ fontSize: 24, color: '#1890ff', marginRight: 12 }} />
+                                <div>
+                                    <div style={{ fontSize: 12, color: '#8c8c8c', marginBottom: 4 }}>Total Allocation</div>
+                                    <div style={{ fontSize: 24, fontWeight: 600, color: '#262626' }}>
+                                        {selectedResourceTotalAllocation.toFixed(0)}%
+                                    </div>
+                                </div>
+                            </div>
+                        </Col>
+                        <Col span={12}>
+                            <div style={{ display: 'flex', alignItems: 'center' }}>
+                                <DollarOutlined style={{ fontSize: 24, color: '#52c41a', marginRight: 12 }} />
+                                <div>
+                                    <div style={{ fontSize: 12, color: '#8c8c8c', marginBottom: 4 }}>Total Billing</div>
+                                    <div style={{ fontSize: 24, fontWeight: 600, color: '#262626' }}>
+                                        {selectedResourceTotalBilling.toFixed(0)}%
+                                    </div>
+                                </div>
+                            </div>
+                        </Col>
+                    </Row>
+                </div>
+
+                {/* Current Allocations Section */}
                 <div style={{ marginBottom: 24 }}>
                     <div style={{
                         display: 'flex',

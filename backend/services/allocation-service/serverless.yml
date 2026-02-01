@@ -43,7 +43,7 @@ provider:
     id: !ImportValue onebt-${self:provider.stage}-HttpApiId
 
   layers:
-    - !ImportValue onebt-shared-layer-${self:provider.stage}-arn
+    - arn:aws:lambda:ap-southeast-1:550586832874:layer:onebt-shared-libs-dev:55
 
 plugins:
   - serverless-offline
@@ -56,6 +56,7 @@ package:
     - "!*.md"
     - "!tests/**"
     - "src/**"
+    - "package.json"
 
 custom:
   authorizer:
@@ -65,7 +66,7 @@ custom:
 functions:
   # ==================== ALLOCATIONS ====================
   listAllocations:
-    handler: src/handlers/allocations.list
+    handler: src/handlers/allocations/index.list
     description: List all allocations with filters
     events:
       - httpApi:
@@ -74,7 +75,7 @@ functions:
           authorizer: ${self:custom.authorizer}
 
   getAllocation:
-    handler: src/handlers/allocations.getById
+    handler: src/handlers/allocations/index.getById
     description: Get an allocation by ID
     events:
       - httpApi:
@@ -83,7 +84,7 @@ functions:
           authorizer: ${self:custom.authorizer}
 
   createAllocation:
-    handler: src/handlers/allocations.create
+    handler: src/handlers/allocations/index.create
     description: Create a new allocation
     events:
       - httpApi:
@@ -92,7 +93,7 @@ functions:
           authorizer: ${self:custom.authorizer}
 
   updateAllocation:
-    handler: src/handlers/allocations.update
+    handler: src/handlers/allocations/index.update
     description: Update an existing allocation
     events:
       - httpApi:
@@ -101,7 +102,7 @@ functions:
           authorizer: ${self:custom.authorizer}
 
   deleteAllocation:
-    handler: src/handlers/allocations.remove
+    handler: src/handlers/allocations/index.remove
     description: Remove an allocation
     events:
       - httpApi:
@@ -110,7 +111,7 @@ functions:
           authorizer: ${self:custom.authorizer}
 
   getMonthlyAllocations:
-    handler: src/handlers/allocations.getMonthly
+    handler: src/handlers/allocations/index.getMonthly
     description: Get monthly allocation view
     events:
       - httpApi:
@@ -119,7 +120,7 @@ functions:
           authorizer: ${self:custom.authorizer}
 
   getAllocationHistory:
-    handler: src/handlers/allocations.getHistory
+    handler: src/handlers/allocations/index.getHistory
     description: Get allocation history for a resource
     events:
       - httpApi:
@@ -129,7 +130,7 @@ functions:
 
   # ==================== SCHEDULED JOBS ====================
   gapDetectionJob:
-    handler: src/handlers/allocations.gapDetectionJob
+    handler: src/handlers/allocations/index.gapDetectionJob
     description: Nightly job to detect and fill allocation gaps with Bench
     timeout: 300
     events:
@@ -139,7 +140,7 @@ functions:
           enabled: true
 
   billingStatusTransitionJob:
-    handler: src/handlers/allocations.billingStatusTransitionJob
+    handler: src/handlers/allocations/index.billingStatusTransitionJob
     description: Daily job to auto-transition billing status based on project type
     timeout: 300
     events:
@@ -148,7 +149,7 @@ functions:
           description: Enhancement 3.10 - Auto-Transition Billing Status
           enabled: true
   utilizationSnapshotJob:
-    handler: src/handlers/allocations.utilizationSnapshotJob
+    handler: src/handlers/allocations/index.utilizationSnapshotJob
     description: Daily job to capture historical utilization snapshots
     timeout: 300
     events:

@@ -16,8 +16,8 @@ This guide explains how to securely access your private RDS database using the B
 
 | Property                | Value                                                        |
 | ----------------------- | ------------------------------------------------------------ |
-| **Bastion IP**          | `122.248.226.217`                                            |
-| **Bastion Instance ID** | `i-058ec151b188554e3`                                        |
+| **Bastion IP**          | `13.215.178.253`                                             |
+| **Bastion Instance ID** | `i-0aa1977f8b318aada`                                        |
 | **RDS Endpoint**        | `onebt-db-dev.cpg2g0wb7axs.ap-southeast-1.rds.amazonaws.com` |
 | **Database Name**       | `resource_management_dev`                                    |
 | **Database User**       | `dbadmin`                                                    |
@@ -30,7 +30,7 @@ To get shell access to the bastion instance:
 
 ```bash
 # From the infrastructure directory
-ssh -i onebt-bastion-dev.pem ec2-user@122.248.226.217
+ssh -i onebt-bastion-dev.pem ec2-user@13.215.178.253
 ```
 
 **First time connection?** You'll be asked to accept the host key - type `yes`.
@@ -64,7 +64,7 @@ To access the private RDS database from your local machine using a GUI tool:
 cd C:\Users\HIRUN\Documents\1BT\1BT-Resource-Management-Tracker\backend\infrastructure
 
 # Start SSH tunnel - forwards local port 5433 to RDS port 5432
-ssh -i onebt-bastion-dev.pem -L 5433:onebt-db-dev.cpg2g0wb7axs.ap-southeast-1.rds.amazonaws.com:5432 -N ec2-user@122.248.226.217
+ssh -i onebt-bastion-dev.pem -L 5433:onebt-db-dev.cpg2g0wb7axs.ap-southeast-1.rds.amazonaws.com:5432 -N ec2-user@13.215.178.253
 ```
 
 ### Bash (Mac/Linux)
@@ -77,7 +77,7 @@ cd ~/Documents/1BT/1BT-Resource-Management-Tracker/backend/infrastructure
 chmod 400 onebt-bastion-dev.pem
 
 # Start SSH tunnel
-ssh -i onebt-bastion-dev.pem -L 5433:onebt-db-dev.cpg2g0wb7axs.ap-southeast-1.rds.amazonaws.com:5432 -N ec2-user@122.248.226.217
+ssh -i onebt-bastion-dev.pem -L 5433:onebt-db-dev.cpg2g0wb7axs.ap-southeast-1.rds.amazonaws.com:5432 -N ec2-user@13.215.178.253
 ```
 
 ### Connect Your Database Client
@@ -129,7 +129,7 @@ aws secretsmanager get-secret-value \
 ### Check Bastion Status
 
 ```bash
-aws ec2 describe-instances --instance-ids i-058ec151b188554e3 --region ap-southeast-1 --query "Reservations[0].Instances[0].{State:State.Name,PublicIp:PublicIpAddress}" --output table
+aws ec2 describe-instances --instance-ids i-0aa1977f8b318aada --region ap-southeast-1 --query "Reservations[0].Instances[0].{State:State.Name,PublicIp:PublicIpAddress}" --output table
 ```
 
 ### Bastion IP Changed?
@@ -148,7 +148,7 @@ aws cloudformation describe-stacks --stack-name onebt-infrastructure-dev --regio
 2. The bastion security group allows SSH (port 22) from anywhere - in production, restrict to your IP
 3. Consider stopping the bastion instance when not in use to save costs:
    ```bash
-   aws ec2 stop-instances --instance-ids i-058ec151b188554e3 --region ap-southeast-1
+   aws ec2 stop-instances --instance-ids i-0aa1977f8b318aada --region ap-southeast-1
    ```
 
 ---
@@ -157,17 +157,17 @@ aws cloudformation describe-stacks --stack-name onebt-infrastructure-dev --regio
 
 ```bash
 # SSH to bastion
-ssh -i onebt-bastion-dev.pem ec2-user@122.248.226.217
+ssh -i onebt-bastion-dev.pem ec2-user@13.215.178.253
 
 # SSH tunnel for local DB access
-ssh -i onebt-bastion-dev.pem -L 5433:onebt-db-dev.cpg2g0wb7axs.ap-southeast-1.rds.amazonaws.com:5432 -N ec2-user@122.248.226.217
+ssh -i onebt-bastion-dev.pem -L 5433:onebt-db-dev.cpg2g0wb7axs.ap-southeast-1.rds.amazonaws.com:5432 -N ec2-user@13.215.178.253
 
 # Get DB password
 aws secretsmanager get-secret-value --secret-id "rds!db-83479c20-33e3-4a5e-aa06-3f2e2e73e749" --query "SecretString" --output text --region ap-southeast-1 | jq -r '.password'
 
 # Start bastion if stopped
-aws ec2 start-instances --instance-ids i-058ec151b188554e3 --region ap-southeast-1
+aws ec2 start-instances --instance-ids i-0aa1977f8b318aada --region ap-southeast-1
 
 # Stop bastion to save costs
-aws ec2 stop-instances --instance-ids i-058ec151b188554e3 --region ap-southeast-1
+aws ec2 stop-instances --instance-ids i-0aa1977f8b318aada --region ap-southeast-1
 ```

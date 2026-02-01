@@ -216,7 +216,7 @@ const createInitialBenchAllocation = async (tx, resourceId, trackId, userId, log
                 projectId: benchProjectId,
                 allocationPercentage: '100',
                 billingPercentage: '0', // Bench is non-billing
-                startDate: new Date().toISOString().split('T')[0], // YYYY-MM-DD format
+                allocatedDate: new Date().toISOString().split('T')[0], // YYYY-MM-DD format
                 isActive: true,
                 notes: 'Auto-created bench allocation for new resource',
                 createdBy: userId
@@ -299,24 +299,25 @@ export const list = async (event) => {
             paramIndex++;
         }
 
-        // Get total count
-        const countQuery = `
-            SELECT COUNT(*) as total 
-            FROM resources r 
-            ${whereClause}
-        `;
-        const countResult = await db.query(countQuery, params);
-        const total = parseInt(countResult.rows[0].total);
-
-        // Get paginated results with joins and tags
-        // Note: r.* includes all resource columns including employee_type
-        // Tags are aggregated using json_agg for the many-to-many relationship
+        // Optimized: Combined query using CTE and window function for count
+        // This avoids two separate round-trips to the database
         const dataQuery = `
+            WITH filtered_resources AS (
+                SELECT 
+                    r.*,
+                    d.name as designation_name,
+                    d.level as designation_level,
+                    t.name as track_name,
+                    COUNT(*) OVER() as total_count
+                FROM resources r
+                LEFT JOIN designations d ON r.designation_id = d.id
+                LEFT JOIN tracks t ON r.track_id = t.id
+                ${whereClause}
+                ORDER BY r.name ASC
+                LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+            )
             SELECT 
-                r.*,
-                d.name as designation_name,
-                d.level as designation_level,
-                t.name as track_name,
+                fr.*,
                 COALESCE(
                     json_agg(
                         json_build_object(
@@ -327,23 +328,29 @@ export const list = async (event) => {
                     ) FILTER (WHERE tg.id IS NOT NULL),
                     '[]'::json
                 ) as tags
-            FROM resources r
-            LEFT JOIN designations d ON r.designation_id = d.id
-            LEFT JOIN tracks t ON r.track_id = t.id
-            LEFT JOIN resource_tags rt ON r.id = rt.resource_id
+            FROM filtered_resources fr
+            LEFT JOIN resource_tags rt ON fr.id = rt.resource_id
             LEFT JOIN tags tg ON rt.tag_id = tg.id
-            ${whereClause}
-            GROUP BY r.id, d.id, t.id
-            ORDER BY r.name ASC
-            LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+            GROUP BY fr.id, fr.employee_id, fr.employee_number, fr.name, fr.phone_number, 
+                     fr.email, fr.address, fr.designation_id, fr.track_id, fr.intern_classification,
+                     fr.skills, fr.date_of_joining, fr.status, fr.notice_period_end_date, 
+                     fr.deleted_at, fr.version, fr.created_at, fr.updated_at, fr.created_by, 
+                     fr.updated_by, fr.is_account_manager, fr.tier, fr.tech_stack, fr.date_of_birth,
+                     fr.nic_passport, fr.is_intern, fr.photo_url, fr.total_allocation, fr.total_billing,
+                     fr.is_external_consultant, fr.employee_type, fr.designation_name, fr.designation_level, 
+                     fr.track_name, fr.total_count
+            ORDER BY fr.name ASC
         `;
         params.push(limit, offset);
 
         const result = await db.query(dataQuery, params);
 
+        // Extract total from first row (or 0 if no results)
+        const total = result.rows.length > 0 ? parseInt(result.rows[0].total_count) : 0;
+
         // Transform tags from JSON array to proper format
-        // Ensure employee_type and tags are included in response
-        const transformedData = result.rows.map(row => {
+        // Remove total_count from response, ensure employee_type and tags are included
+        const transformedData = result.rows.map(({ total_count, ...row }) => {
             let tagsArray = [];
             try {
                 if (row.tags && typeof row.tags === 'string') {

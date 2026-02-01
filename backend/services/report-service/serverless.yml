@@ -43,7 +43,7 @@ provider:
     id: !ImportValue onebt-${self:provider.stage}-HttpApiId
 
   layers:
-    - !ImportValue onebt-shared-layer-${self:provider.stage}-arn
+    - arn:aws:lambda:ap-southeast-1:550586832874:layer:onebt-shared-libs-dev:55
 
 plugins:
   - serverless-offline
@@ -56,6 +56,7 @@ package:
     - "!*.md"
     - "!tests/**"
     - "src/**"
+    - "package.json"
 
 custom:
   authorizer:
@@ -65,7 +66,7 @@ custom:
 functions:
   # ==================== REPORTS ====================
   benchReport:
-    handler: src/handlers/reports.getBenchReport
+    handler: src/handlers/reports/index.getBenchReport
     description: Get bench resources report
     events:
       - httpApi:
@@ -74,7 +75,7 @@ functions:
           authorizer: ${self:custom.authorizer}
 
   accountManagerReport:
-    handler: src/handlers/reports.getAccountManagerReport
+    handler: src/handlers/reports/index.getAccountManagerReport
     description: Get account manager report with filters, charts, and tables
     events:
       - httpApi:
@@ -83,7 +84,7 @@ functions:
           authorizer: ${self:custom.authorizer}
 
   listAccountManagers:
-    handler: src/handlers/reports.getAccountManagers
+    handler: src/handlers/reports/index.getAccountManagers
     description: Get list of all account managers
     events:
       - httpApi:
@@ -92,7 +93,7 @@ functions:
           authorizer: ${self:custom.authorizer}
 
   employeeReport:
-    handler: src/handlers/reports.getEmployeeReport
+    handler: src/handlers/reports/index.getEmployeeReport
     description: Get employee allocation report
     events:
       - httpApi:
@@ -101,7 +102,7 @@ functions:
           authorizer: ${self:custom.authorizer}
 
   internReport:
-    handler: src/handlers/reports.getInternReport
+    handler: src/handlers/reports/index.getInternReport
     description: Get intern report with projects and statistics
     events:
       - httpApi:
@@ -110,7 +111,7 @@ functions:
           authorizer: ${self:custom.authorizer}
 
   monthlyAllocationReport:
-    handler: src/handlers/reports.getMonthlyAllocationReport
+    handler: src/handlers/reports/index.getMonthlyAllocationReport
     description: Get monthly allocation report
     events:
       - httpApi:
@@ -119,7 +120,7 @@ functions:
           authorizer: ${self:custom.authorizer}
 
   exceptionReport:
-    handler: src/handlers/reports.getExceptionReport
+    handler: src/handlers/reports/index.getExceptionReport
     description: Get exception allocation report
     events:
       - httpApi:
@@ -128,7 +129,7 @@ functions:
           authorizer: ${self:custom.authorizer}
 
   nonBillingReport:
-    handler: src/handlers/reports.getNonBillingReport
+    handler: src/handlers/reports/index.getNonBillingReport
     description: Get non-billing resources report
     events:
       - httpApi:
@@ -137,7 +138,7 @@ functions:
           authorizer: ${self:custom.authorizer}
 
   preSaleReport:
-    handler: src/handlers/reports.getPreSaleReport
+    handler: src/handlers/reports/index.getPreSaleReport
     description: Get pre-sale activities report
     events:
       - httpApi:
@@ -146,7 +147,7 @@ functions:
           authorizer: ${self:custom.authorizer}
 
   tierBreakdownReport:
-    handler: src/handlers/reports.getTierBreakdownReport
+    handler: src/handlers/reports/index.getTierBreakdownReport
     description: Get tier breakdown report with employee details
     events:
       - httpApi:
@@ -154,7 +155,7 @@ functions:
           method: GET
           authorizer: ${self:custom.authorizer}
   externalConsultantsReport:
-    handler: src/handlers/reports.getExternalConsultantsReport
+    handler: src/handlers/reports/index.getExternalConsultantsReport
     description: Get external consultants report with allocation details
     events:
       - httpApi:

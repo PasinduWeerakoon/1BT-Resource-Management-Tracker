@@ -69,18 +69,24 @@ export const create = async (event) => {
         const body = JSON.parse(event.body || '{}');
         const validated = validate(body, trackSchemas.create);
 
+        // Get user info from auth context
+        const cognitoSub = event.requestContext?.authorizer?.jwt?.claims?.sub;
+        let createdBy = '00000000-0000-0000-0000-000000000000'; // Default system user
+
         log.info('Creating track', { name: validated.name });
 
         const query = `
-            INSERT INTO tracks (name, description, is_active)
-            VALUES ($1, $2, $3)
+            INSERT INTO tracks (name, code, description, is_active, created_by)
+            VALUES ($1, $2, $3, $4, $5)
             RETURNING *
         `;
 
         const params = [
             validated.name,
+            validated.code,
             validated.description || null,
-            validated.is_active ?? true
+            validated.is_active ?? true,
+            createdBy
         ];
 
         const result = await db.query(query, params);
