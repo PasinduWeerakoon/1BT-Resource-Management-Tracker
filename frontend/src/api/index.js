@@ -73,10 +73,19 @@ export { default as auditLogsService } from './services/auditLogs.service';
 export { default as accountManagersService } from './services/accountManagers.service';
 export { default as billingStatusesService } from './services/billingStatuses.service';
 export { default as projectTypesService } from './services/projectTypes.service';
+export { default as accountTypesService } from './services/accountTypes.service';
+export { default as projectStatusesService } from './services/projectStatuses.service';
+export { default as tiersService } from './services/tiers.service';
 
 // Utilities
 export * from './utils';
 export { default as apiUtils } from './utils';
+
+// Request Helpers and Base Service
+export * from './utils/requestHelpers';
+export * from './utils/baseService';
+export { default as requestHelpers } from './utils/requestHelpers';
+export { default as baseService } from './utils/baseService';
 
 // Legacy exports for backward compatibility
 export { default as employeesService } from './services/resources.service';

@@ -10,6 +10,7 @@ import { authService } from './services/auth.service';
 import { store } from '@redux/store';
 import { logoutUser } from '@redux/slices/authSlice';
 import { showErrorToast, getErrorMessage } from '@utils/toast.utils';
+import logger from '@utils/logger';
 
 // Create axios instance
 const apiClient = axios.create({
@@ -32,7 +33,7 @@ const processQueue = (error, token = null) => {
       prom.resolve(token);
     }
   });
-  
+
   failedQueue = [];
 };
 
@@ -74,18 +75,18 @@ apiClient.interceptors.response.use(
       switch (status) {
         case 400:
           // Bad Request - Don't show toast for 401 as it's handled separately
-          if (!originalRequest.url?.includes('/auth/refresh') && 
-              !originalRequest.url?.includes('/auth/login')) {
+          if (!originalRequest.url?.includes('/auth/refresh') &&
+            !originalRequest.url?.includes('/auth/login')) {
             showErrorToast(getErrorMessage({ response: { data } }));
           }
-          console.error('Bad request:', data?.message || 'Invalid request parameters');
+          logger.error('Bad request', new Error(data?.message || 'Invalid request parameters'));
           break;
         case 401:
           // Unauthorized - Try to refresh token if refreshToken exists
           // Don't retry if it's already a refresh request or login request
-          if (originalRequest.url?.includes('/auth/refresh') || 
-              originalRequest.url?.includes('/auth/login') ||
-              originalRequest._retry) {
+          if (originalRequest.url?.includes('/auth/refresh') ||
+            originalRequest.url?.includes('/auth/login') ||
+            originalRequest._retry) {
             // Dispatch logout thunk to call API and clear state
             store.dispatch(logoutUser());
             // Don't use window.location.href - let React Router handle navigation
@@ -117,7 +118,7 @@ apiClient.interceptors.response.use(
               .then((response) => {
                 // Handle different response structures (same as login)
                 let tokenData = null;
-                
+
                 // Check if response has success flag and data field
                 if (response && response.success === true && response.data) {
                   tokenData = response.data;
@@ -130,10 +131,10 @@ apiClient.interceptors.response.use(
                 else if (response && response.data && typeof response.data === 'object' && response.data.accessToken) {
                   tokenData = response.data;
                 }
-                
+
                 if (tokenData && tokenData.accessToken && tokenData.idToken) {
                   const { accessToken, idToken } = tokenData;
-                  
+
                   // Update stored auth
                   storeAuth({
                     ...auth,
@@ -143,7 +144,7 @@ apiClient.interceptors.response.use(
 
                   // Update the original request header
                   originalRequest.headers.Authorization = `Bearer ${accessToken}`;
-                  
+
                   // Process queued requests
                   processQueue(null, accessToken);
                   isRefreshing = false;
@@ -172,31 +173,31 @@ apiClient.interceptors.response.use(
         case 403:
           // Forbidden
           showErrorToast(getErrorMessage({ response: { data } }));
-          console.error('Access forbidden:', data?.message || 'You do not have permission to access this resource');
+          logger.error('Access forbidden', new Error(data?.message || 'You do not have permission to access this resource'));
           break;
         case 404:
           // Not found
           showErrorToast(getErrorMessage({ response: { data } }));
-          console.error('Resource not found:', data?.message || 'The requested resource was not found');
+          logger.error('Resource not found', new Error(data?.message || 'The requested resource was not found'));
           break;
         case 409:
           // Conflict
           showErrorToast(getErrorMessage({ response: { data } }));
-          console.error('Conflict:', data?.message || 'Resource conflict occurred');
+          logger.error('Conflict', new Error(data?.message || 'Resource conflict occurred'));
           break;
         case 422:
           // Validation Error
           showErrorToast(getErrorMessage({ response: { data } }));
-          console.error('Validation error:', data?.message || 'Validation failed');
+          logger.error('Validation error', new Error(data?.message || 'Validation failed'));
           break;
         case 500:
           // Server error
           showErrorToast(getErrorMessage({ response: { data } }));
-          console.error('Server error:', data?.message || 'An internal server error occurred');
+          logger.error('Server error', new Error(data?.message || 'An internal server error occurred'));
           break;
         default:
           showErrorToast(getErrorMessage({ response: { data }, message: error.message }));
-          console.error('API error:', data?.message || error.message);
+          logger.error('API error', new Error(data?.message || error.message));
       }
 
       // Return error with formatted response data
@@ -209,7 +210,7 @@ apiClient.interceptors.response.use(
       // Request made but no response received
       const networkError = 'Network error: No response received from server';
       showErrorToast(networkError);
-      console.error('Network error:', networkError);
+      logger.error('Network error', new Error(networkError));
       return Promise.reject({
         ...error,
         message: networkError,
@@ -217,7 +218,7 @@ apiClient.interceptors.response.use(
     } else {
       // Something else happened
       showErrorToast(error.message || 'An unexpected error occurred');
-      console.error('Error:', error.message);
+      logger.error('Error', error);
       return Promise.reject(error);
     }
   }

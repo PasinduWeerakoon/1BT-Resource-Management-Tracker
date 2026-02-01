@@ -90,6 +90,36 @@ export const ENDPOINTS = {
     DELETE: (id) => `${BASE_URL}/project-types/${id}`,
   },
 
+  // Account Types
+  ACCOUNT_TYPES: {
+    BASE: `${BASE_URL}/account-types`,
+    LIST: `${BASE_URL}/account-types`,
+    GET_BY_ID: (id) => `${BASE_URL}/account-types/${id}`,
+    CREATE: `${BASE_URL}/account-types`,
+    UPDATE: (id) => `${BASE_URL}/account-types/${id}`,
+    DELETE: (id) => `${BASE_URL}/account-types/${id}`,
+  },
+
+  // Project Statuses
+  PROJECT_STATUSES: {
+    BASE: `${BASE_URL}/project-statuses`,
+    LIST: `${BASE_URL}/project-statuses`,
+    GET_BY_ID: (id) => `${BASE_URL}/project-statuses/${id}`,
+    CREATE: `${BASE_URL}/project-statuses`,
+    UPDATE: (id) => `${BASE_URL}/project-statuses/${id}`,
+    DELETE: (id) => `${BASE_URL}/project-statuses/${id}`,
+  },
+
+  // Tiers
+  TIERS: {
+    BASE: `${BASE_URL}/tiers`,
+    LIST: `${BASE_URL}/tiers`,
+    GET_BY_ID: (id) => `${BASE_URL}/tiers/${id}`,
+    CREATE: `${BASE_URL}/tiers`,
+    UPDATE: (id) => `${BASE_URL}/tiers/${id}`,
+    DELETE: (id) => `${BASE_URL}/tiers/${id}`,
+  },
+
   // Clients
   CLIENTS: {
     BASE: `${BASE_URL}/clients`,

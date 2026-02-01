@@ -6,6 +6,7 @@ import { accountManagersService, reportsService, projectsService, tracksService 
 import { useUserAllocationModal } from '@hooks/useUserAllocationModal';
 import UserAllocationModal from '@components/UserAllocationModal';
 import { showErrorToast } from '@utils/toast.utils';
+import logger from '@utils/logger';
 import '@styles/pages/InternReport.scss';
 
 const { Option } = Select;
@@ -76,7 +77,7 @@ const InternReport = () => {
           .filter((am) => am.id && am.name);
         setAccountManagers(formatted);
       } catch (error) {
-        console.error('Failed to fetch account managers:', error);
+        logger.error('Failed to fetch account managers', error);
       } finally {
         setLoadingAccountManagers(false);
       }
@@ -107,7 +108,7 @@ const InternReport = () => {
 
         setProjects(formatted);
       } catch (error) {
-        console.error('Failed to fetch projects:', error);
+        logger.error('Failed to fetch projects', error);
       } finally {
         setLoadingProjects(false);
       }
@@ -136,7 +137,7 @@ const InternReport = () => {
 
         setTracks(formatted);
       } catch (error) {
-        console.error('Failed to fetch tracks:', error);
+        logger.error('Failed to fetch tracks', error);
       } finally {
         setLoadingTracks(false);
       }
@@ -226,7 +227,7 @@ const InternReport = () => {
         }
       }
     } catch (error) {
-      console.error('Failed to fetch intern report:', error);
+      logger.error('Failed to fetch intern report', error);
       showErrorToast(error?.response?.data?.message || error?.message || 'Failed to load intern report');
     } finally {
       setLoadingReport(false);

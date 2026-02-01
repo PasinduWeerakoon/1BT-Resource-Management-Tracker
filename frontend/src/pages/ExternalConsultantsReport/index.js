@@ -8,6 +8,7 @@ import { useUserAllocationModal } from '@hooks/useUserAllocationModal';
 import UserAllocationModal from '@components/UserAllocationModal';
 import { reportsService, tracksService, projectsService, resourcesService } from '@api';
 import { showErrorToast } from '@utils/toast.utils';
+import logger from '@utils/logger';
 import dayjs from 'dayjs';
 import '@styles/pages/ExternalConsultantsReport.scss';
 
@@ -75,7 +76,7 @@ const ExternalConsultantsReport = () => {
         
         setTracksList(tracksData);
       } catch (error) {
-        console.error('Failed to fetch tracks:', error);
+        logger.error('Failed to fetch tracks', error);
       }
     };
     
@@ -99,7 +100,7 @@ const ExternalConsultantsReport = () => {
         
         setProjectsList(projectsData);
       } catch (error) {
-        console.error('Failed to fetch projects:', error);
+        logger.error('Failed to fetch projects', error);
       }
     };
     
@@ -115,7 +116,7 @@ const ExternalConsultantsReport = () => {
           setTotalEmployees(response.data.pagination.total || 0);
         }
       } catch (error) {
-        console.error('Failed to fetch total employees:', error);
+        logger.error('Failed to fetch total employees', error);
       }
     };
     
@@ -161,7 +162,7 @@ const ExternalConsultantsReport = () => {
         setReportData(null);
       }
     } catch (error) {
-      console.error('Failed to fetch external consultants report:', error);
+      logger.error('Failed to fetch external consultants report', error);
       showErrorToast('Failed to load external consultants report');
       setReportData(null);
     } finally {

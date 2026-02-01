@@ -4,8 +4,9 @@ import { FilterOutlined, UpOutlined, DownOutlined, ReloadOutlined } from '@ant-d
 import { Bar } from 'react-chartjs-2';
 import { commonOptions, colors } from '@utils/chartConfig';
 import CustomTable from '@components/Table';
-import { accountManagersService, reportsService, projectsService, tracksService } from '@api';
+import { accountManagersService, reportsService, projectsService, tracksService, tiersService } from '@api';
 import { showErrorToast } from '@utils/toast.utils';
+import logger from '@utils/logger';
 import '@styles/pages/TierBreakdownReport.scss';
 
 const { Option } = Select;
@@ -47,6 +48,8 @@ const TierBreakdownReport = () => {
   const [loadingProjects, setLoadingProjects] = useState(false);
   const [tracks, setTracks] = useState([]);
   const [loadingTracks, setLoadingTracks] = useState(false);
+  const [tiers, setTiers] = useState([]);
+  const [loadingTiers, setLoadingTiers] = useState(false);
   const [techStacks, setTechStacks] = useState([]);
 
   // Report data
@@ -79,7 +82,7 @@ const TierBreakdownReport = () => {
         setAccountManagers(formatted);
       } catch (error) {
         // silent fail; filters remain usable
-        console.error('Failed to fetch account managers:', error);
+        logger.error('Failed to fetch account managers', error);
       } finally {
         setLoadingAccountManagers(false);
       }
@@ -110,7 +113,7 @@ const TierBreakdownReport = () => {
 
         setProjects(formatted);
       } catch (error) {
-        console.error('Failed to fetch projects:', error);
+        logger.error('Failed to fetch projects', error);
       } finally {
         setLoadingProjects(false);
       }
@@ -139,15 +142,46 @@ const TierBreakdownReport = () => {
 
         setTracks(formatted);
       } catch (error) {
-        console.error('Failed to fetch tracks:', error);
+        logger.error('Failed to fetch tracks', error);
       } finally {
         setLoadingTracks(false);
+      }
+    };
+
+    const fetchTiers = async () => {
+      try {
+        setLoadingTiers(true);
+        const response = await tiersService.getAll();
+        let tiersData = [];
+
+        if (response) {
+          if (Array.isArray(response.data)) {
+            tiersData = response.data;
+          } else if (response.data && response.data.data && Array.isArray(response.data.data)) {
+            tiersData = response.data.data;
+          }
+        }
+
+        const formatted = tiersData
+          .map((tier) => ({
+            id: tier.id,
+            name: tier.name,
+            level: tier.level,
+          }))
+          .filter((tier) => tier.id && tier.name);
+
+        setTiers(formatted);
+      } catch (error) {
+        logger.error('Failed to fetch tiers', error);
+      } finally {
+        setLoadingTiers(false);
       }
     };
 
     fetchAccountManagers();
     fetchProjects();
     fetchTracks();
+    fetchTiers();
   }, []);
 
   // Fetch tier breakdown report
@@ -227,7 +261,7 @@ const TierBreakdownReport = () => {
         }
       }
     } catch (error) {
-      console.error('Failed to fetch tier breakdown report:', error);
+      logger.error('Failed to fetch tier breakdown report', error);
       showErrorToast(error?.response?.data?.message || error?.message || 'Failed to load tier breakdown report');
     } finally {
       setLoadingReport(false);
@@ -394,16 +428,14 @@ const TierBreakdownReport = () => {
                     value={filters.tier}
                     onChange={(value) => setFilters({ ...filters, tier: value })}
                     style={{ width: '100%' }}
-                    loading={loadingReport}
+                    loading={loadingTiers}
                   >
                     <Option value="All">All</Option>
-                    <Option value="0">Tier 0 (Synergy)</Option>
-                    <Option value="1">Tier 1</Option>
-                    <Option value="2">Tier 2</Option>
-                    <Option value="3">Tier 3</Option>
-                    <Option value="4">Tier 4</Option>
-                    <Option value="5">Tier 5</Option>
-                    <Option value="99">Tier 99 (Intern)</Option>
+                    {tiers.map((tier) => (
+                      <Option key={tier.id} value={tier.name}>
+                        {tier.name}
+                      </Option>
+                    ))}
                   </Select>
                 </div>
               </Col>

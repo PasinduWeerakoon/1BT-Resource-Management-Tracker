@@ -5,11 +5,10 @@
 
 import * as db from '/opt/nodejs/database/index.js';
 import logger from '/opt/nodejs/logger/index.js';
-import { success, error, notFound, validationError } from '/opt/nodejs/utils/response.js';
-import { validate, tierSchemas } from '/opt/nodejs/validation/index.js';
+import { success, error, notFound, validationError, conflict } from '/opt/nodejs/utils/response.js';
 import audit from '/opt/nodejs/lib/audit/index.js';
 
-const SERVICE_NAME = 'resource-service';
+const SERVICE_NAME = 'configuration-service';
 
 /**
  * List all tiers
@@ -20,27 +19,12 @@ export const list = async (event) => {
     try {
         log.info('Listing tiers');
 
-        const queryParams = event.queryStringParameters || {};
-        const { is_active, search } = queryParams;
-
-        let query = 'SELECT * FROM tiers WHERE 1=1';
-        const params = [];
-        let idx = 1;
-
-        if (is_active !== undefined) {
-            query += ` AND is_active = $${idx++}`;
-            params.push(is_active === 'true');
-        }
-
-        if (search) {
-            query += ` AND (name ILIKE $${idx} OR description ILIKE $${idx})`;
-            params.push(`%${search}%`);
-            idx++;
-        }
-
-        query += ' ORDER BY level ASC NULLS LAST, name ASC';
-
-        const result = await db.query(query, params);
+        const query = `
+            SELECT * FROM tiers 
+            WHERE is_active = true
+            ORDER BY is_default DESC, level ASC NULLS LAST, name ASC
+        `;
+        const result = await db.query(query);
 
         return success({
             data: result.rows,
@@ -70,7 +54,7 @@ export const getById = async (event) => {
             return notFound('Tier not found');
         }
 
-        return success(result.rows[0]);
+        return success({ data: result.rows[0] });
 
     } catch (err) {
         log.error('Failed to get tier', { id, error: err.message });
@@ -83,54 +67,55 @@ export const getById = async (event) => {
  */
 export const create = async (event) => {
     const log = logger.child({ handler: 'tiers.create' });
+    const userId = event.requestContext?.authorizer?.claims?.sub || 'system';
 
     try {
-        const body = JSON.parse(event.body || '{}');
-        const validated = validate(body, tierSchemas.create);
+        const body = JSON.parse(event.body);
+        log.info('Creating tier', { body });
 
-        log.info('Creating tier', { name: validated.name });
+        // Validate required fields
+        if (!body.name) {
+            return error('Name is required', null, 400);
+        }
 
-        const query = `
-            INSERT INTO tiers (name, level, description, is_active)
-            VALUES ($1, $2, $3, $4)
+        // Check for duplicate name
+        const checkQuery = 'SELECT id FROM tiers WHERE LOWER(name) = LOWER($1)';
+        const checkResult = await db.query(checkQuery, [body.name]);
+
+        if (checkResult.rows.length > 0) {
+            return conflict('Tier with this name already exists');
+        }
+
+        // Insert new tier
+        const insertQuery = `
+            INSERT INTO tiers (name, level, description, is_active, is_default, created_by)
+            VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING *
         `;
+        const result = await db.query(insertQuery, [
+            body.name,
+            body.level || null,
+            body.description || null,
+            body.is_active !== undefined ? body.is_active : true,
+            false, // User-created tiers are never default
+            userId
+        ]);
 
-        const params = [
-            validated.name,
-            validated.level,
-            validated.description,
-            validated.is_active ?? true
-        ];
+        // Audit log
+        await audit.log({
+            service: SERVICE_NAME,
+            action: 'CREATE',
+            entity: 'Tier',
+            entityId: result.rows[0].id,
+            userId,
+            details: { name: body.name }
+        });
 
-        const result = await db.query(query, params);
-        const newTier = result.rows[0];
-
-        // Send audit event for tier creation
-        await audit.create(
-            event,
-            'tier',
-            newTier.id,
-            newTier.name,
-            newTier,
-            SERVICE_NAME
-        );
-
-        log.info('Tier created', { id: newTier.id });
-
-        return success(newTier, 201);
+        log.info('Tier created', { id: result.rows[0].id });
+        return success({ data: result.rows[0] }, 201);
 
     } catch (err) {
         log.error('Failed to create tier', { error: err.message });
-
-        if (err.isValidationError) {
-            return validationError(err.message);
-        }
-
-        if (err.code === '23505') { // Unique violation
-            return error('A tier with this name already exists', null, 409);
-        }
-
         return error('Failed to create tier', err);
     }
 };
@@ -141,85 +126,83 @@ export const create = async (event) => {
 export const update = async (event) => {
     const log = logger.child({ handler: 'tiers.update' });
     const { id } = event.pathParameters;
+    const userId = event.requestContext?.authorizer?.claims?.sub || 'system';
 
     try {
-        const body = JSON.parse(event.body || '{}');
-        const validated = validate(body, tierSchemas.update);
+        const body = JSON.parse(event.body);
+        log.info('Updating tier', { id, body });
 
-        log.info('Updating tier', { id });
+        // Check if tier exists and is not default
+        const checkQuery = 'SELECT id, is_default FROM tiers WHERE id = $1';
+        const checkResult = await db.query(checkQuery, [id]);
 
-        // Check if exists and get current data for audit
-        const existingResult = await db.query('SELECT * FROM tiers WHERE id = $1', [id]);
-        if (existingResult.rows.length === 0) {
+        if (checkResult.rows.length === 0) {
             return notFound('Tier not found');
         }
-        const existing = existingResult.rows[0];
 
-        // Build dynamic update
-        const { name, level, description, is_active } = validated;
+        if (checkResult.rows[0].is_default) {
+            return error('Cannot modify default tiers', null, 403);
+        }
+
+        // Check for duplicate name (if name is being updated)
+        if (body.name) {
+            const nameCheckQuery = 'SELECT id FROM tiers WHERE LOWER(name) = LOWER($1) AND id != $2';
+            const nameCheckResult = await db.query(nameCheckQuery, [body.name, id]);
+
+            if (nameCheckResult.rows.length > 0) {
+                return conflict('Tier with this name already exists');
+            }
+        }
+
+        // Build update query dynamically
         const updates = [];
-        const params = [id];
-        let idx = 2;
+        const values = [];
+        let paramCount = 1;
 
-        if (name !== undefined) {
-            updates.push(`name = $${idx++}`);
-            params.push(name);
+        if (body.name !== undefined) {
+            updates.push(`name = $${paramCount++}`);
+            values.push(body.name);
         }
-        if (level !== undefined) {
-            updates.push(`level = $${idx++}`);
-            params.push(level);
+        if (body.level !== undefined) {
+            updates.push(`level = $${paramCount++}`);
+            values.push(body.level);
         }
-        if (description !== undefined) {
-            updates.push(`description = $${idx++}`);
-            params.push(description);
+        if (body.description !== undefined) {
+            updates.push(`description = $${paramCount++}`);
+            values.push(body.description);
         }
-        if (is_active !== undefined) {
-            updates.push(`is_active = $${idx++}`);
-            params.push(is_active);
-        }
-
-        if (updates.length === 0) {
-            return success(existing);
+        if (body.is_active !== undefined) {
+            updates.push(`is_active = $${paramCount++}`);
+            values.push(body.is_active);
         }
 
-        updates.push('updated_at = CURRENT_TIMESTAMP');
+        updates.push(`updated_by = $${paramCount++}`);
+        values.push(userId);
+        values.push(id);
 
-        const query = `
+        const updateQuery = `
             UPDATE tiers
-            SET ${updates.join(', ')}
-            WHERE id = $1
+            SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP
+            WHERE id = $${paramCount}
             RETURNING *
         `;
+        const result = await db.query(updateQuery, values);
 
-        const result = await db.query(query, params);
-        const updatedTier = result.rows[0];
-
-        // Send audit event for tier update
-        await audit.update(
-            event,
-            'tier',
-            id,
-            updatedTier.name,
-            existing,
-            updatedTier,
-            SERVICE_NAME
-        );
+        // Audit log
+        await audit.log({
+            service: SERVICE_NAME,
+            action: 'UPDATE',
+            entity: 'Tier',
+            entityId: id,
+            userId,
+            details: body
+        });
 
         log.info('Tier updated', { id });
-
-        return success(updatedTier);
+        return success({ data: result.rows[0] });
 
     } catch (err) {
-        log.error('Failed to update tier', { id, error: err.message });
-
-        if (err.isValidationError) {
-            return validationError(err.message);
-        }
-
-        if (err.code === '23505') { // Unique violation
-            return error('A tier with this name already exists', null, 409);
-        }
-
+        log.error('Failed to update tier', { error: err.message, id });
         return error('Failed to update tier', err);
     }
 };
@@ -230,50 +213,58 @@ export const update = async (event) => {
 export const remove = async (event) => {
     const log = logger.child({ handler: 'tiers.remove' });
     const { id } = event.pathParameters;
+    const userId = event.requestContext?.authorizer?.claims?.sub || 'system';
 
     try {
         log.info('Deleting tier', { id });
 
-        // Check if exists and get data for audit
-        const existingResult = await db.query('SELECT * FROM tiers WHERE id = $1', [id]);
-        if (existingResult.rows.length === 0) {
+        // Check if tier exists and is not default
+        const checkQuery = 'SELECT id, is_default, name FROM tiers WHERE id = $1';
+        const checkResult = await db.query(checkQuery, [id]);
+
+        if (checkResult.rows.length === 0) {
             return notFound('Tier not found');
         }
-        const existing = existingResult.rows[0];
 
-        // Check if tier is in use by any resources
-        const usageCheck = await db.query(
-            'SELECT COUNT(*) as count FROM resources WHERE tier = $1 AND deleted_at IS NULL',
-            [existing.name]
-        );
+        if (checkResult.rows[0].is_default) {
+            return error('Cannot delete default tiers', null, 403);
+        }
 
-        if (parseInt(usageCheck.rows[0].count) > 0) {
+        // Check if tier is in use
+        const usageQuery = 'SELECT COUNT(*) as count FROM resources WHERE tier = $1';
+        const usageResult = await db.query(usageQuery, [checkResult.rows[0].name]);
+
+        if (parseInt(usageResult.rows[0].count) > 0) {
             return error(
-                `Cannot delete tier. It is currently assigned to ${usageCheck.rows[0].count} resource(s).`,
+                `Cannot delete tier "${checkResult.rows[0].name}" as it is currently used by ${usageResult.rows[0].count} resource(s)`,
                 null,
                 409
             );
         }
 
-        // Delete the tier
-        await db.query('DELETE FROM tiers WHERE id = $1', [id]);
+        // Soft delete by setting is_active to false
+        const deleteQuery = `
+            UPDATE tiers
+            SET is_active = false, updated_at = CURRENT_TIMESTAMP
+            WHERE id = $1
+        `;
+        await db.query(deleteQuery, [id]);
 
-        // Send audit event for tier deletion
-        await audit.delete(
-            event,
-            'tier',
-            id,
-            existing.name,
-            existing,
-            SERVICE_NAME
-        );
+        // Audit log
+        await audit.log({
+            service: SERVICE_NAME,
+            action: 'DELETE',
+            entity: 'Tier',
+            entityId: id,
+            userId,
+            details: { name: checkResult.rows[0].name }
+        });
 
         log.info('Tier deleted', { id });
-
         return success({ message: 'Tier deleted successfully' });
 
     } catch (err) {
-        log.error('Failed to delete tier', { id, error: err.message });
+        log.error('Failed to delete tier', { error: err.message, id });
         return error('Failed to delete tier', err);
     }
 };

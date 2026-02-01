@@ -318,13 +318,11 @@ export const getAccountManagerReport = async (event) => {
                 GROUP BY r.tier
                 ORDER BY 
                     CASE r.tier 
-                        WHEN 'Synergy' THEN 1 
-                        WHEN 'Tier - 1' THEN 2 
-                        WHEN 'Tier - 2' THEN 3 
-                        WHEN 'Tier - 3' THEN 4 
-                        WHEN 'Tier - 4' THEN 5 
-                        WHEN 'Intern' THEN 6 
-                        ELSE 7 
+                        WHEN 'Tier - 1' THEN 1 
+                        WHEN 'Tier - 2' THEN 2
+                        WHEN 'Tier - 3' THEN 3 
+                        WHEN 'Tier - 4' THEN 4 
+                        ELSE 5
                     END
             `, account_manager_id && account_manager_id !== 'all' ? [account_manager_id] : []),
 

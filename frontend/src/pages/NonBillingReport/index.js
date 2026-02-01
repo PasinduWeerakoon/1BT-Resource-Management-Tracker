@@ -4,6 +4,7 @@ import { FilterOutlined, UpOutlined, DownOutlined, ReloadOutlined } from '@ant-d
 import CustomTable from '@components/Table';
 import { reportsService } from '@api';
 import { showErrorToast } from '@utils/toast.utils';
+import logger from '@utils/logger';
 import '@styles/pages/NonBillingReport.scss';
 
 const NonBillingReport = () => {
@@ -82,7 +83,7 @@ const NonBillingReport = () => {
       
       setReportData(transformedData);
     } catch (error) {
-      console.error('Failed to fetch non-billing report:', error);
+      logger.error('Failed to fetch non-billing report', error);
       showErrorToast('Failed to load non-billing report');
       setReportData([]);
     } finally {

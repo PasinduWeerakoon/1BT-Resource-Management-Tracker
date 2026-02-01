@@ -1,6 +1,7 @@
 const path = require('path');
 const webpack = require('webpack');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
+const BundleAnalyzerPlugin = require('webpack-bundle-analyzer').BundleAnalyzerPlugin;
 const fs = require('fs');
 
 // Load .env file if it exists
@@ -132,6 +133,16 @@ module.exports = {
       'process.env.REACT_APP_API_BASE_URL': JSON.stringify(envVars.REACT_APP_API_BASE_URL || process.env.REACT_APP_API_BASE_URL || ''),
     }),
     new SuppressSassWarningsPlugin(),
+    // Add BundleAnalyzerPlugin if --analyze flag is passed
+    ...(process.env.ANALYZE === 'true' || process.argv.includes('--analyze') ? [
+      new BundleAnalyzerPlugin({
+        analyzerMode: 'static',
+        openAnalyzer: true,
+        reportFilename: 'bundle-report.html',
+        generateStatsFile: true,
+        statsFilename: 'bundle-stats.json',
+      })
+    ] : []),
   ],
   resolve: {
     extensions: ['.js', '.jsx', '.mjs'],
@@ -150,6 +161,7 @@ module.exports = {
       '@styles': path.resolve(__dirname, 'src/styles'),
       '@hooks': path.resolve(__dirname, 'src/hooks'),
       '@api': path.resolve(__dirname, 'src/api'),
+      '@constants': path.resolve(__dirname, 'src/constants'),
     },
     fallback: {
       "crypto": false,

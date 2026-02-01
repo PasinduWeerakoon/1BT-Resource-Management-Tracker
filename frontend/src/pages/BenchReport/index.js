@@ -4,6 +4,7 @@ import { FilterOutlined, UpOutlined, DownOutlined, ReloadOutlined } from '@ant-d
 import CustomTable from '@components/Table';
 import { reportsService, tracksService } from '@api';
 import { showErrorToast } from '@utils/toast.utils';
+import logger from '@utils/logger';
 import '@styles/pages/BenchReport.scss';
 
 const { Option } = Select;
@@ -58,7 +59,7 @@ const BenchReport = () => {
         
         setTracksList(tracksData);
       } catch (error) {
-        console.error('Failed to fetch tracks:', error);
+        logger.error('Failed to fetch tracks', error);
       }
     };
     
@@ -117,7 +118,7 @@ const BenchReport = () => {
       
       setBenchData(transformedData);
     } catch (error) {
-      console.error('Failed to fetch bench report:', error);
+      logger.error('Failed to fetch bench report', error);
       showErrorToast('Failed to load bench report');
       setBenchData([]);
     } finally {

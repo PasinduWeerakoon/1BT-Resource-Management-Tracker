@@ -32,6 +32,7 @@ import dayjs from 'dayjs';
 import CustomTable from '@components/Table';
 import { auditLogsService } from '@api';
 import { showErrorToast, showSuccessToast } from '@utils/toast.utils';
+import logger from '@utils/logger';
 import '@styles/pages/ActivityLog.scss';
 
 const { Option } = Select;
@@ -161,7 +162,7 @@ const ActivityLog = () => {
         total: paginationData.total || 0,
       });
     } catch (error) {
-      console.error('Failed to fetch audit logs:', error);
+      logger.error('Failed to fetch audit logs:', error);
       showErrorToast('Failed to load audit logs');
       setAuditLogs([]);
     } finally {
@@ -193,7 +194,7 @@ const ActivityLog = () => {
 
       setStats(statsData);
     } catch (error) {
-      console.error('Failed to fetch statistics:', error);
+      logger.error('Failed to fetch statistics:', error);
       showErrorToast('Failed to load statistics');
     } finally {
       setLoadingStats(false);
@@ -224,7 +225,7 @@ const ActivityLog = () => {
 
       setDlqData(dlqArray);
     } catch (error) {
-      console.error('Failed to fetch DLQ:', error);
+      logger.error('Failed to fetch DLQ:', error);
       showErrorToast('Failed to load failed messages');
       setDlqData([]);
     } finally {
@@ -250,7 +251,7 @@ const ActivityLog = () => {
 
       setSelectedLog(logData);
     } catch (error) {
-      console.error('Failed to fetch log detail:', error);
+      logger.error('Failed to fetch log detail:', error);
       showErrorToast('Failed to load log details');
       setSelectedLog(null);
     } finally {
@@ -271,7 +272,7 @@ const ActivityLog = () => {
       showSuccessToast('Message requeued for processing');
       fetchDLQ(); // Refresh DLQ list
     } catch (error) {
-      console.error('Failed to reprocess message:', error);
+      logger.error('Failed to reprocess message:', error);
       showErrorToast('Failed to reprocess message');
     }
   };

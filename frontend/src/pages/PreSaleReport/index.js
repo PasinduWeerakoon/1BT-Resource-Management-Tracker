@@ -4,6 +4,7 @@ import { FilterOutlined, UpOutlined, DownOutlined, ReloadOutlined } from '@ant-d
 import CustomTable from '@components/Table';
 import { reportsService } from '@api';
 import { showErrorToast } from '@utils/toast.utils';
+import logger from '@utils/logger';
 import '@styles/pages/PreSaleReport.scss';
 
 const PreSaleReport = () => {
@@ -70,7 +71,7 @@ const PreSaleReport = () => {
       
       setReportData(transformedData);
     } catch (error) {
-      console.error('Failed to fetch pre-sale report:', error);
+      logger.error('Failed to fetch pre-sale report', error);
       showErrorToast('Failed to load pre-sale report');
       setReportData([]);
     } finally {

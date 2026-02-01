@@ -6,7 +6,9 @@
   "scripts": {
     "start": "webpack serve --mode development --open",
     "build": "webpack --mode production",
-    "build:dev": "webpack --mode development"
+    "build:dev": "webpack --mode development",
+    "analyze": "webpack --mode production --analyze",
+    "analyze:dev": "webpack --mode development --analyze"
   },
   "dependencies": {
     "@ant-design/icons": "^5.2.6",
@@ -36,6 +38,7 @@
     "style-loader": "^3.3.3",
     "url-loader": "^4.1.1",
     "webpack": "^5.89.0",
+    "webpack-bundle-analyzer": "^4.10.1",
     "webpack-cli": "^5.1.4",
     "webpack-dev-server": "^4.15.1"
   }

@@ -23,10 +23,46 @@ export const validate = (data, schema) => {
         const validationError = new Error(messages);
         validationError.statusCode = 400;
         validationError.isValidationError = true;
+        validationError.name = 'ValidationError';
+        validationError.details = error.details;
         throw validationError;
     }
 
     return value;
+};
+
+/**
+ * Validate request using named schemas
+ * @param {string} schemaType - Type of schema (e.g., 'resource', 'project', 'accountType')
+ * @param {string} operation - Operation name (e.g., 'create', 'update', 'list')
+ * @param {Object} data - Data to validate
+ * @returns {Object} Validated data
+ */
+export const validateRequest = (schemaType, operation, data) => {
+    const schemas = {
+        resource: resourceSchemas,
+        designation: designationSchemas,
+        track: trackSchemas,
+        tier: tierSchemas,
+        client: clientSchemas,
+        project: projectSchemas,
+        allocation: allocationSchemas,
+        user: userSchemas,
+        accountType: accountTypeSchemas,
+        projectStatus: projectStatusSchemas,
+    };
+
+    const schemaGroup = schemas[schemaType];
+    if (!schemaGroup) {
+        throw new Error(`Unknown schema type: ${schemaType}`);
+    }
+
+    const schema = schemaGroup[operation];
+    if (!schema) {
+        throw new Error(`Unknown operation: ${operation} for schema type: ${schemaType}`);
+    }
+
+    return validate(data, schema);
 };
 
 // Common validation patterns
@@ -66,7 +102,7 @@ export const resourceSchemas = {
         nic_passport: Joi.string().max(50).optional(),
         is_intern: Joi.boolean().default(false),
         employee_type: Joi.string().valid('Internal', 'External').default('Internal'),
-        tier: Joi.string().valid('Synergy', 'Tier - 1', 'Tier - 2', 'Tier - 3', 'Tier - 4', 'Intern').optional(),
+        tier: Joi.string().valid('Tier - 1', 'Tier - 2', 'Tier - 3', 'Tier - 4').optional(),
         tech_stack: Joi.string().max(50).optional(),
         photo_url: Joi.string().max(500).optional(),
         intern_classification: Joi.string().max(20).optional(),
@@ -89,7 +125,7 @@ export const resourceSchemas = {
         nic_passport: Joi.string().max(50).optional(),
         is_intern: Joi.boolean().optional(),
         employee_type: Joi.string().valid('Internal', 'External').optional(),
-        tier: Joi.string().valid('Synergy', 'Tier - 1', 'Tier - 2', 'Tier - 3', 'Tier - 4', 'Intern').allow(null).optional(),
+        tier: Joi.string().valid('Tier - 1', 'Tier - 2', 'Tier - 3', 'Tier - 4').allow(null).optional(),
         tech_stack: Joi.string().max(50).allow(null).optional(),
         photo_url: Joi.string().max(500).allow(null).optional(),
         intern_classification: Joi.string().max(20).optional(),
@@ -301,6 +337,36 @@ export const userSchemas = {
     }),
 };
 
+// Account Type Schemas
+export const accountTypeSchemas = {
+    create: Joi.object({
+        name: Joi.string().max(100).required(),
+        description: Joi.string().max(500).allow('', null).optional(),
+        is_active: Joi.boolean().optional().default(true),
+    }),
+
+    update: Joi.object({
+        name: Joi.string().max(100).optional(),
+        description: Joi.string().max(500).allow('', null).optional(),
+        is_active: Joi.boolean().optional(),
+    }),
+};
+
+// Project Status Schemas
+export const projectStatusSchemas = {
+    create: Joi.object({
+        name: Joi.string().max(100).required(),
+        description: Joi.string().max(500).allow('', null).optional(),
+        is_active: Joi.boolean().optional().default(true),
+    }),
+
+    update: Joi.object({
+        name: Joi.string().max(100).optional(),
+        description: Joi.string().max(500).allow('', null).optional(),
+        is_active: Joi.boolean().optional(),
+    }),
+};
+
 export default {
     validate,
     resourceSchemas,
@@ -311,4 +377,6 @@ export default {
     projectSchemas,
     allocationSchemas,
     userSchemas,
+    accountTypeSchemas,
+    projectStatusSchemas,
 };

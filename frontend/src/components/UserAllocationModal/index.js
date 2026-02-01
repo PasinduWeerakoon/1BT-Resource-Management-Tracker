@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { Row, Col, Form, Input, InputNumber, Select, DatePicker, Button, Tag, Tooltip, Alert } from 'antd';
 import { PlusOutlined, DeleteOutlined, ClockCircleOutlined, CheckCircleOutlined, HistoryOutlined } from '@ant-design/icons';
 import CustomModal from '@components/Modal';
+import logger from '@utils/logger';
 import dayjs from 'dayjs';
 
 const { useWatch } = Form;
@@ -95,7 +96,7 @@ const UserAllocationModal = ({
                     try {
                         form.setFieldsValue(formValues);
                     } catch (error) {
-                        console.error('Error setting form values:', error);
+                        logger.error('Error setting form values:', error);
                     }
                 }, 500);
 

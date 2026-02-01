@@ -4,6 +4,7 @@ import { FilterOutlined, UpOutlined, DownOutlined, ReloadOutlined, WarningOutlin
 import CustomTable from '@components/Table';
 import { reportsService } from '@api';
 import { showErrorToast } from '@utils/toast.utils';
+import logger from '@utils/logger';
 import '@styles/pages/ExceptionAllocationReport.scss';
 
 const ExceptionAllocationReport = () => {
@@ -99,7 +100,7 @@ const ExceptionAllocationReport = () => {
         });
       }
     } catch (error) {
-      console.error('Failed to fetch exception allocation report:', error);
+      logger.error('Failed to fetch exception allocation report', error);
       showErrorToast('Failed to load exception allocation report');
       setReportData([]);
       setSummary({

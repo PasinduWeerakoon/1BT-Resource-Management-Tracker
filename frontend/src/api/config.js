@@ -3,6 +3,9 @@
  * Base URL and API settings
  */
 
+import logger from '@utils/logger';
+import { API_TIMEOUT } from '@constants/api';
+
 // Environment-based API URLs
 const API_URLS = {
   dev: 'https://s743ays8pa.execute-api.ap-southeast-1.amazonaws.com/dev/api/v1',
@@ -49,16 +52,17 @@ const baseURL = getBaseURL();
 
 // Debug logging (only in development)
 if (typeof globalThis.window !== 'undefined' && process.env.NODE_ENV === 'development') {
-  console.log('🔧 API Configuration:');
-  console.log('  - REACT_APP_ENV:', REACT_APP_ENV || 'not set (defaulting to dev)');
-  console.log('  - NODE_ENV:', NODE_ENV);
-  console.log('  - Selected ENV:', ENV);
-  console.log('  - BASE_URL:', baseURL);
+  logger.info('🔧 API Configuration:', {
+    REACT_APP_ENV: REACT_APP_ENV || 'not set (defaulting to dev)',
+    NODE_ENV,
+    Selected_ENV: ENV,
+    BASE_URL: baseURL,
+  });
 }
 
 export const API_CONFIG = {
   BASE_URL: baseURL,
-  TIMEOUT: 30000, // 30 seconds
+  TIMEOUT: API_TIMEOUT.DEFAULT,
   ENV: ENV,
 };
 

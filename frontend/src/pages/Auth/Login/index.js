@@ -8,6 +8,7 @@ import { authService } from '@api';
 import { storeAuth } from '@utils/auth.utils';
 import { getUserFromToken } from '@utils/jwt.utils';
 import { showErrorToast, showSuccessToast } from '@utils/toast.utils';
+import logger from '@utils/logger';
 import ForgotPassword from '@pages/Auth/ForgotPassword';
 import '@styles/pages/Auth/Login.scss';
 
@@ -39,9 +40,9 @@ const Login = () => {
 
   // Debug: Log when modal state changes
   useEffect(() => {
-    console.log('🔍 Modal state changed - showCompleteInviteModal:', showCompleteInviteModal);
-    console.log('🔍 inviteSession:', inviteSession ? 'Set' : 'Not set');
-    console.log('🔍 inviteEmail:', inviteEmail);
+    logger.debug('🔍 Modal state changed - showCompleteInviteModal:', showCompleteInviteModal);
+    logger.debug('🔍 inviteSession:', inviteSession ? 'Set' : 'Not set');
+    logger.debug('🔍 inviteEmail:', inviteEmail);
   }, [showCompleteInviteModal, inviteSession, inviteEmail]);
 
   const onFinish = async (values) => {
@@ -54,14 +55,14 @@ const Login = () => {
       // The interceptor transforms: { success: true, data: { challenge, session } } 
       // to: { success: true, data: { challenge, session }, message: "..." }
 
-      console.log('=== LOGIN RESPONSE DEBUG ===');
-      console.log('Full response:', response);
-      console.log('response.success:', response?.success);
-      console.log('response.message:', response?.message);
-      console.log('response.data:', response?.data);
-      console.log('response.data?.challenge:', response?.data?.challenge);
-      console.log('response.data?.session:', response?.data?.session);
-      console.log('===========================');
+      logger.debug('=== LOGIN RESPONSE DEBUG ===');
+      logger.debug('Full response:', response);
+      logger.debug('response.success:', response?.success);
+      logger.debug('response.message:', response?.message);
+      logger.debug('response.data:', response?.data);
+      logger.debug('response.data?.challenge:', response?.data?.challenge);
+      logger.debug('response.data?.session:', response?.data?.session);
+      logger.debug('===========================');
 
       // Check for challenge in ALL possible locations IMMEDIATELY
       // Check message first (most reliable since error toast shows it)
@@ -75,23 +76,23 @@ const Login = () => {
         response?.challenge === 'NEW_PASSWORD_REQUIRED' ||
         messageHasPasswordRequired;
 
-      console.log('Challenge detection:');
-      console.log('  messageHasPasswordRequired:', messageHasPasswordRequired);
-      console.log('  hasChallengeInData:', hasChallengeInData);
-      console.log('  hasChallenge:', hasChallenge);
+      logger.debug('Challenge detection:');
+      logger.debug('  messageHasPasswordRequired:', messageHasPasswordRequired);
+      logger.debug('  hasChallengeInData:', hasChallengeInData);
+      logger.debug('  hasChallenge:', hasChallenge);
 
       if (hasChallenge || messageHasPasswordRequired) {
-        console.log('🚨 NEW_PASSWORD_REQUIRED DETECTED - Opening modal immediately');
+        logger.debug('🚨 NEW_PASSWORD_REQUIRED DETECTED - Opening modal immediately');
         const session = response?.data?.session ||
           response?.data?.Session ||
           response?.session ||
           response?.data?.data?.session;
 
-        console.log('Session found:', !!session);
-        console.log('Session preview:', session ? session.substring(0, 50) + '...' : 'NONE');
+        logger.debug('Session found:', !!session);
+        logger.debug('Session preview:', session ? session.substring(0, 50) + '...' : 'NONE');
 
         if (session) {
-          console.log('✅ Setting modal state synchronously...');
+          logger.debug('✅ Setting modal state synchronously...');
           // Set all state at once
           setInviteSession(session);
           setInviteEmail(values.email);
@@ -100,14 +101,14 @@ const Login = () => {
 
           // Force a check after state update
           setTimeout(() => {
-            console.log('✅ After setTimeout - Modal state should be set');
-            console.log('   If modal still not showing, check React DevTools');
+            logger.debug('✅ After setTimeout - Modal state should be set');
+            logger.debug('   If modal still not showing, check React DevTools');
           }, 100);
 
-          console.log('✅ Returning early - modal should open');
+          logger.debug('✅ Returning early - modal should open');
           return;
         } else {
-          console.error('❌ Session missing! Full response structure:', JSON.stringify(response, null, 2));
+          logger.error('❌ Session missing! Full response structure:', JSON.stringify(response, null, 2));
           showErrorToast('Session token missing. Please contact support.');
           setLoading(false);
           return;
@@ -125,27 +126,27 @@ const Login = () => {
         response?.challenge ||
         (response?.message?.toLowerCase().includes('new password required') ? 'NEW_PASSWORD_REQUIRED' : null);
 
-      console.log('Detected challenge:', challenge);
+      logger.debug('Detected challenge:', challenge);
 
       if (challenge === 'NEW_PASSWORD_REQUIRED') {
-        console.log('NEW_PASSWORD_REQUIRED challenge detected!');
+        logger.debug('NEW_PASSWORD_REQUIRED challenge detected!');
         // Extract session token from response (check multiple locations)
         const session = response?.data?.session ||
           response?.data?.Session ||
           response?.session ||
           response?.data?.data?.session;
-        console.log('Session token:', session ? 'Found' : 'Missing');
-        console.log('Full response for debugging:', JSON.stringify(response, null, 2));
+        logger.debug('Session token:', session ? 'Found' : 'Missing');
+        logger.debug('Full response for debugging:', JSON.stringify(response, null, 2));
 
         if (session) {
-          console.log('Opening complete invite modal');
+          logger.debug('Opening complete invite modal');
           setInviteSession(session);
           setInviteEmail(values.email);
           setShowCompleteInviteModal(true);
           setLoading(false);
           return;
         } else {
-          console.error('Session token missing from NEW_PASSWORD_REQUIRED response:', response);
+          logger.error('Session token missing from NEW_PASSWORD_REQUIRED response:', response);
           showErrorToast('Session token missing from response. Please try again.');
           setLoading(false);
           return;
@@ -154,21 +155,21 @@ const Login = () => {
 
       // Also check if message indicates new password required (fallback check)
       if (response?.message && response.message.toLowerCase().includes('new password required')) {
-        console.log('New password required detected from message (fallback)');
+        logger.debug('New password required detected from message (fallback)');
         const session = response?.data?.session ||
           response?.data?.Session ||
           response?.session ||
           response?.data?.data?.session;
-        console.log('Session from message check:', session ? 'Found' : 'Missing');
+        logger.debug('Session from message check:', session ? 'Found' : 'Missing');
         if (session) {
-          console.log('Opening modal from message check');
+          logger.debug('Opening modal from message check');
           setInviteSession(session);
           setInviteEmail(values.email);
           setShowCompleteInviteModal(true);
           setLoading(false);
           return;
         } else {
-          console.error('Session missing even though message indicates new password required');
+          logger.error('Session missing even though message indicates new password required');
         }
       }
 
@@ -178,10 +179,10 @@ const Login = () => {
         !response?.accessToken &&
         (response?.message?.toLowerCase().includes('password') ||
           response?.data?.challenge === 'NEW_PASSWORD_REQUIRED')) {
-        console.log('Final fallback: Detecting challenge from success response without tokens');
+        logger.debug('Final fallback: Detecting challenge from success response without tokens');
         const session = response?.data?.session || response?.session;
         if (session) {
-          console.log('Opening modal from final fallback check');
+          logger.debug('Opening modal from final fallback check');
           setInviteSession(session);
           setInviteEmail(values.email);
           setShowCompleteInviteModal(true);
@@ -319,7 +320,7 @@ const Login = () => {
             }
           } catch (meError) {
             // If /auth/me fails, continue with fallback user info from token
-            console.warn('Failed to fetch user info from /auth/me:', meError);
+            logger.warn('Failed to fetch user info from /auth/me:', meError);
             // User info from token is already set, so we can continue
           }
 
@@ -328,7 +329,7 @@ const Login = () => {
           // Navigate to dashboard - use replace to prevent going back to login
           navigate('/dashboard', { replace: true });
         } else {
-          console.error('Missing tokens in response:', tokenData);
+          logger.error('Missing tokens in response:', tokenData);
           message.error('Invalid response format from server');
         }
       } else {
@@ -341,13 +342,13 @@ const Login = () => {
 
         if (challenge === 'NEW_PASSWORD_REQUIRED' ||
           response?.message?.toLowerCase().includes('new password required')) {
-          console.log('NEW_PASSWORD_REQUIRED detected in else block!');
+          logger.debug('NEW_PASSWORD_REQUIRED detected in else block!');
           const session = response?.data?.session ||
             response?.data?.Session ||
             response?.session;
 
           if (session) {
-            console.log('Opening complete invite modal from else block');
+            logger.debug('Opening complete invite modal from else block');
             setInviteSession(session);
             setInviteEmail(values.email);
             setShowCompleteInviteModal(true);
@@ -356,12 +357,12 @@ const Login = () => {
           }
         }
 
-        console.error('Login failed - unexpected response structure:', response);
+        logger.error('Login failed - unexpected response structure:', response);
         message.error(response?.message || 'Invalid credentials');
       }
     } catch (error) {
       // Error is already handled by the API interceptor
-      console.error('Login error:', error);
+      logger.error('Login error:', error);
 
       // Check if this is a NEW_PASSWORD_REQUIRED challenge (invite completion)
       if (error?.response?.data?.challenge === 'NEW_PASSWORD_REQUIRED' ||
@@ -481,7 +482,7 @@ const Login = () => {
             });
           }
         } catch (meError) {
-          console.warn('Failed to fetch user info from /auth/me:', meError);
+          logger.warn('Failed to fetch user info from /auth/me', meError);
         }
 
         message.success('Login successful!');
@@ -610,7 +611,7 @@ const Login = () => {
               });
             }
           } catch (meError) {
-            console.warn('Failed to fetch user info from /auth/me:', meError);
+            logger.warn('Failed to fetch user info from /auth/me:', meError);
           }
 
           showSuccessToast('Password set successfully! You are now logged in.');
@@ -626,7 +627,7 @@ const Login = () => {
         showErrorToast(response?.message || 'Failed to complete invitation. Please try again.');
       }
     } catch (error) {
-      console.error('Failed to complete invite:', error);
+      logger.error('Failed to complete invite:', error);
       showErrorToast(error?.response?.data?.message || error?.message || 'Failed to set password. Please try again.');
     } finally {
       setCompletingInvite(false);
@@ -696,7 +697,7 @@ const Login = () => {
         onClose={() => setShowForgotPasswordModal(false)}
         onSuccess={(email) => {
           // Optionally handle success (e.g., show additional message)
-          console.log('Password reset email sent to:', email);
+          logger.debug('Password reset email sent to:', email);
         }}
       />
 

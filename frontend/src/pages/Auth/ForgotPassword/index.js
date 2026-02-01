@@ -3,6 +3,7 @@ import { Form, Input, Button, Modal, Typography } from 'antd';
 import { MailOutlined } from '@ant-design/icons';
 import { authService } from '@api';
 import { showErrorToast, showSuccessToast } from '@utils/toast.utils';
+import logger from '@utils/logger';
 
 const { Text } = Typography;
 
@@ -26,7 +27,7 @@ const ForgotPassword = ({ visible, onClose, onSuccess }) => {
         showErrorToast(response?.message || 'Failed to send password reset email');
       }
     } catch (error) {
-      console.error('Forgot password error:', error);
+      logger.error('Forgot password error:', error);
       showErrorToast(error?.response?.data?.message || error?.message || 'Failed to send password reset email. Please try again.');
     } finally {
       setLoading(false);

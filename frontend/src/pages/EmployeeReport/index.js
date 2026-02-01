@@ -4,6 +4,7 @@ import { FilterOutlined, UpOutlined, DownOutlined, ReloadOutlined } from '@ant-d
 import CustomTable from '@components/Table';
 import { reportsService, tracksService, resourcesService } from '@api';
 import { showErrorToast } from '@utils/toast.utils';
+import logger from '@utils/logger';
 import '@styles/pages/EmployeeReport.scss';
 
 const { Option } = Select;
@@ -61,7 +62,7 @@ const EmployeeReport = () => {
         
         setTracksList(tracksData);
       } catch (error) {
-        console.error('Failed to fetch tracks:', error);
+        logger.error('Failed to fetch tracks', error);
       }
     };
     
@@ -85,7 +86,7 @@ const EmployeeReport = () => {
         
         setResourcesList(resourcesData);
       } catch (error) {
-        console.error('Failed to fetch resources:', error);
+        logger.error('Failed to fetch resources', error);
       }
     };
     
@@ -148,7 +149,7 @@ const EmployeeReport = () => {
       
       setReportData(transformedData);
     } catch (error) {
-      console.error('Failed to fetch employee report:', error);
+      logger.error('Failed to fetch employee report', error);
       showErrorToast('Failed to load employee report');
       setReportData([]);
     } finally {

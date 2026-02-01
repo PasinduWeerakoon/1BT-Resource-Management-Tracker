@@ -507,7 +507,7 @@ const migrations = [
                 END $$;
             `);
 
-            // Add tier column to resources for tier tracking (Synergy, Tier-1, Tier-2, etc.)
+            // Add tier column to resources for tier tracking (Tier-1, Tier-2, etc.)
             await client.query(`
                 DO $$ BEGIN
                     ALTER TABLE resources ADD COLUMN tier VARCHAR(20);
@@ -617,12 +617,10 @@ const migrations = [
             // Seed default tiers
             await client.query(`
                 INSERT INTO tiers (name, level, description) VALUES
-                    ('Synergy', 1, 'Synergy tier'),
-                    ('Tier - 1', 2, 'Tier 1'),
-                    ('Tier - 2', 3, 'Tier 2'),
-                    ('Tier - 3', 4, 'Tier 3'),
-                    ('Tier - 4', 5, 'Tier 4'),
-                    ('Intern', 6, 'Intern tier')
+                    ('Tier - 1', 1, 'Tier 1'),
+                    ('Tier - 2', 2, 'Tier 2'),
+                    ('Tier - 3', 3, 'Tier 3'),
+                    ('Tier - 4', 4, 'Tier 4'),
                 ON CONFLICT (name) DO NOTHING;
             `);
 

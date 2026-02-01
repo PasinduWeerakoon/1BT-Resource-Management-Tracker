@@ -155,22 +155,11 @@ export const getTierBreakdownReport = async (event) => {
         const params = [];
         let paramIndex = 1;
 
-        // Map frontend tier values to database values
-        const tierMapping = {
-            '0': 'Synergy',
-            '1': 'Tier - 1',
-            '2': 'Tier - 2',
-            '3': 'Tier - 3',
-            '4': 'Tier - 4',
-            '5': 'Tier - 5',
-            '99': 'Intern'
-        };
-
         // Tier filter
+        // Frontend now sends actual tier names from the tiers API (e.g., "Tier - 1", "Tier - 2", etc.)
         if (tier && tier !== 'All' && tier !== '') {
-            const dbTier = tierMapping[tier] || tier;
             resourceWhereClause += ` AND r.tier = $${paramIndex}`;
-            params.push(dbTier);
+            params.push(tier);
             paramIndex++;
         }
 
@@ -220,13 +209,10 @@ export const getTierBreakdownReport = async (event) => {
                 GROUP BY r.tier
                 ORDER BY 
                     CASE r.tier 
-                        WHEN 'Synergy' THEN 0
                         WHEN 'Tier - 1' THEN 1
                         WHEN 'Tier - 2' THEN 2
                         WHEN 'Tier - 3' THEN 3
                         WHEN 'Tier - 4' THEN 4
-                        WHEN 'Tier - 5' THEN 5
-                        WHEN 'Intern' THEN 99
                         ELSE 999
                     END
             `
@@ -240,13 +226,10 @@ export const getTierBreakdownReport = async (event) => {
                 GROUP BY r.tier
                 ORDER BY 
                     CASE r.tier 
-                        WHEN 'Synergy' THEN 0
                         WHEN 'Tier - 1' THEN 1
                         WHEN 'Tier - 2' THEN 2
                         WHEN 'Tier - 3' THEN 3
                         WHEN 'Tier - 4' THEN 4
-                        WHEN 'Tier - 5' THEN 5
-                        WHEN 'Intern' THEN 99
                         ELSE 999
                     END
             `;
@@ -284,13 +267,10 @@ export const getTierBreakdownReport = async (event) => {
             ${allocationWhereClause}
             ORDER BY 
                 CASE COALESCE(r.tier, 'Unassigned')
-                    WHEN 'Synergy' THEN 0
                     WHEN 'Tier - 1' THEN 1
                     WHEN 'Tier - 2' THEN 2
                     WHEN 'Tier - 3' THEN 3
                     WHEN 'Tier - 4' THEN 4
-                    WHEN 'Tier - 5' THEN 5
-                    WHEN 'Intern' THEN 99
                     ELSE 999
                 END,
                 r.name,
@@ -325,20 +305,10 @@ export const getTierBreakdownReport = async (event) => {
             db.query(totalCountQuery, params)
         ]);
 
-        // Format tier distribution for chart (map database values to frontend format)
-        const reverseTierMapping = {
-            'Synergy': '0',
-            'Tier - 1': '1',
-            'Tier - 2': '2',
-            'Tier - 3': '3',
-            'Tier - 4': '4',
-            'Tier - 5': '5',
-            'Intern': '99',
-            'Unassigned': 'Unassigned'
-        };
-
+        // Format tier distribution for chart
+        // Frontend now uses actual tier names, so no mapping needed
         const tierData = tierDistribution.rows.map(row => ({
-            tier: reverseTierMapping[row.tier] || row.tier,
+            tier: row.tier || 'Unassigned',
             count: parseInt(row.count)
         }));
 

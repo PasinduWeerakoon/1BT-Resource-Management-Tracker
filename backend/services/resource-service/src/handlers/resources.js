@@ -1183,7 +1183,7 @@ export const updateTier = async (event) => {
         const body = JSON.parse(event.body || '{}');
         const { tier } = body;
 
-        const validTiers = ['Synergy', 'Tier - 1', 'Tier - 2', 'Tier - 3', 'Tier - 4', 'Intern'];
+        const validTiers = ['Tier - 1', 'Tier - 2', 'Tier - 3', 'Tier - 4'];
         if (!tier || !validTiers.includes(tier)) {
             return validationError(`Invalid tier. Must be one of: ${validTiers.join(', ')}`);
         }

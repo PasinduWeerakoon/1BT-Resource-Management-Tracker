@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Form, message } from 'antd';
+import logger from '@utils/logger';
 import dayjs from 'dayjs';
 
 export const useUserAllocationModal = (allocationData = [], { onSave, resourceId } = {}) => {
@@ -134,7 +135,7 @@ export const useUserAllocationModal = (allocationData = [], { onSave, resourceId
             });
 
             if (errors.length > 0) {
-                console.error('Validation errors:', errors);
+                logger.error('Validation errors:', errors);
                 return;
             }
 
@@ -163,7 +164,7 @@ export const useUserAllocationModal = (allocationData = [], { onSave, resourceId
                 };
             });
 
-            console.log('Saving user allocations:', allocationsToSave);
+            logger.debug('Saving user allocations:', allocationsToSave);
 
             // Call onSave callback if provided
             if (onSave) {
@@ -188,7 +189,7 @@ export const useUserAllocationModal = (allocationData = [], { onSave, resourceId
             setUserAllocationsList([]);
             userAllocationsForm.resetFields();
         } catch (error) {
-            console.error('Validation failed:', error);
+            logger.error('Validation failed', error);
         }
     };
 

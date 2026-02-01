@@ -4,6 +4,7 @@ import { FilterOutlined, UpOutlined, DownOutlined, ReloadOutlined } from '@ant-d
 import CustomTable from '@components/Table';
 import { reportsService, tracksService } from '@api';
 import { showErrorToast } from '@utils/toast.utils';
+import logger from '@utils/logger';
 import dayjs from 'dayjs';
 import '@styles/pages/MonthlyAllocationReport.scss';
 
@@ -95,7 +96,7 @@ const MonthlyAllocationReport = () => {
         
         setTracksList(tracksData);
       } catch (error) {
-        console.error('Failed to fetch tracks:', error);
+        logger.error('Failed to fetch tracks', error);
       }
     };
     
@@ -184,7 +185,7 @@ const MonthlyAllocationReport = () => {
       setReportData(transformedData);
       setGroupedData(Object.values(resourceTotals));
     } catch (error) {
-      console.error('Failed to fetch monthly allocation report:', error);
+      logger.error('Failed to fetch monthly allocation report', error);
       showErrorToast('Failed to load monthly allocation report');
       setReportData([]);
       setGroupedData([]);

@@ -8,6 +8,7 @@ import { setMobile } from '@redux/slices/layoutSlice';
 import { setCredentials } from '@redux/slices/authSlice';
 import { storeAuth } from '@utils/auth.utils';
 import { authService } from '@api';
+import logger from '@utils/logger';
 import '@styles/layouts/MainLayout.scss';
 
 const { Content } = Layout;
@@ -109,7 +110,7 @@ const MainLayout = ({ children }) => {
         }
       } catch (error) {
         // If /auth/me fails, continue with existing user info
-        console.warn('Failed to fetch user info from /auth/me:', error);
+        logger.warn('Failed to fetch user info from /auth/me', error);
       } finally {
         fetchUserInfoInProgressRef.current = false;
       }
