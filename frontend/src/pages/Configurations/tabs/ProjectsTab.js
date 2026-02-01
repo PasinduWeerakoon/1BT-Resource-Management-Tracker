@@ -1,16 +1,20 @@
 import React, { useState, useEffect } from 'react';
-import { Button, Space, Tooltip, Badge, Modal, Form, Input, Select, InputNumber, DatePicker, Switch } from 'antd';
+import { useSelector } from 'react-redux';
+import { Button, Space, Tooltip, Badge, Modal, Form, Input, Select, InputNumber, DatePicker, Switch, Row, Col } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import CustomTable from '@components/Table';
 import CustomModal from '@components/Modal';
-import { projectsService, clientsService, accountManagersService } from '@api';
+import { projectsService } from '@api';
 import { showSuccessToast, showErrorToast } from '@utils/toast.utils';
 
 const { Option } = Select;
 const { TextArea } = Input;
 
 const ProjectsTab = () => {
+  // Get data from Redux store
+  const { clients, accountManagers, projectTypes: projectTypesConfig } = useSelector((state) => state.configurations);
+
   // State
   const [projectTypes, setProjectTypes] = useState([]);
   const [loadingProjectTypes, setLoadingProjectTypes] = useState(false);
@@ -24,12 +28,38 @@ const ProjectsTab = () => {
   const [isEditMode, setIsEditMode] = useState(false);
   const [selectedItem, setSelectedItem] = useState(null);
   const [accountType, setAccountType] = useState('External');
-  const [clientsList, setClientsList] = useState([]);
-  const [loadingClients, setLoadingClients] = useState(false);
-  const [accountManagersList, setAccountManagersList] = useState([]);
-  const [loadingAccountManagers, setLoadingAccountManagers] = useState(false);
 
   const [projectTypeForm] = Form.useForm();
+
+  // Transform Redux data for dropdowns
+  const clientsList = clients
+    .filter(client => client.id && client.client_name)
+    .map(client => ({
+      id: client.id,
+      name: client.client_name,
+    }));
+
+  const accountManagersList = accountManagers
+    .filter(am => am.id && am.name)
+    .map(am => ({
+      id: am.id,
+      name: am.name,
+    }));
+
+  // Project types from Redux or fallback to hardcoded values
+  const projectTypeOptions = projectTypesConfig && projectTypesConfig.length > 0
+    ? projectTypesConfig.map(pt => ({
+        value: pt.name || pt.project_type_name || pt.type,
+        label: pt.name || pt.project_type_name || pt.type,
+      }))
+    : [
+        { value: 'Client', label: 'Client' },
+        { value: 'Bench', label: 'Bench' },
+        { value: 'Training', label: 'Training' },
+        { value: 'POC', label: 'POC' },
+        { value: 'Presale', label: 'Presale' },
+        { value: 'Research', label: 'Research' },
+      ];
 
   // Fetch projects
   const fetchProjectTypes = async (page = 1, limit = 20) => {
@@ -88,76 +118,8 @@ const ProjectsTab = () => {
     }
   };
 
-  // Fetch clients for dropdown
-  const fetchClientsList = async () => {
-    try {
-      setLoadingClients(true);
-      const response = await clientsService.getAll({ page: 1, limit: 1000 });
-      let clientsData = [];
-
-      if (response) {
-        if (Array.isArray(response.data)) {
-          clientsData = response.data;
-        } else if (response.data && Array.isArray(response.data)) {
-          clientsData = response.data;
-        } else if (Array.isArray(response)) {
-          clientsData = response;
-        }
-      }
-
-      const clients = clientsData
-        .filter(client => client.id && client.client_name)
-        .map(client => ({
-          id: client.id,
-          name: client.client_name,
-        }));
-
-      setClientsList(clients);
-    } catch (error) {
-      console.error('Failed to fetch clients:', error);
-      showErrorToast('Failed to load clients');
-    } finally {
-      setLoadingClients(false);
-    }
-  };
-
-  // Fetch account managers
-  const fetchAccountManagers = async () => {
-    try {
-      setLoadingAccountManagers(true);
-      const response = await accountManagersService.getAll();
-      let accountManagersData = [];
-
-      if (response) {
-        if (Array.isArray(response.data)) {
-          accountManagersData = response.data;
-        } else if (response.data && Array.isArray(response.data)) {
-          accountManagersData = response.data;
-        } else if (Array.isArray(response)) {
-          accountManagersData = response;
-        }
-      }
-
-      const accountManagers = accountManagersData
-        .filter(am => am.id && am.name)
-        .map(am => ({
-          id: am.id,
-          name: am.name,
-        }));
-
-      setAccountManagersList(accountManagers);
-    } catch (error) {
-      console.error('Failed to fetch account managers:', error);
-      showErrorToast('Failed to load account managers');
-    } finally {
-      setLoadingAccountManagers(false);
-    }
-  };
-
   useEffect(() => {
     fetchProjectTypes(1, 20);
-    fetchClientsList();
-    fetchAccountManagers();
   }, []);
 
   // Handlers
@@ -572,174 +534,214 @@ const ProjectsTab = () => {
         ]}
       >
         <Form form={projectTypeForm} layout="vertical">
-          <Form.Item
-            label="Project Name"
-            name="project_name"
-            rules={[
-              { required: true, message: 'Project name is required' },
-              { max: 200, message: 'Project name must be less than 200 characters' },
-            ]}
-          >
-            <Input placeholder="Enter project name" />
-          </Form.Item>
-
-          <Form.Item
-            label="Project Code"
-            name="project_code"
-            rules={[
-              { max: 50, message: 'Project code must be less than 50 characters' },
-            ]}
-          >
-            <Input placeholder="Enter project code (optional)" />
-          </Form.Item>
-
-          <Form.Item
-            label="Account Type"
-            name="account_type"
-            rules={[{ required: true, message: 'Account type is required' }]}
-          >
-            <Select
-              placeholder="Select account type"
-              onChange={(value) => setAccountType(value)}
-            >
-              <Option value="External">External</Option>
-              <Option value="Internal">Internal</Option>
-            </Select>
-          </Form.Item>
-
-          {accountType === 'External' && (
-            <Form.Item
-              label="Client"
-              name="client_id"
-              rules={[{ required: accountType === 'External', message: 'Client is required for External projects' }]}
-            >
-              <Select
-                placeholder="Select client"
-                showSearch
-                optionFilterProp="children"
-                filterOption={(input, option) =>
-                  option.children.toLowerCase().includes(input.toLowerCase())
-                }
-                loading={loadingClients}
+          <Row gutter={16}>
+            <Col span={24}>
+              <Form.Item
+                label="Project Name"
+                name="project_name"
+                rules={[
+                  { required: true, message: 'Project name is required' },
+                  { max: 200, message: 'Project name must be less than 200 characters' },
+                ]}
               >
-                {clientsList.map(client => (
-                  <Option key={client.id} value={client.id}>
-                    {client.name}
-                  </Option>
-                ))}
-              </Select>
-            </Form.Item>
-          )}
+                <Input placeholder="Enter project name" />
+              </Form.Item>
+            </Col>
+          </Row>
 
-          <Form.Item
-            label="Project Type"
-            name="project_type"
-            rules={[{ required: true, message: 'Project type is required' }]}
-          >
-            <Select placeholder="Select project type">
-              <Option value="Client">Client</Option>
-              <Option value="Bench">Bench</Option>
-              <Option value="Training">Training</Option>
-              <Option value="POC">POC</Option>
-              <Option value="Presale">Presale</Option>
-              <Option value="Research">Research</Option>
-            </Select>
-          </Form.Item>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
+                label="Project Code"
+                name="project_code"
+                rules={[
+                  { max: 50, message: 'Project code must be less than 50 characters' },
+                ]}
+              >
+                <Input placeholder="Enter project code (optional)" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                label="Account Type"
+                name="account_type"
+                rules={[{ required: true, message: 'Account type is required' }]}
+              >
+                <Select
+                  placeholder="Select account type"
+                  onChange={(value) => setAccountType(value)}
+                >
+                  <Option value="External">External</Option>
+                  <Option value="Internal">Internal</Option>
+                </Select>
+              </Form.Item>
+            </Col>
+          </Row>
 
-          <Form.Item
-            label="Account Manager"
-            name="account_manager"
-            rules={[{ required: true, message: 'Account manager is required' }]}
-          >
-            <Select
-              placeholder="Select account manager"
-              showSearch
-              optionFilterProp="children"
-              filterOption={(input, option) =>
-                option.children.toLowerCase().includes(input.toLowerCase())
-              }
-              loading={loadingAccountManagers}
-            >
-              {accountManagersList.map(am => (
-                <Option key={am.id} value={am.name}>
-                  {am.name}
-                </Option>
-              ))}
-            </Select>
-          </Form.Item>
+          <Row gutter={16}>
+            {accountType === 'External' && (
+              <Col span={12}>
+                <Form.Item
+                  label="Client"
+                  name="client_id"
+                  rules={[{ required: accountType === 'External', message: 'Client is required for External projects' }]}
+                >
+                  <Select
+                    placeholder="Select client"
+                    showSearch
+                    optionFilterProp="children"
+                    filterOption={(input, option) =>
+                      option.children.toLowerCase().includes(input.toLowerCase())
+                    }
+                  >
+                    {clientsList.map(client => (
+                      <Option key={client.id} value={client.id}>
+                        {client.name}
+                      </Option>
+                    ))}
+                  </Select>
+                </Form.Item>
+              </Col>
+            )}
+            <Col span={accountType === 'External' ? 12 : 12}>
+              <Form.Item
+                label="Project Type"
+                name="project_type"
+                rules={[{ required: true, message: 'Project type is required' }]}
+              >
+                <Select placeholder="Select project type">
+                  {projectTypeOptions.map(pt => (
+                    <Option key={pt.value} value={pt.value}>
+                      {pt.label}
+                    </Option>
+                  ))}
+                </Select>
+              </Form.Item>
+            </Col>
+            {accountType === 'Internal' && (
+              <Col span={12}></Col>
+            )}
+          </Row>
 
-          <Form.Item
-            label="Account Reg/Sales Owner"
-            name="account_reg_sales_owner"
-            rules={[
-              { max: 100, message: 'Account reg/sales owner must be less than 100 characters' },
-            ]}
-          >
-            <Input placeholder="Enter account reg/sales owner (optional)" />
-          </Form.Item>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
+                label="Account Manager"
+                name="account_manager"
+                rules={[{ required: true, message: 'Account manager is required' }]}
+              >
+                <Select
+                  placeholder="Select account manager"
+                  showSearch
+                  optionFilterProp="children"
+                  filterOption={(input, option) =>
+                    option.children.toLowerCase().includes(input.toLowerCase())
+                  }
+                >
+                  {accountManagersList.map(am => (
+                    <Option key={am.id} value={am.name}>
+                      {am.name}
+                    </Option>
+                  ))}
+                </Select>
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                label="Account Reg/Sales Owner"
+                name="account_reg_sales_owner"
+                rules={[
+                  { max: 100, message: 'Account reg/sales owner must be less than 100 characters' },
+                ]}
+              >
+                <Input placeholder="Enter account reg/sales owner (optional)" />
+              </Form.Item>
+            </Col>
+          </Row>
 
-          <Form.Item
-            label="Team Size"
-            name="team_size"
-            rules={[{ required: true, message: 'Team size is required' }]}
-          >
-            <InputNumber min={1} placeholder="Enter team size" style={{ width: '100%' }} />
-          </Form.Item>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
+                label="Team Size"
+                name="team_size"
+                rules={[{ required: true, message: 'Team size is required' }]}
+              >
+                <InputNumber min={1} placeholder="Enter team size" style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                label="Billing Type"
+                name="billing_type"
+                rules={[{ required: true, message: 'Billing type is required' }]}
+              >
+                <Select placeholder="Select billing type">
+                  <Option value="Billing">Billing</Option>
+                  <Option value="Non-Billing">Non-Billing</Option>
+                </Select>
+              </Form.Item>
+            </Col>
+          </Row>
 
-          <Form.Item
-            label="Billing Type"
-            name="billing_type"
-            rules={[{ required: true, message: 'Billing type is required' }]}
-          >
-            <Select placeholder="Select billing type">
-              <Option value="Billing">Billing</Option>
-              <Option value="Non-Billing">Non-Billing</Option>
-            </Select>
-          </Form.Item>
 
-          <Form.Item
-            label="Budget"
-            name="budget"
-          >
-            <InputNumber min={0} placeholder="Enter budget (optional)" style={{ width: '100%' }} />
-          </Form.Item>
 
-          <Form.Item
-            label="Status"
-            name="status"
-            rules={[{ required: true, message: 'Status is required' }]}
-          >
-            <Select placeholder="Select status">
-              <Option value="Active">Active</Option>
-              <Option value="On Hold">On Hold</Option>
-              <Option value="Completed">Completed</Option>
-              <Option value="Cancelled">Cancelled</Option>
-            </Select>
-          </Form.Item>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
+                label="Budget"
+                name="budget"
+              >
+                <InputNumber min={0} placeholder="Enter budget (optional)" style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                label="Status"
+                name="status"
+                rules={[{ required: true, message: 'Status is required' }]}
+              >
+                <Select placeholder="Select status">
+                  <Option value="Active">Active</Option>
+                  <Option value="On Hold">On Hold</Option>
+                  <Option value="Completed">Completed</Option>
+                  <Option value="Cancelled">Cancelled</Option>
+                </Select>
+              </Form.Item>
+            </Col>
+          </Row>
 
-          <Form.Item
-            label="Start Date"
-            name="start_date"
-          >
-            <DatePicker style={{ width: '100%' }} />
-          </Form.Item>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
+                label="Start Date"
+                name="start_date"
+              >
+                <DatePicker style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                label="End Date"
+                name="end_date"
+              >
+                <DatePicker style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+          </Row>
 
-          <Form.Item
-            label="End Date"
-            name="end_date"
-          >
-            <DatePicker style={{ width: '100%' }} />
-          </Form.Item>
-
-          <Form.Item
-            label="Description"
-            name="description"
-            rules={[
-              { max: 1000, message: 'Description must be less than 1000 characters' },
-            ]}
-          >
-            <TextArea rows={3} placeholder="Enter project description (optional)" />
-          </Form.Item>
+          <Row gutter={16}>
+            <Col span={24}>
+              <Form.Item
+                label="Description"
+                name="description"
+                rules={[
+                  { max: 1000, message: 'Description must be less than 1000 characters' },
+                ]}
+              >
+                <TextArea rows={3} placeholder="Enter project description (optional)" />
+              </Form.Item>
+            </Col>
+          </Row>
         </Form>
       </CustomModal>
     </div>

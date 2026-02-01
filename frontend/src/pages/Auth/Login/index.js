@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { Form, Input, Button, Card, Typography, App, Modal } from 'antd';
 import { MailOutlined, LockOutlined } from '@ant-design/icons';
 import { setCredentials, initializeAuth } from '@redux/slices/authSlice';
+import { fetchAllConfigurations } from '@redux/slices/configurationsSlice';
 import { authService } from '@api';
 import { storeAuth } from '@utils/auth.utils';
 import { getUserFromToken } from '@utils/jwt.utils';
@@ -325,6 +326,9 @@ const Login = () => {
 
           message.success('Login successful!');
 
+          // Fetch all configuration data
+          dispatch(fetchAllConfigurations());
+
           // Navigate to dashboard - use replace to prevent going back to login
           navigate('/dashboard', { replace: true });
         } else {
@@ -485,6 +489,10 @@ const Login = () => {
         }
 
         message.success('Login successful!');
+        
+        // Fetch all configuration data
+        dispatch(fetchAllConfigurations());
+        
         navigate('/dashboard', { replace: true });
       } else {
         message.error(error.message || 'Login failed. Please try again.');
@@ -618,6 +626,10 @@ const Login = () => {
           completeInviteForm.resetFields();
           setInviteSession(null);
           setInviteEmail('');
+          
+          // Fetch all configuration data
+          dispatch(fetchAllConfigurations());
+          
           navigate('/dashboard', { replace: true });
         } else {
           showErrorToast('Invalid response format. Please try again.');

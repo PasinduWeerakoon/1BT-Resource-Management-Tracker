@@ -6,6 +6,7 @@ import Footer from '../Footer';
 import Sidebar from '../Sidebar';
 import { setMobile } from '@redux/slices/layoutSlice';
 import { setCredentials } from '@redux/slices/authSlice';
+import { fetchAllConfigurations } from '@redux/slices/configurationsSlice';
 import { storeAuth } from '@utils/auth.utils';
 import { authService } from '@api';
 import '@styles/layouts/MainLayout.scss';
@@ -16,6 +17,7 @@ const MainLayout = ({ children }) => {
   const dispatch = useDispatch();
   const { sidebarCollapsed, isMobile } = useSelector((state) => state.layout);
   const { isAuthenticated, accessToken, refreshToken, idToken, user: currentUser } = useSelector((state) => state.auth);
+  const { lastFetched, loading } = useSelector((state) => state.configurations);
   const fetchUserInfoInProgressRef = useRef(false);
 
   // Fetch user info from /auth/me on mount if authenticated
@@ -118,6 +120,13 @@ const MainLayout = ({ children }) => {
     fetchUserInfo();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only run once on mount
+
+  // Fetch configurations when authenticated and not already loaded
+  useEffect(() => {
+    if (isAuthenticated && !loading && !lastFetched) {
+      dispatch(fetchAllConfigurations());
+    }
+  }, [isAuthenticated, loading, lastFetched, dispatch]);
 
   useEffect(() => {
     const handleResize = () => {

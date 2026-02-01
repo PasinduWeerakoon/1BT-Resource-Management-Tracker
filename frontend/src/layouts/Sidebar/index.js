@@ -4,6 +4,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { Layout, Menu, Dropdown, Avatar, Button, Tooltip, App } from 'antd';
 import { LogoutOutlined, SettingOutlined, MenuFoldOutlined, MenuUnfoldOutlined, TeamOutlined, UserOutlined, HistoryOutlined } from '@ant-design/icons';
 import { logoutUser } from '@redux/slices/authSlice';
+import { clearConfigurations } from '@redux/slices/configurationsSlice';
 import { toggleSidebar } from '@redux/slices/layoutSlice';
 import { getMenuItems } from '@navigation/menuItems';
 import '@styles/layouts/Sidebar.scss';
@@ -33,12 +34,16 @@ const Sidebar = () => {
 
   const handleLogout = async () => {
     try {
+      // Clear configurations first
+      dispatch(clearConfigurations());
       // Call logout API and clear state
       await dispatch(logoutUser()).unwrap();
       message.success('Logged out successfully');
       navigate('/login', { replace: true });
     } catch (error) {
       // Even if API call fails, we still logout locally
+      // Clear configurations even on error
+      dispatch(clearConfigurations());
       message.warning('Logged out locally');
       navigate('/login', { replace: true });
     }
