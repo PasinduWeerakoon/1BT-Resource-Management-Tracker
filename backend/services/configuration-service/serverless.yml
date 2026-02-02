@@ -43,7 +43,7 @@ provider:
     id: !ImportValue onebt-${self:provider.stage}-HttpApiId
 
   layers:
-        - arn:aws:lambda:ap-southeast-1:550586832874:layer:onebt-shared-libs-dev:61
+    - arn:aws:lambda:ap-southeast-1:550586832874:layer:onebt-shared-libs-dev:62
 
 plugins:
   - serverless-offline
@@ -63,6 +63,15 @@ custom:
     id: !ImportValue onebt-${self:provider.stage}-CognitoAuthorizerId
 
 functions:
+  # ==================== ALL CONFIGS (unified endpoint) ====================
+  getAllConfigs:
+    handler: src/handlers/allConfigs.getAll
+    events:
+      - httpApi:
+          path: /api/v1/configs
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
   # ==================== DESIGNATIONS ====================
   listDesignations:
     handler: src/handlers/designations.list
@@ -292,4 +301,3 @@ functions:
           path: /api/v1/tags/{id}
           method: DELETE
           authorizer: ${self:custom.authorizer}
-
