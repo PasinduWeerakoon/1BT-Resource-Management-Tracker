@@ -40,7 +40,7 @@ provider:
           Resource: !ImportValue onebt-${self:provider.stage}-AuditQueueArn
 
   layers:
-        - arn:aws:lambda:ap-southeast-1:550586832874:layer:onebt-shared-libs-dev:55
+    - arn:aws:lambda:ap-southeast-1:550586832874:layer:onebt-shared-libs-dev:56
 
 plugins:
   - serverless-offline
@@ -73,3 +73,13 @@ functions:
   getMigrationStatus:
     handler: src/handlers/migrations.status
     description: Get current migration status
+
+  # Reset database (DEV ONLY - will destroy all data)
+  resetDatabase:
+    handler: src/handlers/migrations.reset
+    description: Reset database schema (DEV ONLY - destroys all data)
+
+  # Sync schema directly (DEV ONLY)
+  syncSchema:
+    handler: src/handlers/migrations.sync
+    description: Sync schema directly without migrations (DEV ONLY)

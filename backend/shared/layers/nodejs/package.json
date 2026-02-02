@@ -32,5 +32,8 @@
     "joi": "^17.13.3",
     "pg": "^8.14.0",
     "pino": "^9.6.0"
+  },
+  "devDependencies": {
+    "drizzle-kit": "^0.31.8"
   }
 }
