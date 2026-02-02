@@ -40,7 +40,7 @@ provider:
           Resource: !ImportValue onebt-${self:provider.stage}-AuditQueueArn
 
   layers:
-    - arn:aws:lambda:ap-southeast-1:550586832874:layer:onebt-shared-libs-dev:56
+    - arn:aws:lambda:ap-southeast-1:550586832874:layer:onebt-shared-libs-dev:62
 
 plugins:
   - serverless-offline
@@ -53,7 +53,7 @@ package:
     - "!*.md"
     - "!tests/**"
     - "src/**"
-    - "migrations/**"
+    - "drizzle/**"
 
 functions:
   # Run pending migrations

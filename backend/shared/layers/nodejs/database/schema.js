@@ -268,9 +268,10 @@ export const projects = pgTable('projects', {
 }));
 
 // Allocations table
+// Note: DB column is 'employee_id' - matches actual database
 export const allocations = pgTable('allocations', {
     id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
-    resourceId: uuid('resource_id').notNull().references(() => resources.id, { onDelete: 'restrict' }),
+    employeeId: uuid('employee_id').notNull().references(() => employees.id, { onDelete: 'restrict' }),
     projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'restrict' }),
     allocationPercentage: smallint('allocation_percentage').notNull(),
     billingPercentage: smallint('billing_percentage').notNull(),
@@ -464,7 +465,7 @@ export const employeesRelations = relations(employees, ({ one, many }) => ({
         references: [designations.id],
     }),
     employeeType: one(employeeTypes, {
-        fields: [employees.resourceTypeId],
+        fields: [employees.employeeTypeId],
         references: [employeeTypes.id],
     }),
     university: one(universities, {
