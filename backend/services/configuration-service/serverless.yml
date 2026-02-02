@@ -43,7 +43,7 @@ provider:
     id: !ImportValue onebt-${self:provider.stage}-HttpApiId
 
   layers:
-        - arn:aws:lambda:ap-southeast-1:550586832874:layer:onebt-shared-libs-dev:61
+    - arn:aws:lambda:ap-southeast-1:550586832874:layer:onebt-shared-libs-dev:66
 
 plugins:
   - serverless-offline
@@ -63,6 +63,15 @@ custom:
     id: !ImportValue onebt-${self:provider.stage}-CognitoAuthorizerId
 
 functions:
+  # ==================== ALL CONFIGS (unified endpoint) ====================
+  getAllConfigs:
+    handler: src/handlers/allConfigs.getAll
+    events:
+      - httpApi:
+          path: /api/v1/configs
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
   # ==================== DESIGNATIONS ====================
   listDesignations:
     handler: src/handlers/designations.list
@@ -290,88 +299,5 @@ functions:
     events:
       - httpApi:
           path: /api/v1/tags/{id}
-          method: DELETE
-          authorizer: ${self:custom.authorizer}
-
-
-  # ==================== ACCOUNT TYPES ====================
-  listAccountTypes:
-    handler: src/handlers/accountTypes.list
-    events:
-      - httpApi:
-          path: /api/v1/account-types
-          method: GET
-          authorizer: ${self:custom.authorizer}
-
-  getAccountType:
-    handler: src/handlers/accountTypes.getById
-    events:
-      - httpApi:
-          path: /api/v1/account-types/{id}
-          method: GET
-          authorizer: ${self:custom.authorizer}
-
-  createAccountType:
-    handler: src/handlers/accountTypes.create
-    events:
-      - httpApi:
-          path: /api/v1/account-types
-          method: POST
-          authorizer: ${self:custom.authorizer}
-
-  updateAccountType:
-    handler: src/handlers/accountTypes.update
-    events:
-      - httpApi:
-          path: /api/v1/account-types/{id}
-          method: PUT
-          authorizer: ${self:custom.authorizer}
-
-  deleteAccountType:
-    handler: src/handlers/accountTypes.remove
-    events:
-      - httpApi:
-          path: /api/v1/account-types/{id}
-          method: DELETE
-          authorizer: ${self:custom.authorizer}
-
-  # ==================== PROJECT STATUSES ====================
-  listProjectStatuses:
-    handler: src/handlers/projectStatuses.list
-    events:
-      - httpApi:
-          path: /api/v1/project-statuses
-          method: GET
-          authorizer: ${self:custom.authorizer}
-
-  getProjectStatus:
-    handler: src/handlers/projectStatuses.getById
-    events:
-      - httpApi:
-          path: /api/v1/project-statuses/{id}
-          method: GET
-          authorizer: ${self:custom.authorizer}
-
-  createProjectStatus:
-    handler: src/handlers/projectStatuses.create
-    events:
-      - httpApi:
-          path: /api/v1/project-statuses
-          method: POST
-          authorizer: ${self:custom.authorizer}
-
-  updateProjectStatus:
-    handler: src/handlers/projectStatuses.update
-    events:
-      - httpApi:
-          path: /api/v1/project-statuses/{id}
-          method: PUT
-          authorizer: ${self:custom.authorizer}
-
-  deleteProjectStatus:
-    handler: src/handlers/projectStatuses.remove
-    events:
-      - httpApi:
-          path: /api/v1/project-statuses/{id}
           method: DELETE
           authorizer: ${self:custom.authorizer}
