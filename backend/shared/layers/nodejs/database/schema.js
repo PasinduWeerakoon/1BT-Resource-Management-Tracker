@@ -118,6 +118,7 @@ export const tags = pgTable('tags', {
 
 // Employees table (main resource table)
 // Column names match actual database: epf_no, emp_no, employee_type_id
+// Config-based fields store INTEGER IDs that map to shared configs in /opt/nodejs/configs/index.js
 export const employees = pgTable('employees', {
     id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
     epfNo: varchar('epf_no', { length: 20 }).notNull(),       // EPF Number (unique identifier)
@@ -126,11 +127,11 @@ export const employees = pgTable('employees', {
     name: varchar('name', { length: 100 }).notNull(),
     email: varchar('email', { length: 100 }),
     phoneNumber: varchar('phone_number', { length: 20 }),
-    // Config-based fields (validated at app level from backend/configs/)
-    track: varchar('track', { length: 100 }),
-    techStack: varchar('tech_stack', { length: 100 }),
-    tier: varchar('tier', { length: 50 }),
-    // FK to lookup tables
+    // Config-based fields - INTEGER IDs mapping to shared configs
+    trackId: integer('track_id'),          // Maps to TRACKS config
+    techStackId: integer('tech_stack_id'), // Maps to TECH_STACKS config
+    tierId: integer('tier_id'),            // Maps to TIERS config
+    // FK to lookup tables (database-managed)
     designationId: integer('designation_id').references(() => designations.id, { onDelete: 'set null' }),
     employeeTypeId: integer('employee_type_id').references(() => employeeTypes.id, { onDelete: 'set null' }),
     universityId: integer('university_id').references(() => universities.id, { onDelete: 'set null' }),
@@ -165,15 +166,15 @@ export const employees = pgTable('employees', {
     emailUnique: uniqueIndex('employees_email_unique').on(table.email).where(sql`deleted_at IS NULL AND email IS NOT NULL`),
     // Performance indexes
     statusIdx: index('idx_employees_status').on(table.status).where(sql`deleted_at IS NULL`),
-    trackIdx: index('idx_employees_track').on(table.track).where(sql`deleted_at IS NULL`),
+    trackIdx: index('idx_employees_track_id').on(table.trackId).where(sql`deleted_at IS NULL`),
     designationIdx: index('idx_employees_designation').on(table.designationId).where(sql`deleted_at IS NULL`),
-    tierIdx: index('idx_employees_tier').on(table.tier).where(sql`deleted_at IS NULL`),
-    techStackIdx: index('idx_employees_tech_stack').on(table.techStack).where(sql`deleted_at IS NULL`),
+    tierIdx: index('idx_employees_tier_id').on(table.tierId).where(sql`deleted_at IS NULL`),
+    techStackIdx: index('idx_employees_tech_stack_id').on(table.techStackId).where(sql`deleted_at IS NULL`),
     typeIdx: index('idx_employees_type').on(table.employeeTypeId).where(sql`deleted_at IS NULL`),
     allocationIdx: index('idx_employees_allocation').on(table.totalAllocation).where(sql`status = 'Active' AND deleted_at IS NULL`),
     accountManagerIdx: index('idx_employees_account_manager').on(table.isAccountManager).where(sql`is_account_manager = true AND deleted_at IS NULL`),
     nameIdx: index('idx_employees_name').on(table.name),
-    activeListIdx: index('idx_employees_active_list').on(table.status, table.track, table.designationId).where(sql`deleted_at IS NULL`),
+    activeListIdx: index('idx_employees_active_list').on(table.status, table.trackId, table.designationId).where(sql`deleted_at IS NULL`),
 }));
 
 // Users table
@@ -395,8 +396,8 @@ export const designationHistory = pgTable('designation_history', {
     employeeId: uuid('employee_id').notNull().references(() => employees.id, { onDelete: 'cascade' }),
     previousDesignationId: integer('previous_designation_id').references(() => designations.id),
     newDesignationId: integer('new_designation_id').notNull().references(() => designations.id),
-    previousTrack: varchar('previous_track', { length: 100 }),
-    newTrack: varchar('new_track', { length: 100 }).notNull(),
+    previousTrackId: integer('previous_track_id'),  // Maps to TRACKS config
+    newTrackId: integer('new_track_id').notNull(),  // Maps to TRACKS config
     changeType: varchar('change_type', { length: 30 }).notNull(),
     changeReason: text('change_reason'),
     effectiveFrom: date('effective_from').notNull().default(sql`CURRENT_DATE`),

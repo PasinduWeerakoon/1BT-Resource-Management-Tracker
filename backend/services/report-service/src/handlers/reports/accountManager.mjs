@@ -4,11 +4,27 @@
  * Handlers for account manager related reports:
  * - getAccountManagers: List of all account managers
  * - getAccountManagerReport: Comprehensive account manager dashboard
+ * 
+ * Config ID Resolution:
+ * - track_id -> TRACKS config
+ * - tier_id -> TIERS config
+ * - tech_stack_id -> TECH_STACKS config
  */
 
 import * as db from '/opt/nodejs/database/index.js';
 import logger from '/opt/nodejs/logger/index.js';
 import { success, error } from '/opt/nodejs/utils/response.js';
+// Import shared configs for ID-to-label resolution
+import { TRACKS, TIERS, TECH_STACKS, getConfigById } from '/opt/nodejs/configs/index.js';
+
+/**
+ * Helper function to resolve config IDs to labels
+ */
+const resolveConfigLabel = (configArray, id) => {
+    if (!id) return null;
+    const config = getConfigById(configArray, id);
+    return config ? config.label : null;
+};
 
 /**
  * Get list of all account managers
@@ -26,9 +42,9 @@ export const getAccountManagers = async (event) => {
                 r.name,
                 r.email,
                 d.name as designation,
-                r.track,
-                r.tier,
-                r.tech_stack,
+                r.track_id,
+                r.tier_id,
+                r.tech_stack_id,
                 r.is_account_manager,
                 (SELECT COUNT(*) FROM projects p WHERE p.account_manager_id = r.id AND p.deleted_at IS NULL) as project_count,
                 (SELECT COUNT(DISTINCT a.employee_id) 
@@ -47,9 +63,17 @@ export const getAccountManagers = async (event) => {
 
         const result = await db.query(query);
 
+        // Transform results with config resolution
+        const data = result.rows.map(row => ({
+            ...row,
+            track: resolveConfigLabel(TRACKS, row.track_id),
+            tier: resolveConfigLabel(TIERS, row.tier_id),
+            tech_stack: resolveConfigLabel(TECH_STACKS, row.tech_stack_id)
+        }));
+
         return success({
-            data: result.rows,
-            total: result.rows.length,
+            data,
+            total: data.length,
             generatedAt: new Date().toISOString()
         });
 
@@ -181,12 +205,13 @@ export const getAccountManagerReport = async (event) => {
             // Summary statistics
             db.query(`
                 SELECT 
-                    COUNT(DISTINCT CASE WHEN p.billing_status = 'Billing' THEN r.id END) as billable_resources,
+                    COUNT(DISTINCT CASE WHEN bs.name = 'Billing' THEN r.id END) as billable_resources,
                     ROUND(AVG(a.allocation_percentage)::numeric, 1) as avg_allocation,
-                    COUNT(DISTINCT CASE WHEN p.billing_status = 'Billing' THEN p.id END) as billable_count,
+                    COUNT(DISTINCT CASE WHEN bs.name = 'Billing' THEN p.id END) as billable_count,
                     ROUND(AVG(CASE WHEN a.is_active = true THEN a.allocation_percentage ELSE NULL END)::numeric, 1) as avg_project_allocation,
-                    ROUND(AVG(CASE WHEN p.billing_status = 'Billing' THEN a.billing_percentage ELSE NULL END)::numeric, 1) as avg_billing_percentage
+                    ROUND(AVG(CASE WHEN bs.name = 'Billing' THEN a.billing_percentage ELSE NULL END)::numeric, 1) as avg_billing_percentage
                 FROM projects p
+                LEFT JOIN billing_statuses bs ON p.billing_status_id = bs.id
                 LEFT JOIN allocations a ON p.id = a.project_id AND a.is_active = true
                 LEFT JOIN employees r ON a.employee_id = r.id AND r.deleted_at IS NULL
                 ${projectWhereClause}
@@ -198,15 +223,17 @@ export const getAccountManagerReport = async (event) => {
                     p.id,
                     p.project_name as project,
                     c.client_name as customer,
-                    p.project_type,
+                    pt.name as project_type,
                     p.status,
-                    p.billing_status,
+                    bs.name as billing_status,
                     (SELECT COUNT(*) FROM allocations a WHERE a.project_id = p.id AND a.is_active = true) as team_size,
                     p.account_manager_id,
                     am.name as account_manager_name
                 FROM projects p
                 LEFT JOIN clients c ON p.client_id = c.id
                 LEFT JOIN employees am ON p.account_manager_id = am.id
+                LEFT JOIN project_types pt ON p.project_type_id = pt.id
+                LEFT JOIN billing_statuses bs ON p.billing_status_id = bs.id
                 ${projectWhereClause}
                 ORDER BY p.project_name
                 LIMIT $${projectParamIndex} OFFSET $${projectParamIndex + 1}
@@ -226,12 +253,12 @@ export const getAccountManagerReport = async (event) => {
                     r.name as employee_name,
                     r.id as resource_id,
                     r.total_allocation,
-                    r.total_billing,
+                    r.total_resource_billing as total_billing,
                     p.project_name as project,
                     p.id as project_id,
                     TO_CHAR(a.allocated_date, 'DD Mon YYYY') as project_allocated_date,
                     CASE WHEN a.deallocated_date IS NOT NULL THEN TO_CHAR(a.deallocated_date, 'DD Mon YYYY') ELSE NULL END as project_deallocated_date,
-                    p.billing_status,
+                    bs.name as billing_status,
                     a.billing_percentage,
                     a.allocation_percentage as project_allocation,
                     CASE 
@@ -243,6 +270,7 @@ export const getAccountManagerReport = async (event) => {
                 FROM allocations a
                 JOIN employees r ON a.employee_id = r.id
                 JOIN projects p ON a.project_id = p.id
+                LEFT JOIN billing_statuses bs ON p.billing_status_id = bs.id
                 ${allocationWhereClause}
                 ${account_manager_id && account_manager_id !== 'all' ? `AND p.account_manager_id = $${allocationParamIndex}` : ''}
                 ${employee_status && employee_status !== 'All' ? `AND r.status = $${allocationParamIndex + (account_manager_id && account_manager_id !== 'all' ? 1 : 0)}` : ''}
@@ -290,70 +318,62 @@ export const getAccountManagerReport = async (event) => {
             db.query(`
                 SELECT 
                     CASE 
-                        WHEN p.project_type = 'Bench' THEN 'Bench'
-                        WHEN p.billing_status = 'Non-Billing' THEN 'Non-Billing'
-                        WHEN p.project_type = 'Training' THEN 'Training'
-                        WHEN p.project_type = 'Presale' THEN 'Presale'
+                        WHEN pt.name = 'Bench' THEN 'Bench'
+                        WHEN bs.name = 'Non-Billing' THEN 'Non-Billing'
+                        WHEN pt.name = 'Training' THEN 'Training'
+                        WHEN pt.name = 'Pre-Sales' THEN 'Presale'
                         ELSE 'Billing'
                     END as category,
                     COUNT(*) as count
                 FROM allocations a
                 JOIN projects p ON a.project_id = p.id
+                LEFT JOIN project_types pt ON p.project_type_id = pt.id
+                LEFT JOIN billing_statuses bs ON p.billing_status_id = bs.id
                 WHERE a.is_active = true AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
                 ${account_manager_id && account_manager_id !== 'all' ? `AND p.account_manager_id = $1` : ''}
                 GROUP BY category
                 ORDER BY count DESC
             `, account_manager_id && account_manager_id !== 'all' ? [account_manager_id] : []),
 
-            // Chart: Employees by Tier
+            // Chart: Employees by Tier (using tier_id)
             db.query(`
                 SELECT 
-                    COALESCE(r.tier, 'Unassigned') as tier,
+                    r.tier_id,
                     COUNT(DISTINCT r.id) as count
                 FROM employees r
                 JOIN allocations a ON r.id = a.employee_id AND a.is_active = true
                 JOIN projects p ON a.project_id = p.id
                 WHERE r.deleted_at IS NULL AND r.status = 'Active'
                 ${account_manager_id && account_manager_id !== 'all' ? `AND p.account_manager_id = $1` : ''}
-                GROUP BY r.tier
-                ORDER BY 
-                    CASE r.tier 
-                        WHEN 'Synergy' THEN 1 
-                        WHEN 'Tier - 1' THEN 2 
-                        WHEN 'Tier - 2' THEN 3 
-                        WHEN 'Tier - 3' THEN 4 
-                        WHEN 'Tier - 4' THEN 5 
-                        WHEN 'Intern' THEN 6 
-                        ELSE 7 
-                    END
+                GROUP BY r.tier_id
+                ORDER BY r.tier_id
             `, account_manager_id && account_manager_id !== 'all' ? [account_manager_id] : []),
 
-            // Chart: Employees by Track
+            // Chart: Employees by Track (using track_id)
             db.query(`
                 SELECT 
-                    COALESCE(t.name, 'Unassigned') as track,
+                    r.track_id,
                     COUNT(DISTINCT r.id) as count
                 FROM employees r
-                
                 JOIN allocations a ON r.id = a.employee_id AND a.is_active = true
                 JOIN projects p ON a.project_id = p.id
                 WHERE r.deleted_at IS NULL AND r.status = 'Active'
                 ${account_manager_id && account_manager_id !== 'all' ? `AND p.account_manager_id = $1` : ''}
-                GROUP BY t.name
+                GROUP BY r.track_id
                 ORDER BY count DESC
             `, account_manager_id && account_manager_id !== 'all' ? [account_manager_id] : []),
 
-            // Chart: Employees by Tech Stack
+            // Chart: Employees by Tech Stack (using tech_stack_id)
             db.query(`
                 SELECT 
-                    COALESCE(r.tech_stack, 'Unassigned') as tech_stack,
+                    r.tech_stack_id,
                     COUNT(DISTINCT r.id) as count
                 FROM employees r
                 JOIN allocations a ON r.id = a.employee_id AND a.is_active = true
                 JOIN projects p ON a.project_id = p.id
                 WHERE r.deleted_at IS NULL AND r.status = 'Active'
                 ${account_manager_id && account_manager_id !== 'all' ? `AND p.account_manager_id = $1` : ''}
-                GROUP BY r.tech_stack
+                GROUP BY r.tech_stack_id
                 ORDER BY count DESC
             `, account_manager_id && account_manager_id !== 'all' ? [account_manager_id] : [])
         ]);
@@ -367,22 +387,25 @@ export const getAccountManagerReport = async (event) => {
             averageBillingPercentage: parseFloat(summaryResult.rows[0]?.avg_billing_percentage || 0)
         };
 
-        // Format charts
+        // Format charts - resolve IDs to labels using configs
         const charts = {
             allocationsByBillingStatus: billingStatusChart.rows.reduce((acc, row) => {
                 acc[row.category] = parseInt(row.count);
                 return acc;
             }, {}),
             employeesByTier: tierChart.rows.reduce((acc, row) => {
-                acc[row.tier] = parseInt(row.count);
+                const tierLabel = resolveConfigLabel(TIERS, row.tier_id) || 'Unassigned';
+                acc[tierLabel] = parseInt(row.count);
                 return acc;
             }, {}),
             employeesByTrack: trackChart.rows.reduce((acc, row) => {
-                acc[row.track] = parseInt(row.count);
+                const trackLabel = resolveConfigLabel(TRACKS, row.track_id) || 'Unassigned';
+                acc[trackLabel] = parseInt(row.count);
                 return acc;
             }, {}),
             employeesByTechStack: techStackChart.rows.reduce((acc, row) => {
-                acc[row.tech_stack] = parseInt(row.count);
+                const techStackLabel = resolveConfigLabel(TECH_STACKS, row.tech_stack_id) || 'Unassigned';
+                acc[techStackLabel] = parseInt(row.count);
                 return acc;
             }, {})
         };

@@ -153,8 +153,158 @@ const seedDefaults = async (client) => {
 };
 
 /**
+ * Custom migrations that can be applied to existing databases
+ * These are executed as raw SQL for maximum control
+ */
+const CUSTOM_MIGRATIONS = {
+    '0001_config_ids_migration': `
+        -- Step 1: Add new integer columns if they don't exist
+        DO $$ 
+        BEGIN
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'employees' AND column_name = 'track_id') THEN
+                ALTER TABLE "employees" ADD COLUMN "track_id" integer;
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'employees' AND column_name = 'tier_id') THEN
+                ALTER TABLE "employees" ADD COLUMN "tier_id" integer;
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'employees' AND column_name = 'tech_stack_id') THEN
+                ALTER TABLE "employees" ADD COLUMN "tech_stack_id" integer;
+            END IF;
+        END $$;
+
+        -- Step 2: Migrate existing VARCHAR data to integer IDs (TRACKS mapping)
+        UPDATE "employees" SET "track_id" = CASE "track"
+            WHEN 'QA' THEN 1
+            WHEN 'Dev' THEN 2
+            WHEN 'UI' THEN 3
+            WHEN 'BA' THEN 4
+            WHEN 'PM' THEN 5
+            WHEN 'Support' THEN 6
+            WHEN 'Synergy' THEN 7
+            WHEN 'UX' THEN 8
+            WHEN 'Execs' THEN 9
+            WHEN 'Delivery' THEN 10
+            WHEN 'Functional Consultant - MS Dynamics 365' THEN 11
+            ELSE NULL
+        END WHERE "track" IS NOT NULL AND "track_id" IS NULL;
+
+        -- Step 3: Migrate TIERS data
+        UPDATE "employees" SET "tier_id" = CASE "tier"
+            WHEN 'Tier - 1' THEN 1
+            WHEN 'Tier - 2' THEN 2
+            WHEN 'Tier - 3' THEN 3
+            WHEN 'Tier - 4' THEN 4
+            WHEN 'Intern' THEN 5
+            WHEN 'None' THEN 6
+            WHEN 'Synergy' THEN 7
+            ELSE NULL
+        END WHERE "tier" IS NOT NULL AND "tier_id" IS NULL;
+
+        -- Step 4: Migrate TECH_STACKS data
+        UPDATE "employees" SET "tech_stack_id" = CASE "tech_stack"
+            WHEN 'QA' THEN 1
+            WHEN '.NET' THEN 2
+            WHEN 'Full Stack' THEN 3
+            WHEN 'Synergy' THEN 4
+            WHEN 'PM' THEN 5
+            WHEN 'BA' THEN 6
+            WHEN 'UI' THEN 7
+            WHEN 'Java' THEN 8
+            WHEN 'Data Science' THEN 9
+            WHEN 'Power Apps' THEN 10
+            WHEN 'Finance' THEN 11
+            WHEN 'React' THEN 12
+            WHEN 'Dynamics' THEN 13
+            WHEN 'UX' THEN 14
+            WHEN 'BA/PM' THEN 15
+            WHEN 'UI/UX' THEN 16
+            WHEN 'HR' THEN 17
+            WHEN 'Execs' THEN 18
+            WHEN 'Admin' THEN 19
+            WHEN 'Marketing' THEN 20
+            WHEN 'Drupal' THEN 21
+            WHEN 'Sales & Marketing' THEN 22
+            WHEN 'BC' THEN 23
+            WHEN 'Business Central (Functional)' THEN 24
+            WHEN 'AI/ML' THEN 25
+            WHEN 'Blockchain' THEN 26
+            ELSE NULL
+        END WHERE "tech_stack" IS NOT NULL AND "tech_stack_id" IS NULL;
+
+        -- Step 5: Drop old VARCHAR columns
+        DO $$
+        BEGIN
+            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'employees' AND column_name = 'track') THEN
+                ALTER TABLE "employees" DROP COLUMN "track";
+            END IF;
+            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'employees' AND column_name = 'tier') THEN
+                ALTER TABLE "employees" DROP COLUMN "tier";
+            END IF;
+            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'employees' AND column_name = 'tech_stack') THEN
+                ALTER TABLE "employees" DROP COLUMN "tech_stack";
+            END IF;
+        END $$;
+
+        -- Step 6: Create indexes for performance
+        CREATE INDEX IF NOT EXISTS "idx_employees_track_id" ON "employees" ("track_id") WHERE "deleted_at" IS NULL;
+        CREATE INDEX IF NOT EXISTS "idx_employees_tier_id" ON "employees" ("tier_id") WHERE "deleted_at" IS NULL;
+        CREATE INDEX IF NOT EXISTS "idx_employees_tech_stack_id" ON "employees" ("tech_stack_id") WHERE "deleted_at" IS NULL;
+
+        -- Step 7: Update designation_history table
+        DO $$ 
+        BEGIN
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'designation_history' AND column_name = 'previous_track_id') THEN
+                ALTER TABLE "designation_history" ADD COLUMN "previous_track_id" integer;
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'designation_history' AND column_name = 'new_track_id') THEN
+                ALTER TABLE "designation_history" ADD COLUMN "new_track_id" integer;
+            END IF;
+        END $$;
+
+        -- Step 8: Migrate designation_history track data
+        UPDATE "designation_history" SET "previous_track_id" = CASE "previous_track"
+            WHEN 'QA' THEN 1 WHEN 'Dev' THEN 2 WHEN 'UI' THEN 3 WHEN 'BA' THEN 4
+            WHEN 'PM' THEN 5 WHEN 'Support' THEN 6 WHEN 'Synergy' THEN 7 WHEN 'UX' THEN 8
+            WHEN 'Execs' THEN 9 WHEN 'Delivery' THEN 10 WHEN 'Functional Consultant - MS Dynamics 365' THEN 11
+            ELSE NULL
+        END WHERE "previous_track" IS NOT NULL AND "previous_track_id" IS NULL;
+
+        UPDATE "designation_history" SET "new_track_id" = CASE "new_track"
+            WHEN 'QA' THEN 1 WHEN 'Dev' THEN 2 WHEN 'UI' THEN 3 WHEN 'BA' THEN 4
+            WHEN 'PM' THEN 5 WHEN 'Support' THEN 6 WHEN 'Synergy' THEN 7 WHEN 'UX' THEN 8
+            WHEN 'Execs' THEN 9 WHEN 'Delivery' THEN 10 WHEN 'Functional Consultant - MS Dynamics 365' THEN 11
+            ELSE NULL
+        END WHERE "new_track" IS NOT NULL AND "new_track_id" IS NULL;
+
+        -- Step 9: Drop old designation_history columns
+        DO $$
+        BEGIN
+            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'designation_history' AND column_name = 'previous_track') THEN
+                ALTER TABLE "designation_history" DROP COLUMN "previous_track";
+            END IF;
+            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'designation_history' AND column_name = 'new_track') THEN
+                ALTER TABLE "designation_history" DROP COLUMN "new_track";
+            END IF;
+        END $$;
+
+        -- Step 10: Drop old indexes
+        DROP INDEX IF EXISTS "idx_employees_track";
+        DROP INDEX IF EXISTS "idx_employees_tier";
+        DROP INDEX IF EXISTS "idx_employees_tech_stack";
+        DROP INDEX IF EXISTS "idx_employees_active_list";
+
+        -- Step 11: Recreate composite index with new column names
+        CREATE INDEX IF NOT EXISTS "idx_employees_active_list" ON "employees" ("status", "track_id", "designation_id") WHERE "deleted_at" IS NULL;
+    `
+};
+
+/**
  * Run migrations using Drizzle migrate
  * This looks for migrations in the /drizzle folder
+ * 
+ * Migration Strategy:
+ * - For fresh databases: Run all migrations from scratch
+ * - For existing databases: Mark baseline as applied then run pending migrations
  */
 export const up = async (event) => {
     const log = logger.child({ handler: 'migrations.up' });
@@ -177,50 +327,84 @@ export const up = async (event) => {
         const isExistingDb = tablesExist.rows[0].exists;
         log.info('Database state', { isExistingDb });
 
-        if (isExistingDb) {
-            // Database already has tables - ensure migration tracking table exists
-            // and mark initial migration as applied with correct Drizzle hash format
+        // Ensure migration tracking table exists (same format as Drizzle)
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (
+                id SERIAL PRIMARY KEY,
+                hash text NOT NULL,
+                created_at bigint
+            );
+        `);
+
+        // Get already applied migrations
+        const appliedMigrations = await client.query(`
+            SELECT hash FROM "__drizzle_migrations" ORDER BY id
+        `);
+        const appliedHashes = new Set(appliedMigrations.rows.map(r => r.hash));
+        log.info('Applied migrations', { count: appliedHashes.size, hashes: [...appliedHashes] });
+
+        if (isExistingDb && !appliedHashes.has('0000_lean_puma')) {
+            // Existing database without baseline tracking - mark baseline as applied
+            // This prevents Drizzle from trying to run the initial migration
             await client.query(`
-                CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (
-                    id SERIAL PRIMARY KEY,
-                    hash text NOT NULL,
-                    created_at bigint
-                );
-            `);
+                INSERT INTO "__drizzle_migrations" (hash, created_at)
+                VALUES ('0000_lean_puma', $1)
+            `, [Date.now()]);
+            appliedHashes.add('0000_lean_puma');
+            log.info('Baseline migration marked as applied for existing database');
+        }
 
-            // Check if initial migration is already recorded
-            const migrationCheck = await client.query(`
-                SELECT COUNT(*) FROM "__drizzle_migrations"
-            `);
-
-            if (parseInt(migrationCheck.rows[0].count) === 0) {
-                // For existing databases, we skip running migrations entirely
-                // and just mark that the database is at the current schema state.
-                await client.query(`
-                    INSERT INTO "__drizzle_migrations" (hash, created_at)
-                    VALUES ('0000_lean_puma', $1)
-                `, [Date.now()]);
-                log.info('Baseline migration marked as applied - skipping migration execution for existing database');
-            } else {
-                log.info('Migrations already tracked - database is up to date');
-            }
-
-            // For existing databases, DO NOT run migrate() as the schema already exists
-            log.info('Existing database detected - skipping Drizzle migrate() to avoid conflicts');
-        } else {
-            // Fresh database - run migrations normally
-            log.info('Fresh database detected - running Drizzle migrations');
+        // Run Drizzle migrations - it checks __drizzle_migrations table
+        // and skips already applied migrations
+        log.info('Running Drizzle migrations');
+        try {
             await migrate(drizzleDb, { migrationsFolder: './drizzle' });
             log.info('Drizzle migrations completed');
+        } catch (migrationError) {
+            // Check if error is "already exists" type - means schema is already up to date
+            if (migrationError.message?.includes('already exists')) {
+                log.warn('Migration skipped - schema objects already exist', { error: migrationError.message });
+            } else {
+                throw migrationError;
+            }
+        }
+
+        // Run custom migrations that weren't handled by Drizzle
+        const customMigrationsApplied = [];
+        for (const [migrationName, migrationSql] of Object.entries(CUSTOM_MIGRATIONS)) {
+            if (!appliedHashes.has(migrationName)) {
+                log.info(`Running custom migration: ${migrationName}`);
+                try {
+                    await client.query(migrationSql);
+                    await client.query(`
+                        INSERT INTO "__drizzle_migrations" (hash, created_at)
+                        VALUES ($1, $2)
+                    `, [migrationName, Date.now()]);
+                    customMigrationsApplied.push(migrationName);
+                    log.info(`Custom migration ${migrationName} completed successfully`);
+                } catch (customMigrationError) {
+                    log.error(`Custom migration ${migrationName} failed`, { error: customMigrationError.message });
+                    throw customMigrationError;
+                }
+            } else {
+                log.info(`Custom migration ${migrationName} already applied, skipping`);
+            }
         }
 
         // Seed default data (uses raw SQL now)
         await seedDefaults(client);
 
+        // Get final migration status
+        const finalMigrations = await client.query(`
+            SELECT hash FROM "__drizzle_migrations" ORDER BY id
+        `);
+
         return success({
             message: 'Migration completed successfully',
             timestamp: new Date().toISOString(),
-            existingDb: isExistingDb
+            existingDb: isExistingDb,
+            migrationsApplied: finalMigrations.rows.map(r => r.hash),
+            customMigrationsApplied
         });
     } catch (err) {
         log.error('Migration failed', { error: err.message, stack: err.stack });

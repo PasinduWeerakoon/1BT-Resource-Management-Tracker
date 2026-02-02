@@ -7,6 +7,11 @@
  * - New resources are automatically allocated 100% to Bench project
  * 
  * Uses Drizzle ORM with transaction support for data integrity
+ * 
+ * Config ID Mapping:
+ * - track_id: Maps to TRACKS config (1=QA, 2=Dev, etc.)
+ * - tier_id: Maps to TIERS config (1=Tier-1, 2=Tier-2, etc.)
+ * - tech_stack_id: Maps to TECH_STACKS config (1=QA, 2=.NET, etc.)
  */
 
 // Import from Lambda Layer (mounted at /opt/nodejs)
@@ -19,6 +24,8 @@ import logger from '/opt/nodejs/logger/index.js';
 import { success, error, notFound, validationError, conflict } from '/opt/nodejs/utils/response.js';
 import { validate, resourceSchemas } from '/opt/nodejs/validation/index.js';
 import audit from '/opt/nodejs/lib/audit/index.js';
+// Import shared configs for ID-to-label mapping
+import { TRACKS, TIERS, TECH_STACKS, getConfigById } from '/opt/nodejs/configs/index.js';
 
 const SERVICE_NAME = 'resource-service';
 
@@ -143,32 +150,20 @@ const getBenchProjectId = async () => {
 /**
  * Check if a track is a billable track (should have auto-bench allocation)
  * Only Dev (FS, .Net, DS, UI/UX), QA, and PM/BA tracks should auto-bench
- * @param {object} tx - Drizzle transaction context
- * @param {string} trackId - The track ID to check
+ * Uses shared TRACKS config for lookup
+ * @param {number} trackId - The track ID to check (maps to TRACKS config)
  * @returns {boolean} - Whether the track is billable
  */
-const isBillableTrack = async (tx, trackId) => {
-    try {
-        const result = await tx
-            .select({ isBillableTrack: tracks.isBillableTrack, name: tracks.name })
-            .from(tracks)
-            .where(eq(tracks.id, trackId));
+const isBillableTrack = (trackId) => {
+    if (!trackId) return false;
 
-        if (result.length === 0) {
-            return false;
-        }
+    // Get track from shared config
+    const track = getConfigById(TRACKS, trackId);
+    if (!track) return false;
 
-        // If is_billable_track column is set, use it
-        if (result[0].isBillableTrack !== null) {
-            return result[0].isBillableTrack;
-        }
-
-        // Fallback: check track name for backwards compatibility
-        const billableTracks = ['FS', '.Net', 'DS', 'UI/UX', 'QA', 'PM/BA'];
-        return billableTracks.includes(result[0].name);
-    } catch {
-        return false;
-    }
+    // Billable tracks: QA, Dev, UI, BA, PM, UX
+    const billableTrackLabels = ['QA', 'Dev', 'UI', 'BA', 'PM', 'UX'];
+    return billableTrackLabels.includes(track.label);
 };
 
 /**
@@ -177,14 +172,14 @@ const isBillableTrack = async (tx, trackId) => {
  * Uses Drizzle ORM - can accept transaction context (tx) for atomic operations
  * @param {object} tx - Drizzle transaction context (or regular drizzle instance)
  * @param {string} resourceId - The resource ID to allocate
- * @param {string} trackId - The track ID of the resource
+ * @param {number} trackId - The track ID of the resource (maps to TRACKS config)
  * @param {string} userId - The user creating the allocation
  * @param {object} log - Logger instance
  */
 const createInitialBenchAllocation = async (tx, resourceId, trackId, userId, log) => {
     try {
-        // Check if this track should have auto-bench allocation
-        const shouldAutoBench = await isBillableTrack(tx, trackId);
+        // Check if this track should have auto-bench allocation (now sync, uses config)
+        const shouldAutoBench = isBillableTrack(trackId);
         if (!shouldAutoBench) {
             log.info('Track is not billable, skipping auto-bench allocation', { resourceId, trackId });
             return null;
@@ -282,7 +277,7 @@ export const list = async (event) => {
         }
 
         if (tier) {
-            whereClause += ` AND r.tier = $${paramIndex}`;
+            whereClause += ` AND r.tier_id = $${paramIndex}`;
             params.push(tier);
             paramIndex++;
         }
@@ -301,17 +296,16 @@ export const list = async (event) => {
 
         // Optimized: Combined query using CTE and window function for count
         // This avoids two separate round-trips to the database
+        // Note: track_id, tier_id, tech_stack_id are INTEGER IDs mapping to shared configs
         const dataQuery = `
             WITH filtered_resources AS (
                 SELECT 
                     r.*,
                     d.name as designation_name,
                     d.level as designation_level,
-                    r.track as track_name,
                     COUNT(*) OVER() as total_count
                 FROM employees r
                 LEFT JOIN designations d ON r.designation_id = d.id
-                
                 ${whereClause}
                 ORDER BY r.name ASC
                 LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
@@ -332,14 +326,14 @@ export const list = async (event) => {
             LEFT JOIN employee_tags rt ON fr.id = rt.employee_id
             LEFT JOIN tags tg ON rt.tag_id = tg.id
             GROUP BY fr.id, fr.epf_no, fr.emp_no, fr.global_employee_id, fr.name, fr.phone_number, 
-                     fr.email, fr.designation_id, fr.track, fr.tech_stack, fr.tier,
+                     fr.email, fr.designation_id, fr.track_id, fr.tech_stack_id, fr.tier_id,
                      fr.skills, fr.joined_date, fr.status, fr.notice_period_end_date, 
                      fr.deleted_at, fr.version, fr.created_at, fr.updated_at, fr.created_by, 
                      fr.updated_by, fr.is_account_manager, fr.photo_url, fr.total_allocation, 
                      fr.total_resource_billing, fr.employee_type_id, fr.university_id,
                      fr.last_increment_date, fr.last_promotion_date, fr.internship_completion_target_date,
                      fr.helper_id, fr.helper_is_external, fr.designation_name, fr.designation_level, 
-                     fr.track_name, fr.total_count
+                     fr.total_count
             ORDER BY fr.name ASC
         `;
         params.push(limit, offset);
@@ -349,7 +343,7 @@ export const list = async (event) => {
         // Extract total from first row (or 0 if no results)
         const total = result.rows.length > 0 ? parseInt(result.rows[0].total_count) : 0;
 
-        // Transform tags from JSON array to proper format
+        // Transform result: resolve config IDs to labels
         // Remove total_count from response, ensure employee_type and tags are included
         const transformedData = result.rows.map(({ total_count, ...row }) => {
             let tagsArray = [];
@@ -363,12 +357,24 @@ export const list = async (event) => {
                 log.warn('Failed to parse tags', { error: e.message });
             }
 
-            // Ensure employee_type is included (defaults to 'Internal' if null/undefined)
-            // Ensure tags is always an array (empty array if no tags)
+            // Resolve config IDs to labels for API response
+            const trackConfig = row.track_id ? getConfigById(TRACKS, row.track_id) : null;
+            const tierConfig = row.tier_id ? getConfigById(TIERS, row.tier_id) : null;
+            const techStackConfig = row.tech_stack_id ? getConfigById(TECH_STACKS, row.tech_stack_id) : null;
+
+            // Include both IDs and resolved labels for frontend flexibility
             return {
                 ...row,
-                employee_type: row.employee_type || 'Internal', // Default to 'Internal' if null
-                tags: tagsArray.filter(tag => tag && tag.id) // Remove null entries
+                // Config IDs (for forms/updates)
+                track_id: row.track_id,
+                tier_id: row.tier_id,
+                tech_stack_id: row.tech_stack_id,
+                // Resolved labels (for display)
+                track: trackConfig?.label || null,
+                tier: tierConfig?.label || null,
+                tech_stack: techStackConfig?.label || null,
+                employee_type: row.employee_type || 'Internal',
+                tags: tagsArray.filter(tag => tag && tag.id)
             };
         });
 
@@ -404,15 +410,13 @@ export const getById = async (event) => {
     try {
         log.info('Getting resource', { id });
 
-        const drizzle = await getDrizzle();
-
         // Get resource with tags using raw SQL for better control
+        // track_id, tier_id, tech_stack_id are INTEGER IDs - will resolve to labels
         const resourceQuery = `
             SELECT 
                 r.*,
                 d.name as designation_name,
                 d.level as designation_level,
-                r.track as track_name,
                 COALESCE(
                     json_agg(
                         DISTINCT json_build_object(
@@ -425,81 +429,52 @@ export const getById = async (event) => {
                 ) as tags
             FROM employees r
             LEFT JOIN designations d ON r.designation_id = d.id
-            
             LEFT JOIN employee_tags rt ON r.id = rt.employee_id
             LEFT JOIN tags tg ON rt.tag_id = tg.id
             WHERE r.id = $1 AND r.deleted_at IS NULL
-            GROUP BY r.id, d.id, t.id
+            GROUP BY r.id, d.id
             LIMIT 1
         `;
-        // Using Drizzle with leftJoin for related data
-        // Map to snake_case for API response consistency
-        const result = await drizzle
-            .select({
-                // Resource fields (map schema camelCase to API snake_case)
-                id: resources.id,
-                employee_id: resources.epfNo,
-                employee_number: resources.employeeNumber,
-                name: resources.name,
-                phone_number: resources.phoneNumber,
-                email: resources.email,
-                address: resources.address,
-                designation_id: resources.designationId,
-                track_id: resources.trackId,
-                intern_classification: resources.internClassification,
-                skills: resources.skills,
-                date_of_joining: resources.dateOfJoining,
-                date_of_birth: resources.dateOfBirth,
-                nic_passport: resources.nicPassport,
-                is_intern: resources.isIntern,
-                tier: resources.tier,
-                tech_stack: resources.techStack,
-                photo_url: resources.photoUrl,
-                status: resources.status,
-                total_allocation: resources.totalAllocation,
-                total_billing: resources.totalBilling,
-                version: resources.version,
-                created_at: resources.createdAt,
-                updated_at: resources.updatedAt,
-                created_by: resources.createdBy,
-                updated_by: resources.updatedBy,
-                deleted_at: resources.deletedAt,
-                // Joined fields
-                designation_name: designations.name,
-                designation_level: designations.level,
-                track_name: tracks.name
-            })
-            .from(resources)
-            .leftJoin(designations, eq(resources.designationId, designations.id))
-            .leftJoin(tracks, eq(resources.trackId, tracks.id))
-            .where(and(
-                eq(resources.id, id),
-                isNull(resources.deletedAt)
-            ));
 
-        // const result = await db.query(resourceQuery, [id]);
+        const result = await db.query(resourceQuery, [id]);
 
         if (result.rows.length === 0) {
             return notFound('Resource not found');
         }
 
-        // Transform tags from JSON array to proper format
-        const resource = result.rows[0];
+        const row = result.rows[0];
+
+        // Parse tags
         let tagsArray = [];
         try {
-            if (resource.tags && typeof resource.tags === 'string') {
-                tagsArray = JSON.parse(resource.tags);
-            } else if (Array.isArray(resource.tags)) {
-                tagsArray = resource.tags;
+            if (row.tags && typeof row.tags === 'string') {
+                tagsArray = JSON.parse(row.tags);
+            } else if (Array.isArray(row.tags)) {
+                tagsArray = row.tags;
             }
         } catch (e) {
             log.warn('Failed to parse tags', { error: e.message });
         }
 
-        return success({
-            ...resource,
-            tags: tagsArray.filter(tag => tag.id) // Remove null entries
-        });
+        // Resolve config IDs to labels
+        const trackConfig = row.track_id ? getConfigById(TRACKS, row.track_id) : null;
+        const tierConfig = row.tier_id ? getConfigById(TIERS, row.tier_id) : null;
+        const techStackConfig = row.tech_stack_id ? getConfigById(TECH_STACKS, row.tech_stack_id) : null;
+
+        const resourceData = {
+            ...row,
+            // Config IDs (for forms/updates)
+            track_id: row.track_id,
+            tier_id: row.tier_id,
+            tech_stack_id: row.tech_stack_id,
+            // Resolved labels (for display)
+            track: trackConfig?.label || null,
+            tier: tierConfig?.label || null,
+            tech_stack: techStackConfig?.label || null,
+            tags: tagsArray.filter(tag => tag && tag.id)
+        };
+
+        return success(resourceData);
 
     } catch (err) {
         log.error('Failed to get resource', { id, error: err.message });
@@ -594,6 +569,7 @@ export const create = async (event) => {
             });
 
             // Insert resource using Drizzle (use camelCase properties from schema)
+            // track_id, tier_id, tech_stack_id are INTEGER IDs mapping to shared configs
             const [newResource] = await tx
                 .insert(resources)
                 .values({
@@ -604,7 +580,9 @@ export const create = async (event) => {
                     email: validated.email || null,
                     address: validated.address || null,
                     designationId: validated.designation_id,
-                    trackId: validated.track_id,
+                    trackId: validated.track_id || null,
+                    tierId: validated.tier_id || null,
+                    techStackId: validated.tech_stack_id || null,
                     internClassification: validated.intern_classification || null,
                     skills: validated.skills || [],
                     dateOfJoining: validated.date_of_joining || null,
@@ -612,8 +590,6 @@ export const create = async (event) => {
                     nicPassport: validated.nic_passport || null,
                     isIntern: validated.is_intern !== undefined ? validated.is_intern : false,
                     employeeType: employeeType,
-                    tier: validated.tier || null,
-                    techStack: validated.tech_stack || null,
                     photoUrl: validated.photo_url || null,
                     status: validated.status || 'Active',
                     createdBy: userId
@@ -754,26 +730,27 @@ export const update = async (event) => {
         }
 
         // Map API snake_case to Drizzle schema camelCase
+        // Note: track_id, tier_id, tech_stack_id are INTEGER IDs mapping to shared configs
         const fieldMapping = {
             employee_id: 'employeeId',
             employee_number: 'employeeNumber',
             phone_number: 'phoneNumber',
             designation_id: 'designationId',
             track_id: 'trackId',
+            tier_id: 'tierId',
+            tech_stack_id: 'techStackId',
             intern_classification: 'internClassification',
             date_of_joining: 'dateOfJoining',
             date_of_birth: 'dateOfBirth',
             nic_passport: 'nicPassport',
             is_intern: 'isIntern',
-            employee_type: 'employeeType', // Map employee_type to employeeType for Drizzle schema
-            tech_stack: 'techStack',
+            employee_type: 'employeeType',
             photo_url: 'photoUrl',
             // Direct mappings (same name)
             name: 'name',
             email: 'email',
             address: 'address',
             skills: 'skills',
-            tier: 'tier',
             status: 'status'
         };
 

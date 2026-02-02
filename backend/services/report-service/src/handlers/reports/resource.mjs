@@ -6,11 +6,27 @@
  * - getUtilizationReport: Utilization by track
  * - getInternReport: Intern resources report
  * - getExternalConsultantsReport: External consultants report
+ * 
+ * Config ID Resolution:
+ * - track_id -> TRACKS config
+ * - tier_id -> TIERS config
+ * - tech_stack_id -> TECH_STACKS config
  */
 
 import * as db from '/opt/nodejs/database/index.js';
 import logger from '/opt/nodejs/logger/index.js';
 import { success, error } from '/opt/nodejs/utils/response.js';
+// Import shared configs for ID-to-label resolution
+import { TRACKS, TIERS, TECH_STACKS, getConfigById } from '/opt/nodejs/configs/index.js';
+
+/**
+ * Helper function to resolve config IDs to labels
+ */
+const resolveConfigLabel = (configArray, id) => {
+    if (!id) return null;
+    const config = getConfigById(configArray, id);
+    return config ? config.label : null;
+};
 
 /**
  * Get bench report - resources with available capacity
@@ -47,12 +63,12 @@ export const getBenchReport = async (event) => {
                 r.name,
                 r.email,
                 d.name as designation,
-                r.track,
+                r.track_id,
+                r.tier_id,
                 COALESCE(ra.total_allocation, 0) as current_allocation,
                 (100 - COALESCE(ra.total_allocation, 0)) as available_capacity,
                 COALESCE(ba.bench_allocation, 0) as bench_allocation_percentage,
                 r.joined_date,
-                r.tier,
                 CASE WHEN r.joined_date IS NOT NULL 
                      THEN (CURRENT_DATE - r.joined_date::DATE)
                      ELSE NULL END as days_in_company
@@ -69,18 +85,25 @@ export const getBenchReport = async (event) => {
 
         const result = await db.query(query);
 
+        // Transform results with config resolution
+        const data = result.rows.map(row => ({
+            ...row,
+            track: resolveConfigLabel(TRACKS, row.track_id),
+            tier: resolveConfigLabel(TIERS, row.tier_id)
+        }));
+
         // Categorize by capacity
-        const fullBench = result.rows.filter(r => r.current_allocation === 0);
-        const partialBench = result.rows.filter(r => r.current_allocation > 0 && r.current_allocation < 100);
+        const fullBench = data.filter(r => r.current_allocation === 0);
+        const partialBench = data.filter(r => r.current_allocation > 0 && r.current_allocation < 100);
 
         return success({
-            data: result.rows,
+            data,
             summary: {
-                totalOnBench: result.rows.length,
+                totalOnBench: data.length,
                 fullBench: fullBench.length,
                 partialBench: partialBench.length,
-                avgAvailableCapacity: result.rows.length > 0
-                    ? Math.round(result.rows.reduce((sum, r) => sum + parseInt(r.available_capacity), 0) / result.rows.length)
+                avgAvailableCapacity: data.length > 0
+                    ? Math.round(data.reduce((sum, r) => sum + parseInt(r.available_capacity), 0) / data.length)
                     : 0
             },
             generatedAt: new Date().toISOString()
@@ -103,7 +126,7 @@ export const getUtilizationReport = async (event) => {
 
         const query = `
             SELECT 
-                r.track,
+                r.track_id,
                 COUNT(DISTINCT r.id) as total_resources,
                 SUM(CASE WHEN p.is_billable = true THEN a.allocation_percentage ELSE 0 END) as billable_allocation_sum,
                 SUM(CASE WHEN p.is_billable = false OR p.is_billable IS NULL THEN a.allocation_percentage ELSE 0 END) as non_billable_allocation_sum,
@@ -115,17 +138,19 @@ export const getUtilizationReport = async (event) => {
                 AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
             LEFT JOIN projects p ON a.project_id = p.id
             WHERE r.status = 'Active' AND r.deleted_at IS NULL
-            GROUP BY t.name
-            ORDER BY t.name
+            GROUP BY r.track_id
+            ORDER BY r.track_id
         `;
 
         const result = await db.query(query);
 
-        // Calculate percentages
+        // Calculate percentages and resolve track labels
         const data = result.rows.map(row => {
             const totalCapacity = parseInt(row.total_resources) * 100;
+            const trackLabel = resolveConfigLabel(TRACKS, row.track_id);
             return {
-                track: row.track || 'Unassigned',
+                trackId: row.track_id,
+                track: trackLabel || 'Unassigned',
                 totalResources: parseInt(row.total_resources),
                 billableUtilization: totalCapacity
                     ? Math.round((parseInt(row.billable_allocation_sum) / totalCapacity) * 100)
@@ -164,35 +189,47 @@ export const getUtilizationReport = async (event) => {
 /**
  * Get intern report
  * Returns all interns with their current projects, total intern count, and intern percentage
- * Supports filters: project_name, account_manager, track, tech_stack
+ * Supports filters: project_name, account_manager, track_id, tech_stack_id
  */
 export const getInternReport = async (event) => {
     const log = logger.child({ handler: 'reports.getInternReport' });
 
     try {
         const queryParams = event.queryStringParameters || {};
-        const { project_name, account_manager, track, tech_stack } = queryParams;
+        const { project_name, account_manager, track, track_id, tech_stack, tech_stack_id } = queryParams;
 
         log.info('Getting intern report', { filters: queryParams });
 
         // Build WHERE clauses for all filters
-        let resourceWhereClause = 'WHERE r.tier IS NOT NULL AND r.status = \'Active\' AND r.deleted_at IS NULL';
+        // Interns are identified by tier_id = 5 (Intern tier)
+        let resourceWhereClause = 'WHERE r.tier_id = 5 AND r.status = \'Active\' AND r.deleted_at IS NULL';
         let allocationWhereClause = '';
         const params = [];
         let paramIndex = 1;
 
-        // Track filter
-        if (track && track !== 'All' && track !== '') {
-            resourceWhereClause += ` AND t.name = $${paramIndex}`;
-            params.push(track);
-            paramIndex++;
+        // Track filter - accept both track (label) and track_id
+        const trackFilter = track_id || track;
+        if (trackFilter && trackFilter !== 'All' && trackFilter !== '') {
+            // If it's a number, use as ID; otherwise look up by label
+            const trackIdValue = !isNaN(trackFilter) ? parseInt(trackFilter) :
+                TRACKS.find(t => t.label === trackFilter)?.id;
+            if (trackIdValue) {
+                resourceWhereClause += ` AND r.track_id = $${paramIndex}`;
+                params.push(trackIdValue);
+                paramIndex++;
+            }
         }
 
-        // Tech Stack filter
-        if (tech_stack && tech_stack !== 'All' && tech_stack !== '') {
-            resourceWhereClause += ` AND r.tech_stack = $${paramIndex}`;
-            params.push(tech_stack);
-            paramIndex++;
+        // Tech Stack filter - accept both tech_stack (label) and tech_stack_id
+        const techStackFilter = tech_stack_id || tech_stack;
+        if (techStackFilter && techStackFilter !== 'All' && techStackFilter !== '') {
+            const techStackIdValue = !isNaN(techStackFilter) ? parseInt(techStackFilter) :
+                TECH_STACKS.find(t => t.label === techStackFilter)?.id;
+            if (techStackIdValue) {
+                resourceWhereClause += ` AND r.tech_stack_id = $${paramIndex}`;
+                params.push(techStackIdValue);
+                paramIndex++;
+            }
         }
 
         // Project Name filter (applied to allocation join)
@@ -246,8 +283,8 @@ export const getInternReport = async (event) => {
                     r.name as employee_name,
                     r.email,
                     d.name as designation,
-                    r.track,
-                    r.tech_stack,
+                    r.track_id,
+                    r.tech_stack_id,
                     r.joined_date,
                     CASE WHEN r.joined_date IS NOT NULL 
                          THEN EXTRACT(MONTH FROM AGE(CURRENT_DATE, r.joined_date::DATE)) 
@@ -257,11 +294,11 @@ export const getInternReport = async (event) => {
                     TO_CHAR(a.allocated_date, 'DD Mon YYYY') as project_allocated_date,
                     CASE WHEN a.deallocated_date IS NOT NULL THEN TO_CHAR(a.deallocated_date, 'DD Mon YYYY') ELSE NULL END as project_deallocated_date,
                     CASE 
-                        WHEN p.project_type = 'Bench' THEN 'Bench'
-                        WHEN p.billing_status = 'Non-Billing' THEN 'Non-Billing'
-                        WHEN p.project_type = 'Training' THEN 'Training'
-                        WHEN p.project_type = 'Presale' THEN 'Presale'
-                        WHEN p.billing_status = 'Billing' THEN 'Billing'
+                        WHEN pt.name = 'Bench' THEN 'Bench'
+                        WHEN bs.name = 'Non-Billing' THEN 'Non-Billing'
+                        WHEN pt.name = 'Training' THEN 'Training'
+                        WHEN pt.name = 'Pre-Sales' THEN 'Presale'
+                        WHEN bs.name = 'Billing' THEN 'Billing'
                         ELSE 'Non-Billing'
                     END as billing_status,
                     COALESCE(a.billing_percentage, 0) as billing_percentage,
@@ -279,6 +316,8 @@ export const getInternReport = async (event) => {
                     AND a.is_active = true 
                     AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
                 INNER JOIN projects p ON a.project_id = p.id AND p.deleted_at IS NULL
+                LEFT JOIN project_types pt ON p.project_type_id = pt.id
+                LEFT JOIN billing_statuses bs ON p.billing_status_id = bs.id
                 LEFT JOIN employees am ON p.account_manager_id = am.id
                 ${resourceWhereClause}
                 ${allocationWhereClause}
@@ -290,8 +329,8 @@ export const getInternReport = async (event) => {
                     r.name as employee_name,
                     r.email,
                     d.name as designation,
-                    r.track,
-                    r.tech_stack,
+                    r.track_id,
+                    r.tech_stack_id,
                     r.joined_date,
                     CASE WHEN r.joined_date IS NOT NULL 
                          THEN EXTRACT(MONTH FROM AGE(CURRENT_DATE, r.joined_date::DATE)) 
@@ -301,11 +340,11 @@ export const getInternReport = async (event) => {
                     TO_CHAR(a.allocated_date, 'DD Mon YYYY') as project_allocated_date,
                     CASE WHEN a.deallocated_date IS NOT NULL THEN TO_CHAR(a.deallocated_date, 'DD Mon YYYY') ELSE NULL END as project_deallocated_date,
                     CASE 
-                        WHEN p.project_type = 'Bench' THEN 'Bench'
-                        WHEN p.billing_status = 'Non-Billing' THEN 'Non-Billing'
-                        WHEN p.project_type = 'Training' THEN 'Training'
-                        WHEN p.project_type = 'Presale' THEN 'Presale'
-                        WHEN p.billing_status = 'Billing' THEN 'Billing'
+                        WHEN pt.name = 'Bench' THEN 'Bench'
+                        WHEN bs.name = 'Non-Billing' THEN 'Non-Billing'
+                        WHEN pt.name = 'Training' THEN 'Training'
+                        WHEN pt.name = 'Pre-Sales' THEN 'Presale'
+                        WHEN bs.name = 'Billing' THEN 'Billing'
                         ELSE 'Non-Billing'
                     END as billing_status,
                     COALESCE(a.billing_percentage, 0) as billing_percentage,
@@ -323,6 +362,8 @@ export const getInternReport = async (event) => {
                     AND a.is_active = true 
                     AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
                 LEFT JOIN projects p ON a.project_id = p.id AND p.deleted_at IS NULL
+                LEFT JOIN project_types pt ON p.project_type_id = pt.id
+                LEFT JOIN billing_statuses bs ON p.billing_status_id = bs.id
                 LEFT JOIN employees am ON p.account_manager_id = am.id
                 ${resourceWhereClause}
                 ${allocationWhereClause}
@@ -343,6 +384,7 @@ export const getInternReport = async (event) => {
             : '0.0';
 
         // Format intern details - group by intern and collect all their projects
+        // Resolve track_id and tech_stack_id to labels using configs
         const internMap = {};
         internDetailsResult.rows.forEach((row) => {
             const internId = row.id;
@@ -352,8 +394,10 @@ export const getInternReport = async (event) => {
                     employeeName: row.employee_name,
                     email: row.email,
                     designation: row.designation,
-                    track: row.track,
-                    techStack: row.tech_stack,
+                    trackId: row.track_id,
+                    track: resolveConfigLabel(TRACKS, row.track_id),
+                    techStackId: row.tech_stack_id,
+                    techStack: resolveConfigLabel(TECH_STACKS, row.tech_stack_id),
                     dateOfJoining: row.joined_date,
                     monthsInCompany: row.months_in_company,
                     projects: []
