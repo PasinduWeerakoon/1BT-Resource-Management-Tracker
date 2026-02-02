@@ -1,48 +1,41 @@
 /**
  * Configurations Page
  * Main page that manages configuration tabs
- * Refactored from 4065 lines to ~150 lines using tab components
+ * Organized into two main categories: Employee and Project configurations
+ * Each category has its own sub-tabs
  */
 
 import React, { useState } from 'react';
 import { Card, Tabs } from 'antd';
+import { UserOutlined, ProjectOutlined } from '@ant-design/icons';
 import '@styles/pages/Configurations.scss';
 
 // Import all tab components
-import ProjectsTab from './Tabs/ProjectsTab';
-import ClientsTab from './Tabs/ClientsTab';
+// Employee-related tabs
 import DesignationsTab from './Tabs/DesignationsTab';
 import TracksTab from './Tabs/TracksTab';
 import TiersTab from './Tabs/TiersTab';
 import TagsTab from './Tabs/TagsTab';
+
+// Project-related tabs
+import ProjectsTab from './Tabs/ProjectsTab';
+import ClientsTab from './Tabs/ClientsTab';
 import BillingStatusesTab from './Tabs/BillingStatusesTab';
 import ProjectTypesTab from './Tabs/ProjectTypesTab';
-import AccountTypesTab from './Tabs/AccountTypesTab';
-import ProjectStatusesTab from './Tabs/ProjectStatusesTab';
 
 const Configurations = () => {
-  const [activeTab, setActiveTab] = useState('project-types');
+  // State for main category tab (employee or project)
+  const [activeCategory, setActiveCategory] = useState('employee');
+  // State for sub-tabs within each category
+  const [activeEmployeeTab, setActiveEmployeeTab] = useState('designations');
+  const [activeProjectTab, setActiveProjectTab] = useState('clients');
 
-  const tabItems = [
-    {
-      key: 'project-types',
-      label: 'Projects',
-      children: <ProjectsTab />,
-    },
-    {
-      key: 'clients',
-      label: 'Clients',
-      children: <ClientsTab />,
-    },
+  // Employee configuration sub-tabs
+  const employeeTabItems = [
     {
       key: 'designations',
       label: 'Designations',
       children: <DesignationsTab />,
-    },
-    {
-      key: 'tracks',
-      label: 'Tracks',
-      children: <TracksTab />,
     },
     {
       key: 'tiers',
@@ -50,29 +43,74 @@ const Configurations = () => {
       children: <TiersTab />,
     },
     {
+      key: 'tracks',
+      label: 'Tracks',
+      children: <TracksTab />,
+    },
+    {
       key: 'tags',
       label: 'Tags',
       children: <TagsTab />,
+    },
+  ];
+
+  // Project configuration sub-tabs
+  const projectTabItems = [
+    {
+      key: 'clients',
+      label: 'Clients',
+      children: <ClientsTab />,
+    },
+    {
+      key: 'projects',
+      label: 'Projects',
+      children: <ProjectsTab />,
+    },
+    {
+      key: 'project-types',
+      label: 'Project Type',
+      children: <ProjectTypesTab />,
     },
     {
       key: 'billing-statuses',
       label: 'Billing Status',
       children: <BillingStatusesTab />,
     },
+  ];
+
+  // Main category tabs
+  const categoryTabItems = [
     {
-      key: 'project-types-config',
-      label: 'Project Type',
-      children: <ProjectTypesTab />,
+      key: 'employee',
+      label: (
+        <span>
+          <UserOutlined /> Employee Configurations
+        </span>
+      ),
+      children: (
+        <Tabs
+          activeKey={activeEmployeeTab}
+          onChange={setActiveEmployeeTab}
+          items={employeeTabItems}
+          type="card"
+        />
+      ),
     },
     {
-      key: 'account-types',
-      label: 'Account Type',
-      children: <AccountTypesTab />,
-    },
-    {
-      key: 'project-statuses',
-      label: 'Project Status',
-      children: <ProjectStatusesTab />,
+      key: 'project',
+      label: (
+        <span>
+          <ProjectOutlined /> Project Configurations
+        </span>
+      ),
+      children: (
+        <Tabs
+          activeKey={activeProjectTab}
+          onChange={setActiveProjectTab}
+          items={projectTabItems}
+          type="card"
+        />
+      ),
     },
   ];
 
@@ -84,9 +122,10 @@ const Configurations = () => {
 
       <Card className="configurations-content-card">
         <Tabs
-          activeKey={activeTab}
-          onChange={setActiveTab}
-          items={tabItems}
+          activeKey={activeCategory}
+          onChange={setActiveCategory}
+          items={categoryTabItems}
+          size="large"
         />
       </Card>
     </div>
