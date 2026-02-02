@@ -258,7 +258,7 @@ export const checkOverlappingAllocation = async (resourceId, projectId, allocate
  * Returns { allowed: boolean, error?: string }
  */
 export const checkResourceStatus = async (resourceId, isBenchAllocation = false) => {
-    const resourceResult = await db.query('SELECT status FROM resources WHERE id = $1', [resourceId]);
+    const resourceResult = await db.query('SELECT status FROM employees WHERE id = $1', [resourceId]);
 
     if (resourceResult.rows.length === 0) {
         return { allowed: false, error: 'Resource not found' };

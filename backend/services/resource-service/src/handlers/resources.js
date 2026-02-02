@@ -13,7 +13,7 @@
 import * as db from '/opt/nodejs/database/index.js';
 import { getDrizzle, withTransaction } from '/opt/nodejs/database/drizzle.js';
 import schema from '/opt/nodejs/database/schema.js';
-const { resources, allocations, projects, designations, tracks, users, clients, tags, resourceTags } = schema;
+const { employees, allocations, projects, designations, users, clients, tags, employeeTags } = schema;
 import { eq, and, isNull, ilike, or, sql, desc, inArray } from 'drizzle-orm';
 import logger from '/opt/nodejs/logger/index.js';
 import { success, error, notFound, validationError, conflict } from '/opt/nodejs/utils/response.js';
@@ -258,7 +258,7 @@ export const list = async (event) => {
             // ILIKE is PostgreSQL's case-insensitive LIKE operator
             // Convert search to lowercase for consistency (frontend also sends lowercase)
             const searchTerm = search.toLowerCase().trim();
-            whereClause += ` AND (r.name ILIKE $${paramIndex} OR r.email ILIKE $${paramIndex} OR r.employee_id ILIKE $${paramIndex} OR r.employee_number ILIKE $${paramIndex})`;
+            whereClause += ` AND (r.name ILIKE $${paramIndex} OR r.email ILIKE $${paramIndex} OR r.epf_no ILIKE $${paramIndex} OR r.emp_no ILIKE $${paramIndex})`;
             params.push(`%${searchTerm}%`);
             paramIndex++;
         }
@@ -288,7 +288,7 @@ export const list = async (event) => {
         }
 
         if (employee_number) {
-            whereClause += ` AND r.employee_number ILIKE $${paramIndex}`;
+            whereClause += ` AND r.emp_no ILIKE $${paramIndex}`;
             params.push(`%${employee_number}%`);
             paramIndex++;
         }
@@ -307,11 +307,11 @@ export const list = async (event) => {
                     r.*,
                     d.name as designation_name,
                     d.level as designation_level,
-                    t.name as track_name,
+                    r.track as track_name,
                     COUNT(*) OVER() as total_count
-                FROM resources r
+                FROM employees r
                 LEFT JOIN designations d ON r.designation_id = d.id
-                LEFT JOIN tracks t ON r.track_id = t.id
+                
                 ${whereClause}
                 ORDER BY r.name ASC
                 LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
@@ -329,15 +329,16 @@ export const list = async (event) => {
                     '[]'::json
                 ) as tags
             FROM filtered_resources fr
-            LEFT JOIN resource_tags rt ON fr.id = rt.resource_id
+            LEFT JOIN employee_tags rt ON fr.id = rt.employee_id
             LEFT JOIN tags tg ON rt.tag_id = tg.id
-            GROUP BY fr.id, fr.employee_id, fr.employee_number, fr.name, fr.phone_number, 
-                     fr.email, fr.address, fr.designation_id, fr.track_id, fr.intern_classification,
-                     fr.skills, fr.date_of_joining, fr.status, fr.notice_period_end_date, 
+            GROUP BY fr.id, fr.epf_no, fr.emp_no, fr.global_employee_id, fr.name, fr.phone_number, 
+                     fr.email, fr.designation_id, fr.track, fr.tech_stack, fr.tier,
+                     fr.skills, fr.joined_date, fr.status, fr.notice_period_end_date, 
                      fr.deleted_at, fr.version, fr.created_at, fr.updated_at, fr.created_by, 
-                     fr.updated_by, fr.is_account_manager, fr.tier, fr.tech_stack, fr.date_of_birth,
-                     fr.nic_passport, fr.is_intern, fr.photo_url, fr.total_allocation, fr.total_billing,
-                     fr.is_external_consultant, fr.employee_type, fr.designation_name, fr.designation_level, 
+                     fr.updated_by, fr.is_account_manager, fr.photo_url, fr.total_allocation, 
+                     fr.total_resource_billing, fr.employee_type_id, fr.university_id,
+                     fr.last_increment_date, fr.last_promotion_date, fr.internship_completion_target_date,
+                     fr.helper_id, fr.helper_is_external, fr.designation_name, fr.designation_level, 
                      fr.track_name, fr.total_count
             ORDER BY fr.name ASC
         `;
@@ -411,7 +412,7 @@ export const getById = async (event) => {
                 r.*,
                 d.name as designation_name,
                 d.level as designation_level,
-                t.name as track_name,
+                r.track as track_name,
                 COALESCE(
                     json_agg(
                         DISTINCT json_build_object(
@@ -422,10 +423,10 @@ export const getById = async (event) => {
                     ) FILTER (WHERE tg.id IS NOT NULL),
                     '[]'::json
                 ) as tags
-            FROM resources r
+            FROM employees r
             LEFT JOIN designations d ON r.designation_id = d.id
-            LEFT JOIN tracks t ON r.track_id = t.id
-            LEFT JOIN resource_tags rt ON r.id = rt.resource_id
+            
+            LEFT JOIN employee_tags rt ON r.id = rt.employee_id
             LEFT JOIN tags tg ON rt.tag_id = tg.id
             WHERE r.id = $1 AND r.deleted_at IS NULL
             GROUP BY r.id, d.id, t.id
@@ -437,7 +438,7 @@ export const getById = async (event) => {
             .select({
                 // Resource fields (map schema camelCase to API snake_case)
                 id: resources.id,
-                employee_id: resources.employeeId,
+                employee_id: resources.epfNo,
                 employee_number: resources.employeeNumber,
                 name: resources.name,
                 phone_number: resources.phoneNumber,
@@ -532,7 +533,7 @@ export const create = async (event) => {
             .select({ id: resources.id })
             .from(resources)
             .where(and(
-                eq(resources.employeeId, validated.employee_id),
+                eq(resources.epfNo, validated.employee_id),
                 isNull(resources.deletedAt)
             ));
 
@@ -1035,7 +1036,7 @@ export const getAllocations = async (event) => {
             const futureAllocations = await db.query(`
                 SELECT 
                     fa.id,
-                    fa.resource_id,
+                    fa.employee_id,
                     fa.project_id,
                     fa.allocation_percentage,
                     fa.billing_percentage,
@@ -1057,7 +1058,7 @@ export const getAllocations = async (event) => {
                 FROM future_allocations fa
                 LEFT JOIN projects p ON fa.project_id = p.id
                 LEFT JOIN clients c ON p.client_id = c.id
-                WHERE fa.resource_id = $1
+                WHERE fa.employee_id = $1
                 AND fa.status = 'scheduled'
                 ORDER BY fa.effective_date ASC
             `, [id]);
@@ -1090,7 +1091,7 @@ export const getDesignationHistory = async (event) => {
 
         // Check if resource exists
         const resourceCheck = await db.query(
-            'SELECT id, name FROM resources WHERE id = $1 AND deleted_at IS NULL',
+            'SELECT id, name FROM employees WHERE id = $1 AND deleted_at IS NULL',
             [id]
         );
 
@@ -1138,7 +1139,7 @@ export const toggleAccountManager = async (event) => {
 
         // Check if resource exists
         const resourceCheck = await db.query(
-            'SELECT id, name, is_account_manager FROM resources WHERE id = $1 AND deleted_at IS NULL',
+            'SELECT id, name, is_account_manager FROM employees WHERE id = $1 AND deleted_at IS NULL',
             [id]
         );
 
@@ -1151,7 +1152,7 @@ export const toggleAccountManager = async (event) => {
 
         // Update resource
         const updateQuery = `
-            UPDATE resources 
+            UPDATE employees 
             SET is_account_manager = $1, updated_at = CURRENT_TIMESTAMP
             WHERE id = $2
             RETURNING id, name, email, is_account_manager
@@ -1192,7 +1193,7 @@ export const updateTier = async (event) => {
 
         // Check if resource exists
         const resourceCheck = await db.query(
-            'SELECT id, name, tier FROM resources WHERE id = $1 AND deleted_at IS NULL',
+            'SELECT id, name, tier FROM employees WHERE id = $1 AND deleted_at IS NULL',
             [id]
         );
 
@@ -1202,7 +1203,7 @@ export const updateTier = async (event) => {
 
         // Update resource
         const updateQuery = `
-            UPDATE resources 
+            UPDATE employees 
             SET tier = $1, updated_at = CURRENT_TIMESTAMP
             WHERE id = $2
             RETURNING id, name, tier
@@ -1242,7 +1243,7 @@ export const updateTechStack = async (event) => {
 
         // Check if resource exists
         const resourceCheck = await db.query(
-            'SELECT id, name, tech_stack FROM resources WHERE id = $1 AND deleted_at IS NULL',
+            'SELECT id, name, tech_stack FROM employees WHERE id = $1 AND deleted_at IS NULL',
             [id]
         );
 
@@ -1252,7 +1253,7 @@ export const updateTechStack = async (event) => {
 
         // Update resource
         const updateQuery = `
-            UPDATE resources 
+            UPDATE employees 
             SET tech_stack = $1, updated_at = CURRENT_TIMESTAMP
             WHERE id = $2
             RETURNING id, name, tech_stack

@@ -28,6 +28,9 @@ const getDrizzleForMigration = async () => {
 const seedDefaults = async (drizzleDb) => {
     const log = logger.child({ handler: 'migrations.seedDefaults' });
 
+    // NOTE: Tracks are now config-based, stored in backend/configs/tracks.js
+    // No tracks table seeding needed
+
     // Seed Designations
     const designationsData = [
         { name: 'Intern - SE', level: 1, isInternRole: true, category: 'Engineering', isActive: true, isDefault: true, displayOrder: 1 },
@@ -220,9 +223,54 @@ export const status = async (event) => {
                 }
             }
 
+            // Get employees table columns
+            let employeesColumns = [];
+            try {
+                const columnsResult = await client.query(`
+                    SELECT column_name, data_type 
+                    FROM information_schema.columns 
+                    WHERE table_name = 'employees' 
+                    ORDER BY ordinal_position
+                `);
+                employeesColumns = columnsResult.rows.map(r => r.column_name);
+            } catch (err) {
+                employeesColumns = ['error: ' + err.message];
+            }
+
+            // Get allocations table columns
+            let allocationsColumns = [];
+            try {
+                const allocResult = await client.query(`
+                    SELECT column_name, data_type 
+                    FROM information_schema.columns 
+                    WHERE table_name = 'allocations' 
+                    ORDER BY ordinal_position
+                `);
+                allocationsColumns = allocResult.rows.map(r => r.column_name);
+            } catch (err) {
+                allocationsColumns = ['error: ' + err.message];
+            }
+
+            // Get employee_tags table columns
+            let employeeTagsColumns = [];
+            try {
+                const tagsResult = await client.query(`
+                    SELECT column_name, data_type 
+                    FROM information_schema.columns 
+                    WHERE table_name = 'employee_tags' 
+                    ORDER BY ordinal_position
+                `);
+                employeeTagsColumns = tagsResult.rows.map(r => r.column_name);
+            } catch (err) {
+                employeeTagsColumns = ['error: ' + err.message];
+            }
+
             return success({
                 database: 'connected',
                 tableCounts: counts,
+                employeesColumns: employeesColumns,
+                allocationsColumns: allocationsColumns,
+                employeeTagsColumns: employeeTagsColumns,
                 timestamp: new Date().toISOString(),
             });
         } finally {

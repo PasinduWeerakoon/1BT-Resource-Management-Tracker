@@ -24,21 +24,21 @@ export const getNonBillingReport = async (event) => {
         const query = `
             SELECT 
                 r.id,
-                r.employee_id,
+                r.epf_no,
                 r.name,
                 r.email,
                 d.name as designation,
-                t.name as track,
+                r.track,
                 p.project_name,
                 a.allocation_percentage,
                 a.billing_percentage,
                 a.allocated_date,
                 a.deallocated_date
             FROM allocations a
-            JOIN resources r ON a.resource_id = r.id
+            JOIN employees r ON a.employee_id = r.id
             JOIN projects p ON a.project_id = p.id
             LEFT JOIN designations d ON r.designation_id = d.id
-            LEFT JOIN tracks t ON r.track_id = t.id
+            
             WHERE a.is_active = true
             AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
             AND p.is_billable = false
@@ -72,11 +72,11 @@ export const getPreSaleReport = async (event) => {
         const query = `
             SELECT 
                 r.id,
-                r.employee_id,
+                r.epf_no,
                 r.name,
                 r.email,
                 d.name as designation,
-                t.name as track,
+                r.track,
                 p.project_name,
                 p.project_code,
                 c.client_name,
@@ -85,11 +85,11 @@ export const getPreSaleReport = async (event) => {
                 a.deallocated_date,
                 a.notes
             FROM allocations a
-            JOIN resources r ON a.resource_id = r.id
+            JOIN employees r ON a.employee_id = r.id
             JOIN projects p ON a.project_id = p.id
             LEFT JOIN clients c ON p.client_id = c.id
             LEFT JOIN designations d ON r.designation_id = d.id
-            LEFT JOIN tracks t ON r.track_id = t.id
+            
             WHERE a.is_active = true
             AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
             AND p.project_type = 'Presale'
@@ -208,13 +208,13 @@ export const getTierBreakdownReport = async (event) => {
                 SELECT 
                     COALESCE(r.tier, 'Unassigned') as tier,
                     COUNT(DISTINCT r.id) as count
-                FROM resources r
-                LEFT JOIN tracks t ON r.track_id = t.id
-                INNER JOIN allocations a ON r.id = a.resource_id 
+                FROM employees r
+                
+                INNER JOIN allocations a ON r.id = a.employee_id 
                     AND a.is_active = true 
                     AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
                 INNER JOIN projects p ON a.project_id = p.id AND p.deleted_at IS NULL
-                LEFT JOIN resources am ON p.account_manager_id = am.id
+                LEFT JOIN employees am ON p.account_manager_id = am.id
                 ${resourceWhereClause}
                 ${allocationWhereClause}
                 GROUP BY r.tier
@@ -234,8 +234,8 @@ export const getTierBreakdownReport = async (event) => {
                 SELECT 
                     COALESCE(r.tier, 'Unassigned') as tier,
                     COUNT(DISTINCT r.id) as count
-                FROM resources r
-                LEFT JOIN tracks t ON r.track_id = t.id
+                FROM employees r
+                
                 ${resourceWhereClause}
                 GROUP BY r.tier
                 ORDER BY 
@@ -260,7 +260,7 @@ export const getTierBreakdownReport = async (event) => {
                 COALESCE(r.tier, 'Unassigned') as tier,
                 r.tech_stack,
                 d.name as designation,
-                t.name as track,
+                r.track,
                 p.project_name as project,
                 CASE 
                     WHEN p.project_type = 'Bench' THEN 'Bench'
@@ -272,14 +272,14 @@ export const getTierBreakdownReport = async (event) => {
                 END as billing_status,
                 COALESCE(a.billing_percentage, 0) as billing_percentage,
                 COALESCE(a.allocation_percentage, 0) as project_allocation
-            FROM resources r
+            FROM employees r
             LEFT JOIN designations d ON r.designation_id = d.id
-            LEFT JOIN tracks t ON r.track_id = t.id
-            LEFT JOIN allocations a ON r.id = a.resource_id 
+            
+            LEFT JOIN allocations a ON r.id = a.employee_id 
                 AND a.is_active = true 
                 AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
             LEFT JOIN projects p ON a.project_id = p.id AND p.deleted_at IS NULL
-            LEFT JOIN resources am ON p.account_manager_id = am.id
+            LEFT JOIN employees am ON p.account_manager_id = am.id
             ${resourceWhereClause}
             ${allocationWhereClause}
             ORDER BY 
@@ -301,20 +301,20 @@ export const getTierBreakdownReport = async (event) => {
         const totalCountQuery = project_name || account_manager
             ? `
                 SELECT COUNT(DISTINCT r.id) as total
-                FROM resources r
-                LEFT JOIN tracks t ON r.track_id = t.id
-                INNER JOIN allocations a ON r.id = a.resource_id 
+                FROM employees r
+                
+                INNER JOIN allocations a ON r.id = a.employee_id 
                     AND a.is_active = true 
                     AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
                 INNER JOIN projects p ON a.project_id = p.id AND p.deleted_at IS NULL
-                LEFT JOIN resources am ON p.account_manager_id = am.id
+                LEFT JOIN employees am ON p.account_manager_id = am.id
                 ${resourceWhereClause}
                 ${allocationWhereClause}
             `
             : `
                 SELECT COUNT(*) as total
-                FROM resources r
-                LEFT JOIN tracks t ON r.track_id = t.id
+                FROM employees r
+                
                 ${resourceWhereClause}
             `;
 

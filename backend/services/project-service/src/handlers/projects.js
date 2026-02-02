@@ -144,7 +144,7 @@ export const list = async (event) => {
                 COUNT(*) OVER() as total_count
             FROM projects p
             LEFT JOIN clients c ON p.client_id = c.id
-            LEFT JOIN resources r ON p.account_manager_id = r.id AND r.deleted_at IS NULL
+            LEFT JOIN employees r ON p.account_manager_id = r.id AND r.deleted_at IS NULL
             ${whereClause}
             ORDER BY p.project_name ASC
             LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
@@ -192,7 +192,7 @@ export const getById = async (event) => {
                 r.name as account_manager_name
             FROM projects p
             LEFT JOIN clients c ON p.client_id = c.id
-            LEFT JOIN resources r ON p.account_manager_id = r.id AND r.deleted_at IS NULL
+            LEFT JOIN employees r ON p.account_manager_id = r.id AND r.deleted_at IS NULL
             WHERE p.id = $1 AND p.deleted_at IS NULL
         `;
 
@@ -238,7 +238,7 @@ export const create = async (event) => {
         let accountManagerName = null;
         if (validated.account_manager_id) {
             const amResult = await db.query(
-                'SELECT name FROM resources WHERE id = $1 AND deleted_at IS NULL',
+                'SELECT name FROM employees WHERE id = $1 AND deleted_at IS NULL',
                 [validated.account_manager_id]
             );
             if (amResult.rows.length === 0) {
@@ -342,7 +342,7 @@ export const update = async (event) => {
         if (updateData.account_manager_id !== undefined) {
             if (updateData.account_manager_id) {
                 const amResult = await db.query(
-                    'SELECT name FROM resources WHERE id = $1 AND deleted_at IS NULL',
+                    'SELECT name FROM employees WHERE id = $1 AND deleted_at IS NULL',
                     [updateData.account_manager_id]
                 );
                 if (amResult.rows.length === 0) {
@@ -515,7 +515,7 @@ export const getAllocations = async (event) => {
                 r.email as resource_email,
                 d.name as designation_name
             FROM allocations a
-            LEFT JOIN resources r ON a.resource_id = r.id
+            LEFT JOIN employees r ON a.employee_id = r.id
             LEFT JOIN designations d ON r.designation_id = d.id
             WHERE a.project_id = $1
             ORDER BY a.start_date DESC

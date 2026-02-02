@@ -155,7 +155,7 @@ export const archiveEndedAllocations = async () => {
 export const getHistoryByResource = async (resourceId, options = {}) => {
     const log = logger.child({ service: SERVICE_NAME, method: 'getHistoryByResource' });
 
-    let whereClause = 'WHERE aha.resource_id = $1';
+    let whereClause = 'WHERE aha.employee_id = $1';
     const params = [resourceId];
     let paramIndex = 2;
 
@@ -187,7 +187,7 @@ export const getHistoryByResource = async (resourceId, options = {}) => {
                p.name as project_name,
                p.project_code
         FROM allocation_history_archive aha
-        JOIN resources r ON aha.resource_id = r.id
+        JOIN employees r ON aha.employee_id = r.id
         JOIN projects p ON aha.project_id = p.id
         ${whereClause}
         ORDER BY aha.archived_at DESC, aha.deallocated_date DESC
@@ -256,11 +256,11 @@ export const getHistoryByProject = async (projectId, options = {}) => {
     let query = `
         SELECT aha.*, 
                r.name as resource_name,
-               r.employee_id,
+               r.epf_no,
                p.name as project_name,
                p.project_code
         FROM allocation_history_archive aha
-        JOIN resources r ON aha.resource_id = r.id
+        JOIN employees r ON aha.employee_id = r.id
         JOIN projects p ON aha.project_id = p.id
         ${whereClause}
         ORDER BY aha.archived_at DESC
@@ -311,7 +311,7 @@ export const searchHistory = async (filters = {}) => {
     let paramIndex = 1;
 
     if (filters.resourceId) {
-        whereConditions.push(`aha.resource_id = $${paramIndex}`);
+        whereConditions.push(`aha.employee_id = $${paramIndex}`);
         params.push(filters.resourceId);
         paramIndex++;
     }
@@ -357,11 +357,11 @@ export const searchHistory = async (filters = {}) => {
     let query = `
         SELECT aha.*, 
                r.name as resource_name,
-               r.employee_id,
+               r.epf_no,
                p.name as project_name,
                p.project_code
         FROM allocation_history_archive aha
-        JOIN resources r ON aha.resource_id = r.id
+        JOIN employees r ON aha.employee_id = r.id
         JOIN projects p ON aha.project_id = p.id
         ${whereClause}
         ORDER BY aha.archived_at DESC

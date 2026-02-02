@@ -243,7 +243,7 @@ export const remove = async (event) => {
 
         // Check if tier is in use by any resources
         const usageCheck = await db.query(
-            'SELECT COUNT(*) as count FROM resources WHERE tier = $1 AND deleted_at IS NULL',
+            'SELECT COUNT(*) as count FROM employees WHERE tier = $1 AND deleted_at IS NULL',
             [existing.name]
         );
 

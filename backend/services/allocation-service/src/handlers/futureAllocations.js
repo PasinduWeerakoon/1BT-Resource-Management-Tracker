@@ -28,7 +28,7 @@ export const list = async (event) => {
         let paramIndex = 1;
 
         if (resource_id) {
-            whereConditions.push(`fa.resource_id = $${paramIndex}`);
+            whereConditions.push(`fa.employee_id = $${paramIndex}`);
             queryParams.push(resource_id);
             paramIndex++;
         }
@@ -64,13 +64,13 @@ export const list = async (event) => {
         let query = `
             SELECT fa.*, 
                    r.name as resource_name,
-                   r.employee_id,
+                   r.epf_no,
                    p.name as project_name,
                    p.project_code,
                    p.is_bench_project,
                    u.name as created_by_name
             FROM future_allocations fa
-            JOIN resources r ON fa.resource_id = r.id
+            JOIN employees r ON fa.employee_id = r.id
             JOIN projects p ON fa.project_id = p.id
             LEFT JOIN users u ON fa.created_by = u.id
             ${whereClause}

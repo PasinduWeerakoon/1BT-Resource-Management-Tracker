@@ -31,6 +31,9 @@ export const auditActionEnum = pgEnum('audit_action', [
 
 // ============ LOOKUP TABLES (Serial IDs for performance) ============
 
+// NOTE: Tracks are config-based, stored in backend/configs/tracks.js
+// No tracks table needed in database
+
 // Designations table - DB managed with is_default flag
 export const designations = pgTable('designations', {
     id: serial('id').primaryKey(),
@@ -113,11 +116,12 @@ export const tags = pgTable('tags', {
 
 // ============ CORE TABLES (UUID for distributed systems) ============
 
-// Employees table (formerly resources)
+// Employees table (main resource table)
+// Column names match actual database: epf_no, emp_no, employee_type_id
 export const employees = pgTable('employees', {
     id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
-    epfNo: varchar('epf_no', { length: 20 }).notNull(),
-    empNo: varchar('emp_no', { length: 20 }).notNull(),
+    epfNo: varchar('epf_no', { length: 20 }).notNull(),       // EPF Number (unique identifier)
+    empNo: varchar('emp_no', { length: 20 }).notNull(),       // Employee Number
     globalEmployeeId: varchar('global_employee_id', { length: 50 }),
     name: varchar('name', { length: 100 }).notNull(),
     email: varchar('email', { length: 100 }),
@@ -266,7 +270,7 @@ export const projects = pgTable('projects', {
 // Allocations table
 export const allocations = pgTable('allocations', {
     id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
-    employeeId: uuid('employee_id').notNull().references(() => employees.id, { onDelete: 'restrict' }),
+    resourceId: uuid('resource_id').notNull().references(() => resources.id, { onDelete: 'restrict' }),
     projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'restrict' }),
     allocationPercentage: smallint('allocation_percentage').notNull(),
     billingPercentage: smallint('billing_percentage').notNull(),
@@ -460,7 +464,7 @@ export const employeesRelations = relations(employees, ({ one, many }) => ({
         references: [designations.id],
     }),
     employeeType: one(employeeTypes, {
-        fields: [employees.employeeTypeId],
+        fields: [employees.resourceTypeId],
         references: [employeeTypes.id],
     }),
     university: one(universities, {

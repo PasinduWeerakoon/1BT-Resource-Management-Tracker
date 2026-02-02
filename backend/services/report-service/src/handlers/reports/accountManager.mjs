@@ -22,23 +22,23 @@ export const getAccountManagers = async (event) => {
         const query = `
             SELECT 
                 r.id,
-                r.employee_id,
+                r.epf_no,
                 r.name,
                 r.email,
                 d.name as designation,
-                t.name as track,
+                r.track,
                 r.tier,
                 r.tech_stack,
                 r.is_account_manager,
                 (SELECT COUNT(*) FROM projects p WHERE p.account_manager_id = r.id AND p.deleted_at IS NULL) as project_count,
-                (SELECT COUNT(DISTINCT a.resource_id) 
+                (SELECT COUNT(DISTINCT a.employee_id) 
                  FROM projects p 
                  JOIN allocations a ON p.id = a.project_id AND a.is_active = true
                  WHERE p.account_manager_id = r.id AND p.deleted_at IS NULL
                 ) as resource_count
-            FROM resources r
+            FROM employees r
             LEFT JOIN designations d ON r.designation_id = d.id
-            LEFT JOIN tracks t ON r.track_id = t.id
+            
             WHERE r.is_account_manager = true
             AND r.deleted_at IS NULL
             AND r.status = 'Active'
@@ -188,7 +188,7 @@ export const getAccountManagerReport = async (event) => {
                     ROUND(AVG(CASE WHEN p.billing_status = 'Billing' THEN a.billing_percentage ELSE NULL END)::numeric, 1) as avg_billing_percentage
                 FROM projects p
                 LEFT JOIN allocations a ON p.id = a.project_id AND a.is_active = true
-                LEFT JOIN resources r ON a.resource_id = r.id AND r.deleted_at IS NULL
+                LEFT JOIN employees r ON a.employee_id = r.id AND r.deleted_at IS NULL
                 ${projectWhereClause}
             `, projectParams),
 
@@ -206,7 +206,7 @@ export const getAccountManagerReport = async (event) => {
                     am.name as account_manager_name
                 FROM projects p
                 LEFT JOIN clients c ON p.client_id = c.id
-                LEFT JOIN resources am ON p.account_manager_id = am.id
+                LEFT JOIN employees am ON p.account_manager_id = am.id
                 ${projectWhereClause}
                 ORDER BY p.project_name
                 LIMIT $${projectParamIndex} OFFSET $${projectParamIndex + 1}
@@ -241,7 +241,7 @@ export const getAccountManagerReport = async (event) => {
                     CASE WHEN a.is_active = true AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE) THEN 'Active' ELSE 'Inactive' END as status,
                     a.is_active
                 FROM allocations a
-                JOIN resources r ON a.resource_id = r.id
+                JOIN employees r ON a.employee_id = r.id
                 JOIN projects p ON a.project_id = p.id
                 ${allocationWhereClause}
                 ${account_manager_id && account_manager_id !== 'all' ? `AND p.account_manager_id = $${allocationParamIndex}` : ''}
@@ -274,12 +274,12 @@ export const getAccountManagerReport = async (event) => {
                 SELECT DISTINCT
                     r.id,
                     r.name as employee_name,
-                    t.name as track,
+                    r.track,
                     r.tech_stack,
                     r.tier
-                FROM resources r
-                LEFT JOIN tracks t ON r.track_id = t.id
-                JOIN allocations a ON r.id = a.resource_id AND a.is_active = true
+                FROM employees r
+                
+                JOIN allocations a ON r.id = a.employee_id AND a.is_active = true
                 JOIN projects p ON a.project_id = p.id
                 WHERE r.deleted_at IS NULL AND r.status = 'Active'
                 ${account_manager_id && account_manager_id !== 'all' ? `AND p.account_manager_id = $1` : ''}
@@ -310,8 +310,8 @@ export const getAccountManagerReport = async (event) => {
                 SELECT 
                     COALESCE(r.tier, 'Unassigned') as tier,
                     COUNT(DISTINCT r.id) as count
-                FROM resources r
-                JOIN allocations a ON r.id = a.resource_id AND a.is_active = true
+                FROM employees r
+                JOIN allocations a ON r.id = a.employee_id AND a.is_active = true
                 JOIN projects p ON a.project_id = p.id
                 WHERE r.deleted_at IS NULL AND r.status = 'Active'
                 ${account_manager_id && account_manager_id !== 'all' ? `AND p.account_manager_id = $1` : ''}
@@ -333,9 +333,9 @@ export const getAccountManagerReport = async (event) => {
                 SELECT 
                     COALESCE(t.name, 'Unassigned') as track,
                     COUNT(DISTINCT r.id) as count
-                FROM resources r
-                LEFT JOIN tracks t ON r.track_id = t.id
-                JOIN allocations a ON r.id = a.resource_id AND a.is_active = true
+                FROM employees r
+                
+                JOIN allocations a ON r.id = a.employee_id AND a.is_active = true
                 JOIN projects p ON a.project_id = p.id
                 WHERE r.deleted_at IS NULL AND r.status = 'Active'
                 ${account_manager_id && account_manager_id !== 'all' ? `AND p.account_manager_id = $1` : ''}
@@ -348,8 +348,8 @@ export const getAccountManagerReport = async (event) => {
                 SELECT 
                     COALESCE(r.tech_stack, 'Unassigned') as tech_stack,
                     COUNT(DISTINCT r.id) as count
-                FROM resources r
-                JOIN allocations a ON r.id = a.resource_id AND a.is_active = true
+                FROM employees r
+                JOIN allocations a ON r.id = a.employee_id AND a.is_active = true
                 JOIN projects p ON a.project_id = p.id
                 WHERE r.deleted_at IS NULL AND r.status = 'Active'
                 ${account_manager_id && account_manager_id !== 'all' ? `AND p.account_manager_id = $1` : ''}
