@@ -5,14 +5,30 @@
  * - getNonBillingReport: Non-billing resources
  * - getPreSaleReport: Pre-sale activities
  * - getTierBreakdownReport: Resources by tier with billing details
+ * 
+ * Config ID Resolution:
+ * - track_id -> TRACKS config
+ * - tier_id -> TIERS config  
+ * - tech_stack_id -> TECH_STACKS config
  */
 
 import * as db from '/opt/nodejs/database/index.js';
 import logger from '/opt/nodejs/logger/index.js';
 import { success, error } from '/opt/nodejs/utils/response.js';
+import { TRACKS, TIERS, TECH_STACKS, getConfigById } from '/opt/nodejs/configs/index.js';
+
+/**
+ * Helper function to resolve config IDs to labels
+ */
+const resolveConfigLabel = (configArray, id) => {
+    if (!id) return null;
+    const config = getConfigById(configArray, id);
+    return config ? config.label : null;
+};
 
 /**
  * Get non-billing resources report
+ * Non-billing resources are those allocated to projects with Non-Billing billing status
  */
 export const getNonBillingReport = async (event) => {
     const log = logger.child({ handler: 'reports.getNonBillingReport' });
@@ -28,29 +44,40 @@ export const getNonBillingReport = async (event) => {
                 r.name,
                 r.email,
                 d.name as designation,
-                r.track,
+                r.track_id,
+                r.tier_id,
+                r.tech_stack_id,
                 p.project_name,
                 a.allocation_percentage,
                 a.billing_percentage,
                 a.allocated_date,
-                a.deallocated_date
+                a.deallocated_date,
+                bs.name as billing_status
             FROM allocations a
             JOIN employees r ON a.employee_id = r.id
             JOIN projects p ON a.project_id = p.id
             LEFT JOIN designations d ON r.designation_id = d.id
-            
+            LEFT JOIN billing_statuses bs ON p.billing_status_id = bs.id
             WHERE a.is_active = true
             AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
-            AND p.is_billable = false
+            AND bs.name = 'Non-Billing'
             AND r.deleted_at IS NULL
             ORDER BY r.name ASC
         `;
 
         const result = await db.query(query);
 
+        // Transform results with config resolution
+        const data = result.rows.map(row => ({
+            ...row,
+            track: resolveConfigLabel(TRACKS, row.track_id),
+            tier: resolveConfigLabel(TIERS, row.tier_id),
+            tech_stack: resolveConfigLabel(TECH_STACKS, row.tech_stack_id)
+        }));
+
         return success({
-            data: result.rows,
-            total: result.rows.length,
+            data,
+            total: data.length,
             generatedAt: new Date().toISOString()
         });
 
@@ -76,23 +103,26 @@ export const getPreSaleReport = async (event) => {
                 r.name,
                 r.email,
                 d.name as designation,
-                r.track,
+                r.track_id,
+                r.tier_id,
+                r.tech_stack_id,
                 p.project_name,
                 p.project_code,
                 c.client_name,
                 a.allocation_percentage,
                 a.allocated_date,
                 a.deallocated_date,
-                a.notes
+                a.notes,
+                pt.name as project_type
             FROM allocations a
             JOIN employees r ON a.employee_id = r.id
             JOIN projects p ON a.project_id = p.id
             LEFT JOIN clients c ON p.client_id = c.id
             LEFT JOIN designations d ON r.designation_id = d.id
-            
+            LEFT JOIN project_types pt ON p.project_type_id = pt.id
             WHERE a.is_active = true
             AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
-            AND p.project_type = 'Presale'
+            AND pt.name = 'Pre-Sales'
             AND r.deleted_at IS NULL
             ORDER BY p.project_name, r.name ASC
         `;
@@ -112,20 +142,28 @@ export const getPreSaleReport = async (event) => {
             }
             projectGroups[row.project_name].resources.push({
                 id: row.id,
-                employee_id: row.employee_id,
                 name: row.name,
                 designation: row.designation,
-                track: row.track,
+                track: resolveConfigLabel(TRACKS, row.track_id),
+                tier: resolveConfigLabel(TIERS, row.tier_id),
                 allocation_percentage: row.allocation_percentage,
                 allocated_date: row.allocated_date,
                 deallocated_date: row.deallocated_date
             });
         });
 
+        // Transform results with config resolution
+        const data = result.rows.map(row => ({
+            ...row,
+            track: resolveConfigLabel(TRACKS, row.track_id),
+            tier: resolveConfigLabel(TIERS, row.tier_id),
+            tech_stack: resolveConfigLabel(TECH_STACKS, row.tech_stack_id)
+        }));
+
         return success({
-            data: result.rows,
+            data,
             groupedByProject: Object.values(projectGroups),
-            total: result.rows.length,
+            total: data.length,
             generatedAt: new Date().toISOString()
         });
 
@@ -138,53 +176,41 @@ export const getPreSaleReport = async (event) => {
 /**
  * Get tier breakdown report
  * Returns resources grouped by tier with allocation details
- * Supports filters: project_name, tier, account_manager, track, tech_stack
+ * Supports filters: project_name, tier_id, account_manager, track_id, tech_stack_id
  */
 export const getTierBreakdownReport = async (event) => {
     const log = logger.child({ handler: 'reports.getTierBreakdownReport' });
 
     try {
         const queryParams = event.queryStringParameters || {};
-        const { tier, project_name, account_manager, track, tech_stack } = queryParams;
+        const { tier_id, project_name, account_manager, track_id, tech_stack_id } = queryParams;
 
         log.info('Getting tier breakdown report', { filters: queryParams });
 
         // Build WHERE clauses for all filters
-        let resourceWhereClause = 'WHERE r.status = \'Active\' AND r.deleted_at IS NULL';
+        let resourceWhereClause = "WHERE r.status = 'Active' AND r.deleted_at IS NULL";
         let allocationWhereClause = '';
         const params = [];
         let paramIndex = 1;
 
-        // Map frontend tier values to database values
-        const tierMapping = {
-            '0': 'Synergy',
-            '1': 'Tier - 1',
-            '2': 'Tier - 2',
-            '3': 'Tier - 3',
-            '4': 'Tier - 4',
-            '5': 'Tier - 5',
-            '99': 'Intern'
-        };
-
-        // Tier filter
-        if (tier && tier !== 'All' && tier !== '') {
-            const dbTier = tierMapping[tier] || tier;
-            resourceWhereClause += ` AND r.tier = $${paramIndex}`;
-            params.push(dbTier);
+        // Tier filter (using tier_id now)
+        if (tier_id && tier_id !== 'All' && tier_id !== '') {
+            resourceWhereClause += ` AND r.tier_id = $${paramIndex}`;
+            params.push(parseInt(tier_id));
             paramIndex++;
         }
 
-        // Track filter
-        if (track && track !== 'All' && track !== '') {
-            resourceWhereClause += ` AND t.name = $${paramIndex}`;
-            params.push(track);
+        // Track filter (using track_id now)
+        if (track_id && track_id !== 'All' && track_id !== '') {
+            resourceWhereClause += ` AND r.track_id = $${paramIndex}`;
+            params.push(parseInt(track_id));
             paramIndex++;
         }
 
-        // Tech Stack filter
-        if (tech_stack && tech_stack !== 'All' && tech_stack !== '') {
-            resourceWhereClause += ` AND r.tech_stack = $${paramIndex}`;
-            params.push(tech_stack);
+        // Tech Stack filter (using tech_stack_id now)
+        if (tech_stack_id && tech_stack_id !== 'All' && tech_stack_id !== '') {
+            resourceWhereClause += ` AND r.tech_stack_id = $${paramIndex}`;
+            params.push(parseInt(tech_stack_id));
             paramIndex++;
         }
 
@@ -206,10 +232,9 @@ export const getTierBreakdownReport = async (event) => {
         const tierDistributionQuery = project_name || account_manager
             ? `
                 SELECT 
-                    COALESCE(r.tier, 'Unassigned') as tier,
+                    r.tier_id,
                     COUNT(DISTINCT r.id) as count
                 FROM employees r
-                
                 INNER JOIN allocations a ON r.id = a.employee_id 
                     AND a.is_active = true 
                     AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
@@ -217,38 +242,17 @@ export const getTierBreakdownReport = async (event) => {
                 LEFT JOIN employees am ON p.account_manager_id = am.id
                 ${resourceWhereClause}
                 ${allocationWhereClause}
-                GROUP BY r.tier
-                ORDER BY 
-                    CASE r.tier 
-                        WHEN 'Synergy' THEN 0
-                        WHEN 'Tier - 1' THEN 1
-                        WHEN 'Tier - 2' THEN 2
-                        WHEN 'Tier - 3' THEN 3
-                        WHEN 'Tier - 4' THEN 4
-                        WHEN 'Tier - 5' THEN 5
-                        WHEN 'Intern' THEN 99
-                        ELSE 999
-                    END
+                GROUP BY r.tier_id
+                ORDER BY r.tier_id NULLS LAST
             `
             : `
                 SELECT 
-                    COALESCE(r.tier, 'Unassigned') as tier,
+                    r.tier_id,
                     COUNT(DISTINCT r.id) as count
                 FROM employees r
-                
                 ${resourceWhereClause}
-                GROUP BY r.tier
-                ORDER BY 
-                    CASE r.tier 
-                        WHEN 'Synergy' THEN 0
-                        WHEN 'Tier - 1' THEN 1
-                        WHEN 'Tier - 2' THEN 2
-                        WHEN 'Tier - 3' THEN 3
-                        WHEN 'Tier - 4' THEN 4
-                        WHEN 'Tier - 5' THEN 5
-                        WHEN 'Intern' THEN 99
-                        ELSE 999
-                    END
+                GROUP BY r.tier_id
+                ORDER BY r.tier_id NULLS LAST
             `;
 
         // Get employee details with allocation info (for table)
@@ -257,44 +261,27 @@ export const getTierBreakdownReport = async (event) => {
                 r.id,
                 r.name as employee_name,
                 r.email,
-                COALESCE(r.tier, 'Unassigned') as tier,
-                r.tech_stack,
+                r.tier_id,
+                r.tech_stack_id,
+                r.track_id,
                 d.name as designation,
-                r.track,
                 p.project_name as project,
-                CASE 
-                    WHEN p.project_type = 'Bench' THEN 'Bench'
-                    WHEN p.billing_status = 'Non-Billing' THEN 'Non-Billing'
-                    WHEN p.project_type = 'Training' THEN 'Training'
-                    WHEN p.project_type = 'Presale' THEN 'Presale'
-                    WHEN p.billing_status = 'Billing' THEN 'Billing'
-                    ELSE 'Non-Billing'
-                END as billing_status,
+                pt.name as project_type,
+                bs.name as billing_status,
                 COALESCE(a.billing_percentage, 0) as billing_percentage,
                 COALESCE(a.allocation_percentage, 0) as project_allocation
             FROM employees r
             LEFT JOIN designations d ON r.designation_id = d.id
-            
             LEFT JOIN allocations a ON r.id = a.employee_id 
                 AND a.is_active = true 
                 AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
             LEFT JOIN projects p ON a.project_id = p.id AND p.deleted_at IS NULL
+            LEFT JOIN project_types pt ON p.project_type_id = pt.id
+            LEFT JOIN billing_statuses bs ON p.billing_status_id = bs.id
             LEFT JOIN employees am ON p.account_manager_id = am.id
             ${resourceWhereClause}
             ${allocationWhereClause}
-            ORDER BY 
-                CASE COALESCE(r.tier, 'Unassigned')
-                    WHEN 'Synergy' THEN 0
-                    WHEN 'Tier - 1' THEN 1
-                    WHEN 'Tier - 2' THEN 2
-                    WHEN 'Tier - 3' THEN 3
-                    WHEN 'Tier - 4' THEN 4
-                    WHEN 'Tier - 5' THEN 5
-                    WHEN 'Intern' THEN 99
-                    ELSE 999
-                END,
-                r.name,
-                p.project_name
+            ORDER BY r.tier_id NULLS LAST, r.name, p.project_name
         `;
 
         // Get total employee count
@@ -302,7 +289,6 @@ export const getTierBreakdownReport = async (event) => {
             ? `
                 SELECT COUNT(DISTINCT r.id) as total
                 FROM employees r
-                
                 INNER JOIN allocations a ON r.id = a.employee_id 
                     AND a.is_active = true 
                     AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
@@ -314,7 +300,6 @@ export const getTierBreakdownReport = async (event) => {
             : `
                 SELECT COUNT(*) as total
                 FROM employees r
-                
                 ${resourceWhereClause}
             `;
 
@@ -325,24 +310,14 @@ export const getTierBreakdownReport = async (event) => {
             db.query(totalCountQuery, params)
         ]);
 
-        // Format tier distribution for chart (map database values to frontend format)
-        const reverseTierMapping = {
-            'Synergy': '0',
-            'Tier - 1': '1',
-            'Tier - 2': '2',
-            'Tier - 3': '3',
-            'Tier - 4': '4',
-            'Tier - 5': '5',
-            'Intern': '99',
-            'Unassigned': 'Unassigned'
-        };
-
+        // Format tier distribution for chart - resolve tier_id to label
         const tierData = tierDistribution.rows.map(row => ({
-            tier: reverseTierMapping[row.tier] || row.tier,
+            tier_id: row.tier_id,
+            tier: resolveConfigLabel(TIERS, row.tier_id) || 'Unassigned',
             count: parseInt(row.count)
         }));
 
-        // Format employee details for table
+        // Format employee details for table - resolve IDs to labels
         const employeeData = employeeDetails.rows.map((row, index) => ({
             key: `${row.id}-${row.project || 'no-project'}-${index}`,
             employeeName: row.employee_name,
@@ -350,10 +325,13 @@ export const getTierBreakdownReport = async (event) => {
             billingStatus: row.billing_status || 'Non-Billing',
             billingPercentage: row.billing_percentage ? `${parseFloat(row.billing_percentage).toFixed(2)}%` : '0.00%',
             projectAllocation: row.project_allocation ? `${parseFloat(row.project_allocation).toFixed(2)}%` : '0.00%',
-            tier: row.tier,
+            tier: resolveConfigLabel(TIERS, row.tier_id) || 'Unassigned',
+            tier_id: row.tier_id,
             designation: row.designation,
-            track: row.track,
-            techStack: row.tech_stack
+            track: resolveConfigLabel(TRACKS, row.track_id),
+            track_id: row.track_id,
+            techStack: resolveConfigLabel(TECH_STACKS, row.tech_stack_id),
+            tech_stack_id: row.tech_stack_id
         }));
 
         return success({

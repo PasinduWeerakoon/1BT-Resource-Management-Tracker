@@ -302,9 +302,9 @@ export const getAccountManagerReport = async (event) => {
                 SELECT DISTINCT
                     r.id,
                     r.name as employee_name,
-                    r.track,
-                    r.tech_stack,
-                    r.tier
+                    r.track_id,
+                    r.tech_stack_id,
+                    r.tier_id
                 FROM employees r
                 
                 JOIN allocations a ON r.id = a.employee_id AND a.is_active = true

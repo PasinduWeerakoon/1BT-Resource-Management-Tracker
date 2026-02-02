@@ -479,6 +479,7 @@ export const getInternReport = async (event) => {
 /**
  * Get External Consultants Report
  * Returns comprehensive report of all external consultant resources
+ * Note: Uses employee_type_id to identify consultants (employee_types table has 'Consultant' type)
  */
 export const getExternalConsultantsReport = async (event) => {
     const log = logger.child({ handler: 'reports.externalConsultants' });
@@ -489,7 +490,7 @@ export const getExternalConsultantsReport = async (event) => {
         const queryParams = event.queryStringParameters || {};
         const {
             track_id,
-            tech_stack,
+            tech_stack_id,
             project_id,
             project_name,
             account_manager,
@@ -498,32 +499,40 @@ export const getExternalConsultantsReport = async (event) => {
         } = queryParams;
 
         // Base query for external consultants with their current allocations
+        // Uses employee_type_id to identify consultants
         let query = `
             SELECT 
                 r.id as resource_id,
                 r.name as consultant_name,
                 r.email,
-                r.track,
-                r.tech_stack,
+                r.track_id,
+                r.tier_id,
+                r.tech_stack_id,
                 d.name as designation,
+                et.name as employee_type,
                 p.id as project_id,
                 p.project_name,
                 p.account_manager_id,
+                am.name as account_manager_name,
                 a.allocation_percentage,
                 a.allocated_date,
                 a.deallocated_date,
                 a.is_active,
+                pt.name as project_type,
                 CASE 
-                    WHEN p.project_type = 'Client' THEN 'Billing'
+                    WHEN pt.name = 'Client' THEN 'Billing'
                     ELSE 'Non-Billing'
                 END as billing_status
             FROM employees r
-            
             LEFT JOIN designations d ON r.designation_id = d.id
+            LEFT JOIN employee_types et ON r.employee_type_id = et.id
             LEFT JOIN allocations a ON r.id = a.employee_id AND a.is_active = true
             LEFT JOIN projects p ON a.project_id = p.id
-            WHERE r.is_external_consultant = true
+            LEFT JOIN project_types pt ON p.project_type_id = pt.id
+            LEFT JOIN employees am ON p.account_manager_id = am.id
+            WHERE et.name = 'Consultant'
                 AND r.status = 'Active'
+                AND r.deleted_at IS NULL
         `;
 
         const params = [];
@@ -533,13 +542,13 @@ export const getExternalConsultantsReport = async (event) => {
         if (track_id) {
             paramCount++;
             query += ` AND r.track_id = $${paramCount}`;
-            params.push(track_id);
+            params.push(parseInt(track_id));
         }
 
-        if (tech_stack) {
+        if (tech_stack_id) {
             paramCount++;
-            query += ` AND r.tech_stack ILIKE $${paramCount}`;
-            params.push(`%${tech_stack}%`);
+            query += ` AND r.tech_stack_id = $${paramCount}`;
+            params.push(parseInt(tech_stack_id));
         }
 
         if (project_id) {
@@ -582,18 +591,21 @@ export const getExternalConsultantsReport = async (event) => {
         const summaryQuery = `
             SELECT 
                 COUNT(DISTINCT r.id) as total_consultants,
-                COUNT(DISTINCT CASE WHEN p.project_type = 'Client' THEN r.id END) as billing_consultants,
-                COUNT(DISTINCT CASE WHEN p.project_type != 'Client' OR p.id IS NULL THEN r.id END) as non_billing_consultants,
-                COALESCE(SUM(CASE WHEN p.project_type = 'Client' THEN a.allocation_percentage ELSE 0 END), 0) as total_billing_allocation,
-                COALESCE(SUM(CASE WHEN p.project_type != 'Client' THEN a.allocation_percentage ELSE 0 END), 0) as total_non_billing_allocation
+                COUNT(DISTINCT CASE WHEN pt.name = 'Client' THEN r.id END) as billing_consultants,
+                COUNT(DISTINCT CASE WHEN pt.name != 'Client' OR p.id IS NULL THEN r.id END) as non_billing_consultants,
+                COALESCE(SUM(CASE WHEN pt.name = 'Client' THEN a.allocation_percentage ELSE 0 END), 0) as total_billing_allocation,
+                COALESCE(SUM(CASE WHEN pt.name != 'Client' THEN a.allocation_percentage ELSE 0 END), 0) as total_non_billing_allocation
             FROM employees r
+            LEFT JOIN employee_types et ON r.employee_type_id = et.id
             LEFT JOIN allocations a ON r.id = a.employee_id AND a.is_active = true
             LEFT JOIN projects p ON a.project_id = p.id
-            WHERE r.is_external_consultant = true
+            LEFT JOIN project_types pt ON p.project_type_id = pt.id
+            WHERE et.name = 'Consultant'
                 AND r.status = 'Active'
+                AND r.deleted_at IS NULL
         `;
 
-        const summaryResult = await db.query(summaryQuery + (params.length > 0 ? ' AND 1=1' : ''), []);
+        const summaryResult = await db.query(summaryQuery);
 
         // Group data by project for the byProject table
         const byProjectMap = new Map();
@@ -606,10 +618,14 @@ export const getExternalConsultantsReport = async (event) => {
                 consultantName: row.consultant_name,
                 email: row.email,
                 designation: row.designation,
-                track: row.track,
-                techStack: row.tech_stack,
+                track: resolveConfigLabel(TRACKS, row.track_id),
+                track_id: row.track_id,
+                tier: resolveConfigLabel(TIERS, row.tier_id),
+                tier_id: row.tier_id,
+                techStack: resolveConfigLabel(TECH_STACKS, row.tech_stack_id),
+                tech_stack_id: row.tech_stack_id,
                 project: row.project_name || 'Bench',
-                accountManager: row.account_manager || 'N/A',
+                accountManager: row.account_manager_name || 'N/A',
                 allocationPercentage: row.allocation_percentage ? `${parseFloat(row.allocation_percentage).toFixed(2)}%` : '0.00%',
                 startDate: row.allocated_date,
                 endDate: row.deallocated_date,
@@ -646,19 +662,21 @@ export const getExternalConsultantsReport = async (event) => {
         // Chart data - consultants by track
         const trackQuery = `
             SELECT 
-                r.track,
+                r.track_id,
                 COUNT(DISTINCT r.id) as count
             FROM employees r
-            
-            WHERE r.is_external_consultant = true
+            LEFT JOIN employee_types et ON r.employee_type_id = et.id
+            WHERE et.name = 'Consultant'
                 AND r.status = 'Active'
-            GROUP BY t.name
+                AND r.deleted_at IS NULL
+            GROUP BY r.track_id
             ORDER BY count DESC
         `;
 
         const trackResult = await db.query(trackQuery);
         const trackDistribution = trackResult.rows.map(row => ({
-            track: row.track || 'Unassigned',
+            track_id: row.track_id,
+            track: resolveConfigLabel(TRACKS, row.track_id) || 'Unassigned',
             count: parseInt(row.count)
         }));
 
