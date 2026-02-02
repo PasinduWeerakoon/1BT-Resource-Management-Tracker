@@ -3,12 +3,15 @@
  * Type-safe database schema definitions for 1BT Resource Management
  * 
  * Architecture:
- * - Config-based enums (in backend/configs/): Tracks, Tech Stacks, Tiers
- * - Database Tables (auto-increment IDs): Designations, Billing Statuses, Project Types
- * - Core Tables (UUID): employees, users, clients, projects, allocations
+ * - Config-based enums (in /opt/nodejs/configs/index.js): TRACKS, TECH_STACKS, TIERS
+ *   These are NOT database tables - only INTEGER IDs are stored
+ * - Database Lookup Tables (SERIAL IDs): designations, billing_statuses, project_types, etc.
+ * - Core Tables (SERIAL IDs): employees, users, clients, projects, allocations
+ * 
+ * ALL TABLES USE SERIAL (INTEGER) PRIMARY KEYS FOR FASTER LOOKUPS
  */
 
-import { pgTable, uuid, varchar, text, boolean, integer, smallint, decimal, date, timestamp, pgEnum, jsonb, inet, serial, uniqueIndex, index } from 'drizzle-orm/pg-core';
+import { pgTable, varchar, text, boolean, integer, smallint, decimal, date, timestamp, pgEnum, jsonb, inet, serial, uniqueIndex, index } from 'drizzle-orm/pg-core';
 import { sql, relations } from 'drizzle-orm';
 
 // ============ ENUMS ============
@@ -29,10 +32,7 @@ export const auditActionEnum = pgEnum('audit_action', [
     'PASSWORD_CHANGE', 'EXPORT', 'BULK_UPDATE', 'RESTORE'
 ]);
 
-// ============ LOOKUP TABLES (Serial IDs for performance) ============
-
-// NOTE: Tracks are config-based, stored in backend/configs/tracks.js
-// No tracks table needed in database
+// ============ LOOKUP TABLES (DB-managed, Serial IDs) ============
 
 // Designations table - DB managed with is_default flag
 export const designations = pgTable('designations', {
@@ -114,20 +114,24 @@ export const tags = pgTable('tags', {
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
-// ============ CORE TABLES (UUID for distributed systems) ============
+// ============ CORE TABLES (Serial INTEGER IDs for fast lookups) ============
 
-// Employees table (main resource table)
-// Column names match actual database: epf_no, emp_no, employee_type_id
-// Config-based fields store INTEGER IDs that map to shared configs in /opt/nodejs/configs/index.js
+/**
+ * Employees table (main resource table)
+ * - Uses SERIAL (INTEGER) primary key for fast lookups
+ * - Config-based fields (track_id, tier_id, tech_stack_id) store INTEGER IDs
+ *   that map to configs in /opt/nodejs/configs/index.js (NOT database tables)
+ */
 export const employees = pgTable('employees', {
-    id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+    id: serial('id').primaryKey(),
     epfNo: varchar('epf_no', { length: 20 }).notNull(),       // EPF Number (unique identifier)
     empNo: varchar('emp_no', { length: 20 }).notNull(),       // Employee Number
     globalEmployeeId: varchar('global_employee_id', { length: 50 }),
     name: varchar('name', { length: 100 }).notNull(),
     email: varchar('email', { length: 100 }),
     phoneNumber: varchar('phone_number', { length: 20 }),
-    // Config-based fields - INTEGER IDs mapping to shared configs
+    // Config-based fields - INTEGER IDs mapping to /opt/nodejs/configs/index.js
+    // These are NOT foreign keys to database tables
     trackId: integer('track_id'),          // Maps to TRACKS config
     techStackId: integer('tech_stack_id'), // Maps to TECH_STACKS config
     tierId: integer('tier_id'),            // Maps to TIERS config
@@ -145,8 +149,8 @@ export const employees = pgTable('employees', {
     status: employeeStatusEnum('status').notNull().default('Active'),
     totalAllocation: decimal('total_allocation', { precision: 5, scale: 2 }).notNull().default('0'),
     totalResourceBilling: decimal('total_resource_billing', { precision: 5, scale: 2 }).notNull().default('0'),
-    // Helper relationship
-    helperId: uuid('helper_id'),
+    // Helper relationship (self-reference)
+    helperId: integer('helper_id'),
     helperIsExternal: boolean('helper_is_external').notNull().default(false),
     // Other fields
     skills: text('skills').array().default(sql`'{}'`),
@@ -157,8 +161,8 @@ export const employees = pgTable('employees', {
     version: integer('version').notNull().default(1),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-    createdBy: uuid('created_by'),
-    updatedBy: uuid('updated_by'),
+    createdBy: integer('created_by'),
+    updatedBy: integer('updated_by'),
 }, (table) => ({
     // Partial unique indexes for soft delete
     epfNoUnique: uniqueIndex('employees_epf_no_unique').on(table.epfNo).where(sql`deleted_at IS NULL`),
@@ -177,14 +181,17 @@ export const employees = pgTable('employees', {
     activeListIdx: index('idx_employees_active_list').on(table.status, table.trackId, table.designationId).where(sql`deleted_at IS NULL`),
 }));
 
-// Users table
+/**
+ * Users table
+ * - Uses SERIAL (INTEGER) primary key for fast lookups
+ */
 export const users = pgTable('users', {
-    id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+    id: serial('id').primaryKey(),
     username: varchar('username', { length: 50 }).notNull(),
     email: varchar('email', { length: 100 }).notNull(),
     passwordHash: varchar('password_hash', { length: 255 }).notNull(),
     role: userRoleEnum('role').notNull().default('User'),
-    employeeId: uuid('employee_id').unique().references(() => employees.id, { onDelete: 'set null' }),
+    employeeId: integer('employee_id').unique().references(() => employees.id, { onDelete: 'set null' }),
     failedLoginAttempts: smallint('failed_login_attempts').notNull().default(0),
     lockedUntil: timestamp('locked_until', { withTimezone: true }),
     lastLogin: timestamp('last_login', { withTimezone: true }),
@@ -194,7 +201,7 @@ export const users = pgTable('users', {
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-    createdBy: uuid('created_by'),
+    createdBy: integer('created_by'),
 }, (table) => ({
     usernameUnique: uniqueIndex('users_username_unique').on(table.username).where(sql`deleted_at IS NULL`),
     emailUnique: uniqueIndex('users_email_unique').on(table.email).where(sql`deleted_at IS NULL`),
@@ -203,19 +210,22 @@ export const users = pgTable('users', {
 // Employee Tags junction table
 export const employeeTags = pgTable('employee_tags', {
     id: serial('id').primaryKey(),
-    employeeId: uuid('employee_id').notNull().references(() => employees.id, { onDelete: 'cascade' }),
+    employeeId: integer('employee_id').notNull().references(() => employees.id, { onDelete: 'cascade' }),
     tagId: integer('tag_id').notNull().references(() => tags.id, { onDelete: 'cascade' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-    createdBy: uuid('created_by'),
+    createdBy: integer('created_by'),
 }, (table) => ({
     uniqueEmployeeTag: uniqueIndex('employee_tags_unique').on(table.employeeId, table.tagId),
     employeeIdx: index('idx_employee_tags_employee').on(table.employeeId),
     tagIdx: index('idx_employee_tags_tag').on(table.tagId),
 }));
 
-// Clients table
+/**
+ * Clients table
+ * - Uses SERIAL (INTEGER) primary key for fast lookups
+ */
 export const clients = pgTable('clients', {
-    id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+    id: serial('id').primaryKey(),
     clientName: varchar('client_name', { length: 100 }).notNull().unique(),
     clientCode: varchar('client_code', { length: 20 }).unique(),
     contactPerson: varchar('contact_person', { length: 100 }),
@@ -228,22 +238,25 @@ export const clients = pgTable('clients', {
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-    createdBy: uuid('created_by').references(() => users.id),
+    createdBy: integer('created_by').references(() => users.id),
 }, (table) => ({
     activeIdx: index('idx_clients_active').on(table.isActive).where(sql`deleted_at IS NULL`),
 }));
 
-// Projects table
+/**
+ * Projects table
+ * - Uses SERIAL (INTEGER) primary key for fast lookups
+ */
 export const projects = pgTable('projects', {
-    id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+    id: serial('id').primaryKey(),
     projectName: varchar('project_name', { length: 200 }).notNull(),
     projectCode: varchar('project_code', { length: 50 }),
     projectTypeId: integer('project_type_id').references(() => projectTypes.id, { onDelete: 'restrict' }),
     accountType: accountTypeEnum('account_type').notNull(),
     teamSize: smallint('team_size').notNull().default(1),
-    accountManagerId: uuid('account_manager_id').references(() => employees.id, { onDelete: 'set null' }),
+    accountManagerId: integer('account_manager_id').references(() => employees.id, { onDelete: 'set null' }),
     accountRegSalesOwner: varchar('account_reg_sales_owner', { length: 100 }),
-    clientId: uuid('client_id').references(() => clients.id, { onDelete: 'set null' }),
+    clientId: integer('client_id').references(() => clients.id, { onDelete: 'set null' }),
     projectStartDate: date('project_start_date'),
     projectEndDate: date('project_end_date'),
     billingStatusId: integer('billing_status_id').references(() => billingStatuses.id, { onDelete: 'restrict' }),
@@ -255,8 +268,8 @@ export const projects = pgTable('projects', {
     version: integer('version').notNull().default(1),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-    createdBy: uuid('created_by').notNull().references(() => users.id),
-    updatedBy: uuid('updated_by').references(() => users.id),
+    createdBy: integer('created_by').notNull().references(() => users.id),
+    updatedBy: integer('updated_by').references(() => users.id),
 }, (table) => ({
     nameUnique: uniqueIndex('projects_name_unique').on(table.projectName).where(sql`deleted_at IS NULL`),
     codeUnique: uniqueIndex('projects_code_unique').on(table.projectCode).where(sql`deleted_at IS NULL AND project_code IS NOT NULL`),
@@ -268,12 +281,14 @@ export const projects = pgTable('projects', {
     billingIdx: index('idx_projects_billing').on(table.billingStatusId).where(sql`deleted_at IS NULL`),
 }));
 
-// Allocations table
-// Note: DB column is 'employee_id' - matches actual database
+/**
+ * Allocations table
+ * - Uses SERIAL (INTEGER) primary key for fast lookups
+ */
 export const allocations = pgTable('allocations', {
-    id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
-    employeeId: uuid('employee_id').notNull().references(() => employees.id, { onDelete: 'restrict' }),
-    projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'restrict' }),
+    id: serial('id').primaryKey(),
+    employeeId: integer('employee_id').notNull().references(() => employees.id, { onDelete: 'restrict' }),
+    projectId: integer('project_id').notNull().references(() => projects.id, { onDelete: 'restrict' }),
     allocationPercentage: smallint('allocation_percentage').notNull(),
     billingPercentage: smallint('billing_percentage').notNull(),
     billingStatusId: integer('billing_status_id').references(() => billingStatuses.id, { onDelete: 'restrict' }),
@@ -288,13 +303,13 @@ export const allocations = pgTable('allocations', {
     isActive: boolean('is_active').notNull().default(true),
     changeType: allocationChangeTypeEnum('change_type').default('NEW_ALLOCATION'),
     notes: text('notes'),
-    sourceFutureId: uuid('source_future_id'),
+    sourceFutureId: integer('source_future_id'),
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
     version: integer('version').notNull().default(1),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-    createdBy: uuid('created_by').references(() => users.id),
-    updatedBy: uuid('updated_by').references(() => users.id),
+    createdBy: integer('created_by').references(() => users.id),
+    updatedBy: integer('updated_by').references(() => users.id),
 }, (table) => ({
     employeeProjectUnique: uniqueIndex('allocations_employee_project_unique').on(table.employeeId, table.projectId).where(sql`deleted_at IS NULL AND is_active = true`),
     employeeIdx: index('idx_allocations_employee').on(table.employeeId).where(sql`is_active = true AND deleted_at IS NULL`),
@@ -304,11 +319,14 @@ export const allocations = pgTable('allocations', {
     totalsIdx: index('idx_allocations_totals').on(table.employeeId, table.allocationPercentage, table.billingPercentage).where(sql`is_active = true AND deleted_at IS NULL`),
 }));
 
-// Future Allocations table
+/**
+ * Future Allocations table
+ * - Uses SERIAL (INTEGER) primary key for fast lookups
+ */
 export const futureAllocations = pgTable('future_allocations', {
-    id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
-    employeeId: uuid('employee_id').notNull().references(() => employees.id, { onDelete: 'restrict' }),
-    projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'restrict' }),
+    id: serial('id').primaryKey(),
+    employeeId: integer('employee_id').notNull().references(() => employees.id, { onDelete: 'restrict' }),
+    projectId: integer('project_id').notNull().references(() => projects.id, { onDelete: 'restrict' }),
     allocationPercentage: smallint('allocation_percentage').notNull(),
     billingPercentage: smallint('billing_percentage').notNull().default(100),
     effectiveDate: date('effective_date').notNull(),
@@ -316,10 +334,10 @@ export const futureAllocations = pgTable('future_allocations', {
     deallocatedDate: date('deallocated_date'),
     changeType: allocationChangeTypeEnum('change_type').notNull(),
     status: varchar('status', { length: 20 }).notNull().default('scheduled'),
-    linkedFutureId: uuid('linked_future_id'),
-    targetAllocationId: uuid('target_allocation_id').references(() => allocations.id),
+    linkedFutureId: integer('linked_future_id'),
+    targetAllocationId: integer('target_allocation_id').references(() => allocations.id),
     notes: text('notes'),
-    createdBy: uuid('created_by'),
+    createdBy: integer('created_by'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => ({
@@ -332,10 +350,10 @@ export const futureAllocations = pgTable('future_allocations', {
 
 // Allocation History table
 export const allocationHistory = pgTable('allocation_history', {
-    id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
-    allocationId: uuid('allocation_id').references(() => allocations.id, { onDelete: 'set null' }),
-    employeeId: uuid('employee_id').notNull().references(() => employees.id),
-    projectId: uuid('project_id').notNull().references(() => projects.id),
+    id: serial('id').primaryKey(),
+    allocationId: integer('allocation_id'),
+    employeeId: integer('employee_id').notNull(),
+    projectId: integer('project_id').notNull(),
     allocationPercentage: smallint('allocation_percentage').notNull(),
     billingPercentage: smallint('billing_percentage').notNull(),
     billingStatusId: integer('billing_status_id').references(() => billingStatuses.id),
@@ -351,7 +369,7 @@ export const allocationHistory = pgTable('allocation_history', {
     changedFields: text('changed_fields').array(),
     effectiveDate: date('effective_date').notNull().default(sql`CURRENT_DATE`),
     changedAt: timestamp('changed_at', { withTimezone: true }).notNull().defaultNow(),
-    changedBy: uuid('changed_by').references(() => users.id),
+    changedBy: integer('changed_by'),
     changedByUsername: varchar('changed_by_username', { length: 50 }),
     ipAddress: inet('ip_address'),
     userAgent: text('user_agent'),
@@ -365,10 +383,10 @@ export const allocationHistory = pgTable('allocation_history', {
 
 // Allocation History Archive table
 export const allocationHistoryArchive = pgTable('allocation_history_archive', {
-    id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
-    originalAllocationId: uuid('original_allocation_id').notNull(),
-    employeeId: uuid('employee_id').notNull().references(() => employees.id, { onDelete: 'restrict' }),
-    projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'restrict' }),
+    id: serial('id').primaryKey(),
+    originalAllocationId: integer('original_allocation_id').notNull(),
+    employeeId: integer('employee_id').notNull(),
+    projectId: integer('project_id').notNull(),
     allocationPercentage: smallint('allocation_percentage').notNull(),
     billingStatusId: integer('billing_status_id').references(() => billingStatuses.id),
     isBillable: boolean('is_billable').notNull(),
@@ -378,12 +396,12 @@ export const allocationHistoryArchive = pgTable('allocation_history_archive', {
     originalAllocatedDate: date('original_allocated_date'),
     changeType: allocationChangeTypeEnum('change_type'),
     notes: text('notes'),
-    originalCreatedBy: uuid('original_created_by').references(() => users.id),
+    originalCreatedBy: integer('original_created_by'),
     originalCreatedAt: timestamp('original_created_at', { withTimezone: true }),
     originalUpdatedAt: timestamp('original_updated_at', { withTimezone: true }),
     archivedAt: timestamp('archived_at', { withTimezone: true }).notNull().defaultNow(),
     archiveReason: varchar('archive_reason', { length: 50 }).notNull(),
-    archivedBy: uuid('archived_by').references(() => users.id),
+    archivedBy: integer('archived_by'),
 }, (table) => ({
     employeeIdx: index('idx_archive_employee').on(table.employeeId),
     projectIdx: index('idx_archive_project').on(table.projectId),
@@ -392,18 +410,18 @@ export const allocationHistoryArchive = pgTable('allocation_history_archive', {
 
 // Designation History table
 export const designationHistory = pgTable('designation_history', {
-    id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
-    employeeId: uuid('employee_id').notNull().references(() => employees.id, { onDelete: 'cascade' }),
+    id: serial('id').primaryKey(),
+    employeeId: integer('employee_id').notNull().references(() => employees.id, { onDelete: 'cascade' }),
     previousDesignationId: integer('previous_designation_id').references(() => designations.id),
     newDesignationId: integer('new_designation_id').notNull().references(() => designations.id),
-    previousTrackId: integer('previous_track_id'),  // Maps to TRACKS config
-    newTrackId: integer('new_track_id').notNull(),  // Maps to TRACKS config
+    previousTrackId: integer('previous_track_id'),  // Maps to TRACKS config (NOT a DB table)
+    newTrackId: integer('new_track_id').notNull(),  // Maps to TRACKS config (NOT a DB table)
     changeType: varchar('change_type', { length: 30 }).notNull(),
     changeReason: text('change_reason'),
     effectiveFrom: date('effective_from').notNull().default(sql`CURRENT_DATE`),
     effectiveUntil: date('effective_until'),
     changedAt: timestamp('changed_at', { withTimezone: true }).notNull().defaultNow(),
-    changedBy: uuid('changed_by').references(() => users.id),
+    changedBy: integer('changed_by'),
     changedByUsername: varchar('changed_by_username', { length: 50 }),
 }, (table) => ({
     employeeIdx: index('idx_designation_history_employee').on(table.employeeId),
@@ -415,7 +433,7 @@ export const designationHistory = pgTable('designation_history', {
 // Permissions table
 export const permissions = pgTable('permissions', {
     id: serial('id').primaryKey(),
-    userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
     module: varchar('module', { length: 50 }).notNull(),
     canView: boolean('can_view').notNull().default(false),
     canCreate: boolean('can_create').notNull().default(false),
@@ -429,14 +447,14 @@ export const permissions = pgTable('permissions', {
 
 // Audit Logs table
 export const auditLogs = pgTable('audit_logs', {
-    id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+    id: serial('id').primaryKey(),
     timestamp: timestamp('timestamp', { withTimezone: true }).notNull().defaultNow(),
-    userId: uuid('user_id'),
+    userId: integer('user_id'),
     userEmail: varchar('user_email', { length: 255 }),
     userName: varchar('user_name', { length: 255 }),
     action: auditActionEnum('action').notNull(),
     entityType: varchar('entity_type', { length: 50 }).notNull(),
-    entityId: uuid('entity_id'),
+    entityId: integer('entity_id'),
     entityName: varchar('entity_name', { length: 255 }),
     oldValues: jsonb('old_values'),
     newValues: jsonb('new_values'),
@@ -457,6 +475,17 @@ export const auditLogs = pgTable('audit_logs', {
     compositeIdx: index('idx_audit_composite').on(table.timestamp, table.action, table.entityType),
     messageIdUnique: uniqueIndex('idx_audit_message_id').on(table.messageId).where(sql`message_id IS NOT NULL`),
 }));
+
+// Schema migrations table (for tracking SQL migrations)
+export const schemaMigrations = pgTable('schema_migrations', {
+    id: serial('id').primaryKey(),
+    version: varchar('version', { length: 100 }).notNull().unique(),
+    name: varchar('name', { length: 255 }).notNull(),
+    executedAt: timestamp('executed_at', { withTimezone: true }).notNull().defaultNow(),
+    checksum: varchar('checksum', { length: 64 }),
+    executionTimeMs: integer('execution_time_ms'),
+    success: boolean('success').notNull().default(true),
+});
 
 // ============ RELATIONS ============
 
@@ -574,6 +603,7 @@ export const schema = {
     // System tables
     permissions,
     auditLogs,
+    schemaMigrations,
 };
 
 export default schema;
