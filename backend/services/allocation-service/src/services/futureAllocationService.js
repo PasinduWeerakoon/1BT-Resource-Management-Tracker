@@ -17,7 +17,7 @@ const SERVICE_NAME = 'future-allocation-service';
 /**
  * Create a future allocation record
  * @param {Object} data - Allocation data
- * @param {string} data.resource_id - Resource UUID
+ * @param {string} data.employee_id - Resource UUID
  * @param {string} data.project_id - Project UUID
  * @param {number} data.allocation_percentage - Allocation percentage (0-100)
  * @param {number} data.billing_percentage - Billing percentage (0-100)
@@ -34,7 +34,7 @@ export const createFutureAllocation = async (data) => {
     const log = logger.child({ service: SERVICE_NAME, method: 'createFutureAllocation' });
 
     // Support both camelCase and snake_case property names
-    const resource_id = data.resource_id || data.resourceId;
+    const resource_id = data.employee_id || data.resourceId;
     const project_id = data.project_id || data.projectId;
     const allocation_percentage = data.allocation_percentage || data.newAllocationPercentage;
     const billing_percentage = data.billing_percentage ?? data.newBillingPercentage ?? 100;
@@ -106,7 +106,7 @@ export const createLinkedFutureAllocation = async (mainFutureAllocation, linkedD
     `;
 
     const params = [
-        linkedData.resource_id,
+        linkedData.employee_id,
         linkedData.project_id,
         linkedData.allocation_percentage,
         linkedData.billing_percentage || 0, // Bench is 0
@@ -146,9 +146,9 @@ export const getFutureAllocationsByResource = async (resourceId, options = {}) =
                p.name as project_name,
                p.project_code
         FROM future_allocations fa
-        JOIN resources r ON fa.resource_id = r.id
+        JOIN employees r ON fa.employee_id = r.id
         JOIN projects p ON fa.project_id = p.id
-        WHERE fa.resource_id = $1
+        WHERE fa.employee_id = $1
     `;
     const params = [resourceId];
 
@@ -181,7 +181,7 @@ export const getScheduledAllocations = async (options = {}) => {
                p.project_code,
                p.is_bench_project
         FROM future_allocations fa
-        JOIN resources r ON fa.resource_id = r.id
+        JOIN employees r ON fa.employee_id = r.id
         JOIN projects p ON fa.project_id = p.id
         WHERE fa.status = 'scheduled'
     `;
@@ -220,7 +220,7 @@ export const getAllocationsToActivateToday = async () => {
                p.project_code,
                p.is_bench_project
         FROM future_allocations fa
-        JOIN resources r ON fa.resource_id = r.id
+        JOIN employees r ON fa.employee_id = r.id
         JOIN projects p ON fa.project_id = p.id
         WHERE fa.status = 'scheduled'
         AND fa.effective_date <= $1::date
@@ -254,7 +254,7 @@ export const getFutureAllocationById = async (id) => {
                p.name as project_name,
                p.project_code
         FROM future_allocations fa
-        JOIN resources r ON fa.resource_id = r.id
+        JOIN employees r ON fa.employee_id = r.id
         JOIN projects p ON fa.project_id = p.id
         WHERE fa.id = $1
     `;

@@ -13,13 +13,13 @@ import * as db from '/opt/nodejs/database/index.js';
 export const updateResourceTotals = async (resourceId, log) => {
     try {
         const totalsQuery = `
-            UPDATE resources
+            UPDATE employees
             SET 
                 total_allocation = (
                     SELECT COALESCE(SUM(a.allocation_percentage), 0)
                     FROM allocations a
                     JOIN projects p ON a.project_id = p.id
-                    WHERE a.resource_id = $1
+                    WHERE a.employee_id = $1
                     AND a.is_active = true
                     AND a.deleted_at IS NULL
                     AND p.is_bench_project = false
@@ -28,7 +28,7 @@ export const updateResourceTotals = async (resourceId, log) => {
                     SELECT COALESCE(SUM(a.billing_percentage), 0)
                     FROM allocations a
                     JOIN projects p ON a.project_id = p.id
-                    WHERE a.resource_id = $1
+                    WHERE a.employee_id = $1
                     AND a.is_active = true
                     AND a.deleted_at IS NULL
                     AND p.billing_status = 'Billing'

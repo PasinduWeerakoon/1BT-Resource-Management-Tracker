@@ -58,17 +58,17 @@ export const getAllocationReport = async (event) => {
                 r.name as resource_name,
                 r.email as resource_email,
                 d.name as designation_name,
-                t.name as track_name,
+                r.track_name,
                 a.allocation_percentage,
                 a.allocated_date,
                 a.deallocated_date,
                 a.status
             FROM allocations a
             JOIN projects p ON a.project_id = p.id
-            JOIN resources r ON a.resource_id = r.id
+            JOIN employees r ON a.employee_id = r.id
             LEFT JOIN clients c ON p.client_id = c.id
             LEFT JOIN designations d ON r.designation_id = d.id
-            LEFT JOIN tracks t ON r.track_id = t.id
+            
             ${whereClause}
             ORDER BY p.project_name, r.name
         `;
@@ -111,18 +111,18 @@ export const getMonthlyAllocationReport = async (event) => {
                 r.name as resource_name,
                 r.email,
                 d.name as designation,
-                t.name as track,
+                r.track,
                 p.project_name,
                 c.client_name,
                 a.allocation_percentage,
                 a.allocated_date,
                 a.deallocated_date
             FROM allocations a
-            JOIN resources r ON a.resource_id = r.id
+            JOIN employees r ON a.employee_id = r.id
             JOIN projects p ON a.project_id = p.id
             LEFT JOIN clients c ON p.client_id = c.id
             LEFT JOIN designations d ON r.designation_id = d.id
-            LEFT JOIN tracks t ON r.track_id = t.id
+            
             WHERE a.allocated_date <= $2
             AND (a.deallocated_date IS NULL OR a.deallocated_date >= $1)
             AND r.deleted_at IS NULL

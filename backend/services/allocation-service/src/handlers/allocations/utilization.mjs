@@ -22,7 +22,7 @@ export const getResourceUtilization = async (event) => {
 
         // Check if resource exists
         const resourceResult = await db.query(
-            'SELECT id, name, email FROM resources WHERE id = $1 AND deleted_at IS NULL',
+            'SELECT id, name, email FROM employees WHERE id = $1 AND deleted_at IS NULL',
             [id]
         );
 
@@ -39,7 +39,7 @@ export const getResourceUtilization = async (event) => {
                 p.project_name
             FROM allocations a
             LEFT JOIN projects p ON a.project_id = p.id
-            WHERE a.resource_id = $1
+            WHERE a.employee_id = $1
             AND a.is_active = true
             AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
             AND a.allocated_date <= CURRENT_DATE
@@ -102,3 +102,4 @@ export const getHistory = async (event) => {
         return error('Failed to get allocation history', err);
     }
 };
+

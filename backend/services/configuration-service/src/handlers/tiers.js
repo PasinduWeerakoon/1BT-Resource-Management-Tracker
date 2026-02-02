@@ -226,9 +226,11 @@ export const remove = async (event) => {
             return notFound('Tier not found');
         }
 
-        if (checkResult.rows[0].is_default) {
-            return error('Cannot delete default tiers', null, 403);
-        }
+        // Check if tier is in use by any resources
+        const usageCheck = await db.query(
+            'SELECT COUNT(*) as count FROM employees WHERE tier = $1 AND deleted_at IS NULL',
+            [existing.name]
+        );
 
         // Check if tier is in use
         const usageQuery = 'SELECT COUNT(*) as count FROM resources WHERE tier = $1';

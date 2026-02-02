@@ -86,20 +86,50 @@ export const withTransactionOptions = async (callback, options = {}) => {
 // Re-export schema for convenience
 export { schema };
 
-// Export individual tables
+// Export individual tables and enums
 export {
-    tracks,
+    // Enums
+    userRoleEnum,
+    userStatusEnum,
+    employeeStatusEnum,
+    projectStatusEnum,
+    accountTypeEnum,
+    changeTypeEnum,
+    allocationChangeTypeEnum,
+    auditActionEnum,
+
+    // Lookup tables (serial IDs)
     designations,
-    tiers,
-    resources,
+    billingStatuses,
+    projectTypes,
+    employeeTypes,
+    universities,
+    tags,
+
+    // Core tables (UUIDs)
+    employees,
+    employeeTags,
     users,
     clients,
     projects,
     allocations,
-    resourceChangeHistory,
-    allocationChangeHistory,
-    designationChangeHistory,
+    futureAllocations,
+
+    // History tables
+    allocationHistory,
+    allocationHistoryArchive,
+    designationHistory,
+
+    // System tables
+    permissions,
     auditLogs,
+
+    // Relations
+    employeesRelations,
+    usersRelations,
+    projectsRelations,
+    allocationsRelations,
+    employeeTagsRelations,
 } from './schema.js';
 
 export default {

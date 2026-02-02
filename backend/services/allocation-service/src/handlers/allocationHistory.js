@@ -39,7 +39,7 @@ export const search = async (event) => {
         let paramIndex = 1;
 
         if (resource_id) {
-            whereConditions.push(`aha.resource_id = $${paramIndex}`);
+            whereConditions.push(`aha.employee_id = $${paramIndex}`);
             queryParams.push(resource_id);
             paramIndex++;
         }
@@ -104,12 +104,12 @@ export const search = async (event) => {
         let query = `
             SELECT aha.*, 
                    r.name as resource_name,
-                   r.employee_id,
+                   r.epf_no,
                    p.name as project_name,
                    p.project_code,
                    c.name as client_name
             FROM allocation_history_archive aha
-            JOIN resources r ON aha.resource_id = r.id
+            JOIN employees r ON aha.employee_id = r.id
             JOIN projects p ON aha.project_id = p.id
             LEFT JOIN clients c ON p.client_id = c.id
             ${whereClause}
@@ -213,13 +213,13 @@ export const getById = async (event) => {
         const query = `
             SELECT aha.*, 
                    r.name as resource_name,
-                   r.employee_id,
+                   r.epf_no,
                    p.name as project_name,
                    p.project_code,
                    c.name as client_name,
                    d.name as designation_name
             FROM allocation_history_archive aha
-            JOIN resources r ON aha.resource_id = r.id
+            JOIN employees r ON aha.employee_id = r.id
             JOIN projects p ON aha.project_id = p.id
             LEFT JOIN clients c ON p.client_id = c.id
             LEFT JOIN designations d ON aha.designation_id = d.id
@@ -272,7 +272,7 @@ export const getTimeline = async (event) => {
             SELECT 
                 'archived' as source,
                 aha.id,
-                aha.resource_id,
+                aha.employee_id,
                 aha.project_id,
                 p.name as project_name,
                 p.project_code,
@@ -284,7 +284,7 @@ export const getTimeline = async (event) => {
                 aha.archived_at as status_date
             FROM allocation_history_archive aha
             JOIN projects p ON aha.project_id = p.id
-            WHERE aha.resource_id = $1
+            WHERE aha.employee_id = $1
         `;
         const historyParams = [resourceId];
         let paramIndex = 2;
@@ -305,7 +305,7 @@ export const getTimeline = async (event) => {
             SELECT 
                 'current' as source,
                 a.id,
-                a.resource_id,
+                a.employee_id,
                 a.project_id,
                 p.name as project_name,
                 p.project_code,
@@ -317,7 +317,7 @@ export const getTimeline = async (event) => {
                 a.updated_at as status_date
             FROM allocations a
             JOIN projects p ON a.project_id = p.id
-            WHERE a.resource_id = $1
+            WHERE a.employee_id = $1
         `;
         const currentParams = [resourceId];
         let currentParamIndex = 2;
@@ -338,7 +338,7 @@ export const getTimeline = async (event) => {
             SELECT 
                 'future' as source,
                 fa.id,
-                fa.resource_id,
+                fa.employee_id,
                 fa.project_id,
                 p.name as project_name,
                 p.project_code,
@@ -350,7 +350,7 @@ export const getTimeline = async (event) => {
                 fa.effective_date as status_date
             FROM future_allocations fa
             JOIN projects p ON fa.project_id = p.id
-            WHERE fa.resource_id = $1 AND fa.status = 'scheduled'
+            WHERE fa.employee_id = $1 AND fa.status = 'scheduled'
         `;
         const futureParams = [resourceId];
 

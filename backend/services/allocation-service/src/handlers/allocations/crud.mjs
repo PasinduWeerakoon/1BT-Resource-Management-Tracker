@@ -109,7 +109,7 @@ export const list = async (event) => {
         let paramIndex = 1;
 
         if (resource_id) {
-            whereClause += ` AND a.resource_id = $${paramIndex}`;
+            whereClause += ` AND a.employee_id = $${paramIndex}`;
             params.push(resource_id);
             paramIndex++;
         }
@@ -136,7 +136,7 @@ export const list = async (event) => {
                 c.client_name,
                 COUNT(*) OVER() as total_count
             FROM allocations a
-            LEFT JOIN resources r ON a.resource_id = r.id
+            LEFT JOIN employees r ON a.employee_id = r.id
             LEFT JOIN projects p ON a.project_id = p.id
             LEFT JOIN clients c ON p.client_id = c.id
             ${whereClause}
@@ -187,7 +187,7 @@ export const getById = async (event) => {
                 p.project_name,
                 c.client_name
             FROM allocations a
-            LEFT JOIN resources r ON a.resource_id = r.id
+            LEFT JOIN employees r ON a.employee_id = r.id
             LEFT JOIN projects p ON a.project_id = p.id
             LEFT JOIN clients c ON p.client_id = c.id
             WHERE a.id = $1
@@ -581,7 +581,7 @@ export const update = async (event) => {
         const isBenchAllocation = existing.project_id === benchProjectId;
 
         // Enhancement 3.6: Check resource status before updating allocation
-        const resourceResult = await db.query('SELECT status FROM resources WHERE id = $1', [existing.resource_id]);
+        const resourceResult = await db.query('SELECT status FROM employees WHERE id = $1', [existing.resource_id]);
         if (resourceResult.rows.length === 0) {
             return notFound('Resource not found');
         }
@@ -928,3 +928,4 @@ export const remove = async (event) => {
         return error('Failed to delete allocation', err);
     }
 };
+

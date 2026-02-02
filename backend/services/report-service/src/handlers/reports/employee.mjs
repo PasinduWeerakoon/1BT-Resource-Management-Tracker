@@ -22,17 +22,17 @@ export const getEmployeeReport = async (event) => {
         const query = `
             SELECT 
                 r.id,
-                r.employee_id,
+                r.epf_no,
                 r.name,
                 r.email,
                 d.name as designation,
-                t.name as track,
+                r.track,
                 r.status,
-                r.date_of_joining,
+                r.joined_date,
                 COALESCE(
                     (SELECT SUM(allocation_percentage) 
                      FROM allocations 
-                     WHERE resource_id = r.id 
+                     WHERE employee_id = r.id 
                      AND is_active = true 
                      AND (deallocated_date IS NULL OR deallocated_date >= CURRENT_DATE)),
                     0
@@ -41,14 +41,14 @@ export const getEmployeeReport = async (event) => {
                     (SELECT string_agg(p.project_name, ', ')
                      FROM allocations a
                      JOIN projects p ON a.project_id = p.id
-                     WHERE a.resource_id = r.id 
+                     WHERE a.employee_id = r.id 
                      AND a.is_active = true 
                      AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)),
                     'None'
                 ) as current_projects
-            FROM resources r
+            FROM employees r
             LEFT JOIN designations d ON r.designation_id = d.id
-            LEFT JOIN tracks t ON r.track_id = t.id
+            
             WHERE r.deleted_at IS NULL
             ORDER BY r.name ASC
         `;
@@ -84,15 +84,15 @@ export const getExceptionReport = async (event) => {
                 FROM allocations
                 WHERE is_active = true 
                 AND (deallocated_date IS NULL OR deallocated_date >= CURRENT_DATE)
-                GROUP BY resource_id
+                GROUP BY employee_id
             )
             SELECT 
                 r.id,
-                r.employee_id,
+                r.epf_no,
                 r.name,
                 r.email,
                 d.name as designation,
-                t.name as track,
+                r.track,
                 COALESCE(ra.total_allocation, 0) as total_allocation,
                 CASE 
                     WHEN COALESCE(ra.total_allocation, 0) > 100 THEN 'Over-allocated'
@@ -100,10 +100,10 @@ export const getExceptionReport = async (event) => {
                     WHEN COALESCE(ra.total_allocation, 0) = 0 THEN 'Unallocated'
                     ELSE 'Normal'
                 END as exception_type
-            FROM resources r
-            LEFT JOIN resource_allocations ra ON r.id = ra.resource_id
+            FROM employees r
+            LEFT JOIN resource_allocations ra ON r.id = ra.employee_id
             LEFT JOIN designations d ON r.designation_id = d.id
-            LEFT JOIN tracks t ON r.track_id = t.id
+            
             WHERE r.status = 'Active'
             AND r.deleted_at IS NULL
             AND (COALESCE(ra.total_allocation, 0) > 100 OR COALESCE(ra.total_allocation, 0) < 100)
@@ -133,3 +133,5 @@ export const getExceptionReport = async (event) => {
         return error('Failed to get exception report', err);
     }
 };
+
+

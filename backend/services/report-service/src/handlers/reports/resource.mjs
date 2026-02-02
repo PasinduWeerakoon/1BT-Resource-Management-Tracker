@@ -24,16 +24,16 @@ export const getBenchReport = async (event) => {
         const query = `
             WITH resource_allocations AS (
                 SELECT 
-                    resource_id,
+                    employee_id,
                     SUM(allocation_percentage) as total_allocation
                 FROM allocations
                 WHERE is_active = true 
                 AND (deallocated_date IS NULL OR deallocated_date >= CURRENT_DATE)
-                GROUP BY resource_id
+                GROUP BY employee_id
             ),
             bench_allocations AS (
                 SELECT 
-                    a.resource_id,
+                    a.employee_id,
                     a.allocation_percentage as bench_allocation
                 FROM allocations a
                 INNER JOIN projects p ON a.project_id = p.id
@@ -47,24 +47,24 @@ export const getBenchReport = async (event) => {
                 r.name,
                 r.email,
                 d.name as designation,
-                t.name as track,
+                r.track,
                 COALESCE(ra.total_allocation, 0) as current_allocation,
                 (100 - COALESCE(ra.total_allocation, 0)) as available_capacity,
                 COALESCE(ba.bench_allocation, 0) as bench_allocation_percentage,
-                r.date_of_joining,
-                r.intern_classification,
-                CASE WHEN r.date_of_joining IS NOT NULL 
-                     THEN (CURRENT_DATE - r.date_of_joining::DATE)
+                r.joined_date,
+                r.tier,
+                CASE WHEN r.joined_date IS NOT NULL 
+                     THEN (CURRENT_DATE - r.joined_date::DATE)
                      ELSE NULL END as days_in_company
-            FROM resources r
-            LEFT JOIN resource_allocations ra ON r.id = ra.resource_id
-            LEFT JOIN bench_allocations ba ON r.id = ba.resource_id
+            FROM employees r
+            LEFT JOIN resource_allocations ra ON r.id = ra.employee_id
+            LEFT JOIN bench_allocations ba ON r.id = ba.employee_id
             LEFT JOIN designations d ON r.designation_id = d.id
-            LEFT JOIN tracks t ON r.track_id = t.id
+            
             WHERE r.status = 'Active'
             AND (ra.total_allocation IS NULL OR ra.total_allocation < 100)
             AND r.deleted_at IS NULL
-            ORDER BY available_capacity DESC, r.date_of_joining DESC
+            ORDER BY available_capacity DESC, r.joined_date DESC
         `;
 
         const result = await db.query(query);
@@ -103,14 +103,14 @@ export const getUtilizationReport = async (event) => {
 
         const query = `
             SELECT 
-                t.name as track,
+                r.track,
                 COUNT(DISTINCT r.id) as total_resources,
                 SUM(CASE WHEN p.is_billable = true THEN a.allocation_percentage ELSE 0 END) as billable_allocation_sum,
                 SUM(CASE WHEN p.is_billable = false OR p.is_billable IS NULL THEN a.allocation_percentage ELSE 0 END) as non_billable_allocation_sum,
                 COALESCE(SUM(a.allocation_percentage), 0) as total_allocated_sum
-            FROM resources r
-            LEFT JOIN tracks t ON r.track_id = t.id
-            LEFT JOIN allocations a ON r.id = a.resource_id 
+            FROM employees r
+            
+            LEFT JOIN allocations a ON r.id = a.employee_id 
                 AND a.is_active = true 
                 AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
             LEFT JOIN projects p ON a.project_id = p.id
@@ -176,7 +176,7 @@ export const getInternReport = async (event) => {
         log.info('Getting intern report', { filters: queryParams });
 
         // Build WHERE clauses for all filters
-        let resourceWhereClause = 'WHERE r.intern_classification IS NOT NULL AND r.status = \'Active\' AND r.deleted_at IS NULL';
+        let resourceWhereClause = 'WHERE r.tier IS NOT NULL AND r.status = \'Active\' AND r.deleted_at IS NULL';
         let allocationWhereClause = '';
         const params = [];
         let paramIndex = 1;
@@ -212,7 +212,7 @@ export const getInternReport = async (event) => {
         // Get total employee count (for percentage calculation) - no filters applied
         const totalEmployeesQuery = `
             SELECT COUNT(*) as total
-            FROM resources
+            FROM employees
             WHERE status = 'Active'
             AND deleted_at IS NULL
         `;
@@ -221,20 +221,20 @@ export const getInternReport = async (event) => {
         const totalInternsQuery = project_name || account_manager
             ? `
                 SELECT COUNT(DISTINCT r.id) as total
-                FROM resources r
-                LEFT JOIN tracks t ON r.track_id = t.id
-                INNER JOIN allocations a ON r.id = a.resource_id 
+                FROM employees r
+                
+                INNER JOIN allocations a ON r.id = a.employee_id 
                     AND a.is_active = true 
                     AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
                 INNER JOIN projects p ON a.project_id = p.id AND p.deleted_at IS NULL
-                LEFT JOIN resources am ON p.account_manager_id = am.id
+                LEFT JOIN employees am ON p.account_manager_id = am.id
                 ${resourceWhereClause}
                 ${allocationWhereClause}
             `
             : `
                 SELECT COUNT(DISTINCT r.id) as total
-                FROM resources r
-                LEFT JOIN tracks t ON r.track_id = t.id
+                FROM employees r
+                
                 ${resourceWhereClause}
             `;
 
@@ -246,11 +246,11 @@ export const getInternReport = async (event) => {
                     r.name as employee_name,
                     r.email,
                     d.name as designation,
-                    t.name as track,
+                    r.track,
                     r.tech_stack,
-                    r.date_of_joining,
-                    CASE WHEN r.date_of_joining IS NOT NULL 
-                         THEN EXTRACT(MONTH FROM AGE(CURRENT_DATE, r.date_of_joining::DATE)) 
+                    r.joined_date,
+                    CASE WHEN r.joined_date IS NOT NULL 
+                         THEN EXTRACT(MONTH FROM AGE(CURRENT_DATE, r.joined_date::DATE)) 
                          ELSE NULL END as months_in_company,
                     p.project_name as project,
                     p.id as project_id,
@@ -272,14 +272,14 @@ export const getInternReport = async (event) => {
                     END as duration_days,
                     CASE WHEN a.is_active = true AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE) THEN 'Active' ELSE 'Inactive' END as status,
                     a.is_active
-                FROM resources r
+                FROM employees r
                 LEFT JOIN designations d ON r.designation_id = d.id
-                LEFT JOIN tracks t ON r.track_id = t.id
-                INNER JOIN allocations a ON r.id = a.resource_id 
+                
+                INNER JOIN allocations a ON r.id = a.employee_id 
                     AND a.is_active = true 
                     AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
                 INNER JOIN projects p ON a.project_id = p.id AND p.deleted_at IS NULL
-                LEFT JOIN resources am ON p.account_manager_id = am.id
+                LEFT JOIN employees am ON p.account_manager_id = am.id
                 ${resourceWhereClause}
                 ${allocationWhereClause}
                 ORDER BY r.name, p.project_name
@@ -290,11 +290,11 @@ export const getInternReport = async (event) => {
                     r.name as employee_name,
                     r.email,
                     d.name as designation,
-                    t.name as track,
+                    r.track,
                     r.tech_stack,
-                    r.date_of_joining,
-                    CASE WHEN r.date_of_joining IS NOT NULL 
-                         THEN EXTRACT(MONTH FROM AGE(CURRENT_DATE, r.date_of_joining::DATE)) 
+                    r.joined_date,
+                    CASE WHEN r.joined_date IS NOT NULL 
+                         THEN EXTRACT(MONTH FROM AGE(CURRENT_DATE, r.joined_date::DATE)) 
                          ELSE NULL END as months_in_company,
                     p.project_name as project,
                     p.id as project_id,
@@ -316,14 +316,14 @@ export const getInternReport = async (event) => {
                     END as duration_days,
                     CASE WHEN a.is_active = true AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE) THEN 'Active' ELSE 'Inactive' END as status,
                     a.is_active
-                FROM resources r
+                FROM employees r
                 LEFT JOIN designations d ON r.designation_id = d.id
-                LEFT JOIN tracks t ON r.track_id = t.id
-                LEFT JOIN allocations a ON r.id = a.resource_id 
+                
+                LEFT JOIN allocations a ON r.id = a.employee_id 
                     AND a.is_active = true 
                     AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
                 LEFT JOIN projects p ON a.project_id = p.id AND p.deleted_at IS NULL
-                LEFT JOIN resources am ON p.account_manager_id = am.id
+                LEFT JOIN employees am ON p.account_manager_id = am.id
                 ${resourceWhereClause}
                 ${allocationWhereClause}
                 ORDER BY r.name, p.project_name
@@ -354,7 +354,7 @@ export const getInternReport = async (event) => {
                     designation: row.designation,
                     track: row.track,
                     techStack: row.tech_stack,
-                    dateOfJoining: row.date_of_joining,
+                    dateOfJoining: row.joined_date,
                     monthsInCompany: row.months_in_company,
                     projects: []
                 };
@@ -459,7 +459,7 @@ export const getExternalConsultantsReport = async (event) => {
                 r.id as resource_id,
                 r.name as consultant_name,
                 r.email,
-                t.name as track,
+                r.track,
                 r.tech_stack,
                 d.name as designation,
                 p.id as project_id,
@@ -473,10 +473,10 @@ export const getExternalConsultantsReport = async (event) => {
                     WHEN p.project_type = 'Client' THEN 'Billing'
                     ELSE 'Non-Billing'
                 END as billing_status
-            FROM resources r
-            LEFT JOIN tracks t ON r.track_id = t.id
+            FROM employees r
+            
             LEFT JOIN designations d ON r.designation_id = d.id
-            LEFT JOIN allocations a ON r.id = a.resource_id AND a.is_active = true
+            LEFT JOIN allocations a ON r.id = a.employee_id AND a.is_active = true
             LEFT JOIN projects p ON a.project_id = p.id
             WHERE r.is_external_consultant = true
                 AND r.status = 'Active'
@@ -542,8 +542,8 @@ export const getExternalConsultantsReport = async (event) => {
                 COUNT(DISTINCT CASE WHEN p.project_type != 'Client' OR p.id IS NULL THEN r.id END) as non_billing_consultants,
                 COALESCE(SUM(CASE WHEN p.project_type = 'Client' THEN a.allocation_percentage ELSE 0 END), 0) as total_billing_allocation,
                 COALESCE(SUM(CASE WHEN p.project_type != 'Client' THEN a.allocation_percentage ELSE 0 END), 0) as total_non_billing_allocation
-            FROM resources r
-            LEFT JOIN allocations a ON r.id = a.resource_id AND a.is_active = true
+            FROM employees r
+            LEFT JOIN allocations a ON r.id = a.employee_id AND a.is_active = true
             LEFT JOIN projects p ON a.project_id = p.id
             WHERE r.is_external_consultant = true
                 AND r.status = 'Active'
@@ -602,10 +602,10 @@ export const getExternalConsultantsReport = async (event) => {
         // Chart data - consultants by track
         const trackQuery = `
             SELECT 
-                t.name as track,
+                r.track,
                 COUNT(DISTINCT r.id) as count
-            FROM resources r
-            LEFT JOIN tracks t ON r.track_id = t.id
+            FROM employees r
+            
             WHERE r.is_external_consultant = true
                 AND r.status = 'Active'
             GROUP BY t.name
@@ -642,3 +642,5 @@ export const getExternalConsultantsReport = async (event) => {
         return error('Failed to get external consultants report', err);
     }
 };
+
+

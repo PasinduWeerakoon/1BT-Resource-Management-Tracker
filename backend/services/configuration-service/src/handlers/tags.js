@@ -240,11 +240,11 @@ export const remove = async (event) => {
             return error('Cannot delete default tag', null, 403);
         }
 
-        // Check if tag is being used by any resources (if there's a resource_tags table)
+        // Check if tag is being used by any resources (if there's a employee_tags table)
         // For now, we'll just check if it exists in any resource tag fields
         // This can be expanded based on your actual schema
         const usageCheck = await db.query(
-            `SELECT COUNT(*) as count FROM resources 
+            `SELECT COUNT(*) as count FROM employees 
              WHERE tags::text LIKE $1 AND deleted_at IS NULL`,
             [`%${existing.name}%`]
         ).catch(() => {

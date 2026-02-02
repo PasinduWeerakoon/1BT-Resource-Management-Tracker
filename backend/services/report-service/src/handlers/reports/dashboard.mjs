@@ -29,7 +29,7 @@ export const getDashboard = async (event) => {
                 SELECT 
                     status,
                     COUNT(*) as count
-                FROM resources
+                FROM employees
                 WHERE deleted_at IS NULL
                 GROUP BY status
             `),
@@ -47,7 +47,7 @@ export const getDashboard = async (event) => {
             // Allocation summary
             db.query(`
                 SELECT 
-                    COUNT(DISTINCT resource_id) as allocated_resources,
+                    COUNT(DISTINCT employee_id) as allocated_resources,
                     COUNT(*) as total_allocations,
                     AVG(allocation_percentage) as avg_allocation
                 FROM allocations
@@ -58,14 +58,14 @@ export const getDashboard = async (event) => {
             // Bench resources count
             db.query(`
                 WITH resource_allocations AS (
-                    SELECT resource_id, SUM(allocation_percentage) as total
+                    SELECT employee_id, SUM(allocation_percentage) as total
                     FROM allocations
                     WHERE is_active = true AND (deallocated_date IS NULL OR deallocated_date >= CURRENT_DATE)
-                    GROUP BY resource_id
+                    GROUP BY employee_id
                 )
                 SELECT COUNT(*) as count
-                FROM resources r
-                LEFT JOIN resource_allocations ra ON r.id = ra.resource_id
+                FROM employees r
+                LEFT JOIN resource_allocations ra ON r.id = ra.employee_id
                 WHERE r.status = 'Active' AND r.deleted_at IS NULL
                 AND (ra.total IS NULL OR ra.total < 100)
             `)
@@ -105,3 +105,4 @@ export const getDashboard = async (event) => {
         return error('Failed to get dashboard data', err);
     }
 };
+
