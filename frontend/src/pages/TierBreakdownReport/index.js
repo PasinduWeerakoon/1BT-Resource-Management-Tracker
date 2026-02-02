@@ -1,27 +1,17 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Row, Col, Card, Select, Badge, Button } from 'antd';
-import { FilterOutlined, UpOutlined, DownOutlined, ReloadOutlined } from '@ant-design/icons';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Row, Col, Card } from 'antd';
 import { Bar } from 'react-chartjs-2';
 import { commonOptions, colors } from '@utils/chartConfig';
 import CustomTable from '@components/Table';
-import { accountManagersService, reportsService, projectsService, tracksService, tiersService } from '@api';
-import { showErrorToast } from '@utils/toast.utils';
+import { accountManagersService, projectsService, tracksService, tiersService } from '@api';
+import { useReportFilters } from '@hooks/reports';
+import { FilterSection, ReportHeader, SummaryCards } from '@components/ReportLayout';
+import TierBreakdownFilters from './components/TierBreakdownFilters';
+import { useTierBreakdownData } from './hooks/useTierBreakdownData';
 import logger from '@utils/logger';
 import '@styles/pages/TierBreakdownReport.scss';
 
-const { Option } = Select;
-
 const TierBreakdownReport = () => {
-  const [filtersExpanded, setFiltersExpanded] = useState(false);
-  const [filters, setFilters] = useState({
-    projectName: 'All',
-    tier: 'All',
-    accountManager: 'All',
-    track: 'All',
-    techStack: 'All',
-  });
-
-  // Default filter values for comparison
   const defaultFilters = {
     projectName: 'All',
     tier: 'All',
@@ -30,16 +20,15 @@ const TierBreakdownReport = () => {
     techStack: 'All',
   };
 
-  // Count active filters (filters that differ from defaults)
-  const activeFiltersCount = useMemo(() => {
-    let count = 0;
-    Object.keys(filters).forEach((key) => {
-      if (filters[key] !== defaultFilters[key] && filters[key] !== '' && filters[key] !== null && filters[key] !== undefined) {
-        count++;
-      }
-    });
-    return count;
-  }, [filters]);
+  // Use shared hooks
+  const {
+    filters,
+    setFilters,
+    activeFiltersCount,
+    handleResetFilters,
+    filtersExpanded,
+    toggleFiltersExpanded,
+  } = useReportFilters(defaultFilters);
 
   // Filter options for dropdowns
   const [accountManagers, setAccountManagers] = useState([]);
@@ -52,14 +41,8 @@ const TierBreakdownReport = () => {
   const [loadingTiers, setLoadingTiers] = useState(false);
   const [techStacks, setTechStacks] = useState([]);
 
-  // Report data
-  const [tierData, setTierData] = useState([]);
-  const [employeeData, setEmployeeData] = useState([]);
-  const [totalEmployees, setTotalEmployees] = useState(0);
-  const [loadingReport, setLoadingReport] = useState(false);
-
-  // Refs to prevent duplicate API calls
-  const fetchReportInProgressRef = useRef(false);
+  // Report data - using custom hook
+  const { tierData, employeeData, totalEmployees, loadingReport } = useTierBreakdownData(filters, setTechStacks);
 
   // Fetch filter options on mount
   useEffect(() => {
@@ -184,101 +167,6 @@ const TierBreakdownReport = () => {
     fetchTiers();
   }, []);
 
-  // Fetch tier breakdown report
-  const fetchTierBreakdownReport = async () => {
-    if (fetchReportInProgressRef.current) {
-      return;
-    }
-
-    try {
-      fetchReportInProgressRef.current = true;
-      setLoadingReport(true);
-
-      // Build query params from filters
-      const params = {};
-      if (filters.tier && filters.tier !== 'All') {
-        params.tier = filters.tier;
-      }
-      if (filters.projectName && filters.projectName !== 'All') {
-        params.project_name = filters.projectName;
-      }
-      if (filters.accountManager && filters.accountManager !== 'All') {
-        params.account_manager = filters.accountManager;
-      }
-      if (filters.track && filters.track !== 'All') {
-        params.track = filters.track;
-      }
-      if (filters.techStack && filters.techStack !== 'All') {
-        params.tech_stack = filters.techStack;
-      }
-
-      const response = await reportsService.getTierBreakdown(params);
-
-      // Handle response structure
-      let reportData = null;
-      if (response) {
-        if (response.data) {
-          reportData = response.data;
-        } else if (response.summary || response.tierDistribution) {
-          reportData = response;
-        }
-      }
-
-      if (reportData) {
-        // Update tier distribution for chart
-        if (reportData.tierDistribution && Array.isArray(reportData.tierDistribution)) {
-          setTierData(reportData.tierDistribution);
-        }
-
-        // Update employee details for table
-        if (reportData.employeeDetails && Array.isArray(reportData.employeeDetails)) {
-          setEmployeeData(reportData.employeeDetails);
-
-          // Extract unique tech stacks from employee details for filter dropdown
-          // Only extract on initial load (when no filters are applied) to get all available tech stacks
-          const hasNoFilters = filters.projectName === 'All' &&
-            filters.tier === 'All' &&
-            filters.accountManager === 'All' &&
-            filters.track === 'All' &&
-            filters.techStack === 'All';
-
-          if (hasNoFilters && reportData.employeeDetails.length > 0) {
-            const uniqueTechStacks = [...new Set(
-              reportData.employeeDetails
-                .map((employee) => employee.techStack || employee.tech_stack)
-                .filter((techStack) => techStack && techStack.trim() !== '')
-            )].sort();
-
-            if (uniqueTechStacks.length > 0) {
-              setTechStacks(uniqueTechStacks.map((techStack) => ({ name: techStack })));
-            }
-          }
-        }
-
-        // Update total employees
-        if (reportData.summary && reportData.summary.totalEmployees !== undefined) {
-          setTotalEmployees(reportData.summary.totalEmployees);
-        }
-      }
-    } catch (error) {
-      logger.error('Failed to fetch tier breakdown report', error);
-      showErrorToast(error?.response?.data?.message || error?.message || 'Failed to load tier breakdown report');
-    } finally {
-      setLoadingReport(false);
-      fetchReportInProgressRef.current = false;
-    }
-  };
-
-  // Fetch report on mount and when any filter changes
-  useEffect(() => {
-    fetchTierBreakdownReport();
-  }, [filters.tier, filters.projectName, filters.accountManager, filters.track, filters.techStack]);
-
-  // Reset filters to default values
-  const handleResetFilters = (e) => {
-    e.stopPropagation();
-    setFilters({ ...defaultFilters });
-  };
 
   // Employee Details Table Columns
   const employeeColumns = [
@@ -357,170 +245,33 @@ const TierBreakdownReport = () => {
 
   return (
     <div className="tier-breakdown-report-page">
-      {/* Header Section */}
-      <div className="report-header">
-        <h1 className="report-title">TIER BREAKDOWN REPORT</h1>
-      </div>
+      <ReportHeader title="TIER BREAKDOWN REPORT" />
 
-      {/* Filters Section */}
-      <Card className="filters-card">
-        <div
-          className="filters-header"
-          onClick={() => setFiltersExpanded(!filtersExpanded)}
-          style={{ cursor: 'pointer' }}
-        >
-          <div className="filters-header-left">
-            <FilterOutlined className="filter-icon" />
-            <span className="filters-title">Filters</span>
-            {activeFiltersCount > 0 && (
-              <>
-                <Badge count={activeFiltersCount} showZero={false} className="active-filters-badge">
-                  <span></span>
-                </Badge>
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<ReloadOutlined />}
-                  onClick={handleResetFilters}
-                  className="reset-filters-btn"
-                >
-                  Reset
-                </Button>
-              </>
-            )}
-          </div>
-          {filtersExpanded ? (
-            <UpOutlined className="collapse-icon" />
-          ) : (
-            <DownOutlined className="collapse-icon" />
-          )}
-        </div>
-        {filtersExpanded && (
-          <div className="filters-content">
-            <Row gutter={[16, 16]} className="filters-row">
-              <Col xs={24} sm={12} md={8} lg={6}>
-                <div className="filter-item">
-                  <label>Project Name</label>
-                  <Select
-                    value={filters.projectName}
-                    onChange={(value) => setFilters({ ...filters, projectName: value })}
-                    style={{ width: '100%' }}
-                    loading={loadingProjects}
-                    showSearch
-                    allowClear
-                    filterOption={(input, option) =>
-                      (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
-                    }
-                  >
-                    <Option value="All">All</Option>
-                    {projects.map((project) => (
-                      <Option key={project.id} value={project.name} label={project.name}>
-                        {project.name}
-                      </Option>
-                    ))}
-                  </Select>
-                </div>
-              </Col>
-              <Col xs={24} sm={12} md={8} lg={6}>
-                <div className="filter-item">
-                  <label>Tier</label>
-                  <Select
-                    value={filters.tier}
-                    onChange={(value) => setFilters({ ...filters, tier: value })}
-                    style={{ width: '100%' }}
-                    loading={loadingTiers}
-                  >
-                    <Option value="All">All</Option>
-                    {tiers.map((tier) => (
-                      <Option key={tier.id} value={tier.name}>
-                        {tier.name}
-                      </Option>
-                    ))}
-                  </Select>
-                </div>
-              </Col>
-              <Col xs={24} sm={12} md={8} lg={6}>
-                <div className="filter-item">
-                  <label>Account Manager</label>
-                  <Select
-                    value={filters.accountManager}
-                    onChange={(value) => setFilters({ ...filters, accountManager: value })}
-                    style={{ width: '100%' }}
-                    loading={loadingAccountManagers}
-                    showSearch
-                    allowClear
-                    filterOption={(input, option) =>
-                      (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
-                    }
-                  >
-                    <Option value="All">All</Option>
-                    {accountManagers.map((am) => (
-                      <Option key={am.id} value={am.name} label={am.name}>
-                        {am.name}
-                      </Option>
-                    ))}
-                  </Select>
-                </div>
-              </Col>
-              <Col xs={24} sm={12} md={8} lg={6}>
-                <div className="filter-item">
-                  <label>Track</label>
-                  <Select
-                    value={filters.track}
-                    onChange={(value) => setFilters({ ...filters, track: value })}
-                    style={{ width: '100%' }}
-                    loading={loadingTracks}
-                    showSearch
-                    allowClear
-                    filterOption={(input, option) =>
-                      (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
-                    }
-                  >
-                    <Option value="All">All</Option>
-                    {tracks.map((track) => (
-                      <Option key={track.id} value={track.name} label={track.name}>
-                        {track.name}
-                      </Option>
-                    ))}
-                  </Select>
-                </div>
-              </Col>
-              <Col xs={24} sm={12} md={8} lg={6}>
-                <div className="filter-item">
-                  <label>Tech Stack</label>
-                  <Select
-                    value={filters.techStack}
-                    onChange={(value) => setFilters({ ...filters, techStack: value })}
-                    style={{ width: '100%' }}
-                    showSearch
-                    allowClear
-                    filterOption={(input, option) =>
-                      (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
-                    }
-                  >
-                    <Option value="All">All</Option>
-                    {techStacks.map((techStack) => (
-                      <Option key={techStack.name} value={techStack.name} label={techStack.name}>
-                        {techStack.name}
-                      </Option>
-                    ))}
-                  </Select>
-                </div>
-              </Col>
-            </Row>
-          </div>
-        )}
-      </Card>
+      <FilterSection
+        expanded={filtersExpanded}
+        onToggle={toggleFiltersExpanded}
+        activeFiltersCount={activeFiltersCount}
+        onReset={handleResetFilters}
+      >
+        <TierBreakdownFilters
+          filters={filters}
+          setFilters={setFilters}
+          projects={projects}
+          accountManagers={accountManagers}
+          tracks={tracks}
+          tiers={tiers}
+          techStacks={techStacks}
+          loadingProjects={loadingProjects}
+          loadingAccountManagers={loadingAccountManagers}
+          loadingTracks={loadingTracks}
+          loadingTiers={loadingTiers}
+        />
+      </FilterSection>
 
-      {/* KPI Card */}
-      <Row gutter={[16, 16]} className="kpi-section">
-        <Col xs={24} sm={12} md={8} lg={6}>
-          <Card className="kpi-card">
-            <div className="kpi-value">{totalEmployees}</div>
-            <div className="kpi-label">TOTAL EMPLOYEE</div>
-          </Card>
-        </Col>
-      </Row>
+      {/* Summary Cards */}
+      <SummaryCards cards={[
+        { value: totalEmployees, label: 'TOTAL EMPLOYEE' },
+      ]} />
 
       {/* Chart and Table Section */}
       <Row gutter={[16, 16]} className="charts-tables-section">

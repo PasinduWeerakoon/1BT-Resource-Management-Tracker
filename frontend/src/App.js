@@ -17,7 +17,13 @@ const SuspenseFallback = () => (
   </div>
 );
 
-function App() {
+/**
+ * App Component
+ * Main application component with routing and error boundaries
+ * 
+ * @returns {JSX.Element} Application root component
+ */
+const App = () => {
   return (
     <Suspense fallback={<SuspenseFallback />}>
       <Routes>

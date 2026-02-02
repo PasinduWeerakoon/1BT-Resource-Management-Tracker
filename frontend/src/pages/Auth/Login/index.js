@@ -1,31 +1,42 @@
 import React, { useState, useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
-import { Form, Input, Button, Card, Typography, App, Modal } from 'antd';
-import { MailOutlined, LockOutlined } from '@ant-design/icons';
-import { setCredentials, initializeAuth } from '@redux/slices/authSlice';
+import { Card, Modal, Form, Input, Button, Typography } from 'antd';
+import { LockOutlined } from '@ant-design/icons';
+import { initializeAuth } from '@redux/slices/authSlice';
 import { authService } from '@api';
 import { storeAuth } from '@utils/auth.utils';
 import { getUserFromToken } from '@utils/jwt.utils';
 import { showErrorToast, showSuccessToast } from '@utils/toast.utils';
 import logger from '@utils/logger';
 import ForgotPassword from '@pages/Auth/ForgotPassword';
+import LoginHeader from './components/LoginHeader';
+import LoginForm from './components/LoginForm';
+import useLogin from './hooks/useLogin';
+import { normalizeUserData, buildUserInfo } from './utils/authHelpers';
 import '@styles/pages/Auth/Login.scss';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 
 const Login = () => {
   const dispatch = useDispatch();
   const navigate = useNavigate();
   const { isAuthenticated } = useSelector((state) => state.auth);
-  const [loading, setLoading] = useState(false);
-  const [showCompleteInviteModal, setShowCompleteInviteModal] = useState(false);
-  const [inviteSession, setInviteSession] = useState(null);
-  const [inviteEmail, setInviteEmail] = useState('');
   const [completeInviteForm] = Form.useForm();
   const [completingInvite, setCompletingInvite] = useState(false);
   const [showForgotPasswordModal, setShowForgotPasswordModal] = useState(false);
-  const { message } = App.useApp();
+
+  // Use login hook
+  const {
+    loading,
+    showCompleteInviteModal,
+    inviteSession,
+    inviteEmail,
+    setShowCompleteInviteModal,
+    setInviteSession,
+    setInviteEmail,
+    handleLogin,
+  } = useLogin();
 
   useEffect(() => {
     dispatch(initializeAuth());
@@ -45,455 +56,8 @@ const Login = () => {
     logger.debug('🔍 inviteEmail:', inviteEmail);
   }, [showCompleteInviteModal, inviteSession, inviteEmail]);
 
-  const onFinish = async (values) => {
-    setLoading(true);
-    try {
-      // Call login API
-      const response = await authService.login(values.email, values.password);
-
-      // IMMEDIATE CHECK: Handle NEW_PASSWORD_REQUIRED challenge BEFORE anything else
-      // The interceptor transforms: { success: true, data: { challenge, session } } 
-      // to: { success: true, data: { challenge, session }, message: "..." }
-
-      logger.debug('=== LOGIN RESPONSE DEBUG ===');
-      logger.debug('Full response:', response);
-      logger.debug('response.success:', response?.success);
-      logger.debug('response.message:', response?.message);
-      logger.debug('response.data:', response?.data);
-      logger.debug('response.data?.challenge:', response?.data?.challenge);
-      logger.debug('response.data?.session:', response?.data?.session);
-      logger.debug('===========================');
-
-      // Check for challenge in ALL possible locations IMMEDIATELY
-      // Check message first (most reliable since error toast shows it)
-      const messageHasPasswordRequired = response?.message &&
-        response.message.toLowerCase().includes('new password required');
-
-      const hasChallengeInData = response?.data?.challenge === 'NEW_PASSWORD_REQUIRED' ||
-        response?.data?.code === 'NEW_PASSWORD_REQUIRED';
-
-      const hasChallenge = hasChallengeInData ||
-        response?.challenge === 'NEW_PASSWORD_REQUIRED' ||
-        messageHasPasswordRequired;
-
-      logger.debug('Challenge detection:');
-      logger.debug('  messageHasPasswordRequired:', messageHasPasswordRequired);
-      logger.debug('  hasChallengeInData:', hasChallengeInData);
-      logger.debug('  hasChallenge:', hasChallenge);
-
-      if (hasChallenge || messageHasPasswordRequired) {
-        logger.debug('🚨 NEW_PASSWORD_REQUIRED DETECTED - Opening modal immediately');
-        const session = response?.data?.session ||
-          response?.data?.Session ||
-          response?.session ||
-          response?.data?.data?.session;
-
-        logger.debug('Session found:', !!session);
-        logger.debug('Session preview:', session ? session.substring(0, 50) + '...' : 'NONE');
-
-        if (session) {
-          logger.debug('✅ Setting modal state synchronously...');
-          // Set all state at once
-          setInviteSession(session);
-          setInviteEmail(values.email);
-          setShowCompleteInviteModal(true);
-          setLoading(false);
-
-          // Force a check after state update
-          setTimeout(() => {
-            logger.debug('✅ After setTimeout - Modal state should be set');
-            logger.debug('   If modal still not showing, check React DevTools');
-          }, 100);
-
-          logger.debug('✅ Returning early - modal should open');
-          return;
-        } else {
-          logger.error('❌ Session missing! Full response structure:', JSON.stringify(response, null, 2));
-          showErrorToast('Session token missing. Please contact support.');
-          setLoading(false);
-          return;
-        }
-      }
-
-      // Check for NEW_PASSWORD_REQUIRED challenge in success response FIRST
-      // After interceptor transformation, the response structure is:
-      // { success: true, data: { challenge: "NEW_PASSWORD_REQUIRED", session: "..." }, message: "..." }
-      // OR the interceptor might have transformed it differently
-
-      // Check multiple possible locations for the challenge
-      const challenge = response?.data?.challenge ||
-        response?.data?.code ||
-        response?.challenge ||
-        (response?.message?.toLowerCase().includes('new password required') ? 'NEW_PASSWORD_REQUIRED' : null);
-
-      logger.debug('Detected challenge:', challenge);
-
-      if (challenge === 'NEW_PASSWORD_REQUIRED') {
-        logger.debug('NEW_PASSWORD_REQUIRED challenge detected!');
-        // Extract session token from response (check multiple locations)
-        const session = response?.data?.session ||
-          response?.data?.Session ||
-          response?.session ||
-          response?.data?.data?.session;
-        logger.debug('Session token:', session ? 'Found' : 'Missing');
-        logger.debug('Full response for debugging:', JSON.stringify(response, null, 2));
-
-        if (session) {
-          logger.debug('Opening complete invite modal');
-          setInviteSession(session);
-          setInviteEmail(values.email);
-          setShowCompleteInviteModal(true);
-          setLoading(false);
-          return;
-        } else {
-          logger.error('Session token missing from NEW_PASSWORD_REQUIRED response:', response);
-          showErrorToast('Session token missing from response. Please try again.');
-          setLoading(false);
-          return;
-        }
-      }
-
-      // Also check if message indicates new password required (fallback check)
-      if (response?.message && response.message.toLowerCase().includes('new password required')) {
-        logger.debug('New password required detected from message (fallback)');
-        const session = response?.data?.session ||
-          response?.data?.Session ||
-          response?.session ||
-          response?.data?.data?.session;
-        logger.debug('Session from message check:', session ? 'Found' : 'Missing');
-        if (session) {
-          logger.debug('Opening modal from message check');
-          setInviteSession(session);
-          setInviteEmail(values.email);
-          setShowCompleteInviteModal(true);
-          setLoading(false);
-          return;
-        } else {
-          logger.error('Session missing even though message indicates new password required');
-        }
-      }
-
-      // Final check: if response has success=true but no tokens and has a message about password
-      if (response?.success === true &&
-        !response?.data?.accessToken &&
-        !response?.accessToken &&
-        (response?.message?.toLowerCase().includes('password') ||
-          response?.data?.challenge === 'NEW_PASSWORD_REQUIRED')) {
-        logger.debug('Final fallback: Detecting challenge from success response without tokens');
-        const session = response?.data?.session || response?.session;
-        if (session) {
-          logger.debug('Opening modal from final fallback check');
-          setInviteSession(session);
-          setInviteEmail(values.email);
-          setShowCompleteInviteModal(true);
-          setLoading(false);
-          return;
-        }
-      }
-
-      let tokenData = null;
-
-      // Check if response is directly the token data object (most common case)
-      if (response && typeof response === 'object' && response.accessToken && response.refreshToken && response.idToken) {
-        tokenData = response;
-      }
-      // Check if response has success flag and data field (and no challenge)
-      else if (response && response.success === true && response.data) {
-        // Only treat as token data if it doesn't have a challenge
-        if (!response.data.challenge && !response.data.code && response.data.accessToken) {
-          tokenData = response.data;
-        }
-      }
-      // Check if response.data contains tokens directly
-      else if (response && response.data && typeof response.data === 'object' && response.data.accessToken) {
-        tokenData = response.data;
-      }
-
-      // Extract tokens
-      if (tokenData) {
-        const { accessToken, refreshToken, idToken } = tokenData;
-
-        // Validate that we have the required tokens
-        if (accessToken && refreshToken && idToken) {
-          // Decode user info from ID token as fallback
-          const fallbackUserInfo = getUserFromToken(idToken) || {
-            email: values.email,
-          };
-
-          // Store tokens (without expiresIn) with fallback user info
-          storeAuth({
-            accessToken,
-            refreshToken,
-            idToken,
-            user: fallbackUserInfo,
-            role: fallbackUserInfo.role || 'USER',
-          });
-
-          // Dispatch to Redux with fallback user info first
-          dispatch(setCredentials({
-            accessToken,
-            refreshToken,
-            idToken,
-            user: fallbackUserInfo,
-            role: fallbackUserInfo.role || 'USER',
-          }));
-
-          // Fetch current user info from /api/v1/auth/me
-          try {
-            const { authService } = await import('@api/services/auth.service');
-            const meResponse = await authService.getMe();
-
-            // Handle response structure - API returns { success: true, data: {...} }
-            let userData = null;
-            if (meResponse) {
-              if (meResponse.data && typeof meResponse.data === 'object') {
-                userData = meResponse.data;
-              } else if (meResponse.success && meResponse.data) {
-                userData = meResponse.data;
-              } else if (typeof meResponse === 'object' && meResponse.id) {
-                userData = meResponse;
-              }
-            }
-
-            // Update user info in Redux if we got valid data
-            if (userData) {
-              // Parse groups if it's a string (e.g., "[SuperAdmin]")
-              let groupsArray = [];
-              if (userData.groups) {
-                if (Array.isArray(userData.groups)) {
-                  groupsArray = userData.groups;
-                } else if (typeof userData.groups === 'string') {
-                  try {
-                    // Try to parse as JSON array string
-                    groupsArray = JSON.parse(userData.groups);
-                  } catch {
-                    // If not JSON, try to extract from string like "[SuperAdmin]"
-                    const match = userData.groups.match(/\[(.*?)\]/);
-                    if (match && match[1]) {
-                      groupsArray = match[1].split(',').map(g => g.trim().replace(/['"]/g, ''));
-                    } else {
-                      // Fallback: treat as single group
-                      groupsArray = [userData.groups.trim()];
-                    }
-                  }
-                }
-              }
-
-              // Extract role from groups (first group) or use default
-              const role = groupsArray.length > 0 ? groupsArray[0] : (userData.role || fallbackUserInfo.role || 'USER');
-
-              // Use email as name if name is empty
-              const displayName = userData.name && userData.name.trim()
-                ? userData.name
-                : (userData.email || fallbackUserInfo.email || values.email);
-
-              const updatedUserInfo = {
-                id: userData.id,
-                email: userData.email || fallbackUserInfo.email || values.email,
-                name: displayName,
-                groups: groupsArray,
-                status: userData.status,
-                enabled: userData.enabled !== undefined ? userData.enabled : true,
-                emailVerified: userData.emailVerified,
-                createdAt: userData.createdAt,
-                lastModified: userData.lastModified,
-                role: role,
-              };
-
-              // Update Redux state with complete user info
-              dispatch(setCredentials({
-                accessToken,
-                refreshToken,
-                idToken,
-                user: updatedUserInfo,
-                role: role,
-              }));
-
-              // Update stored auth with complete user info
-              storeAuth({
-                accessToken,
-                refreshToken,
-                idToken,
-                user: updatedUserInfo,
-                role: role,
-              });
-            }
-          } catch (meError) {
-            // If /auth/me fails, continue with fallback user info from token
-            logger.warn('Failed to fetch user info from /auth/me:', meError);
-            // User info from token is already set, so we can continue
-          }
-
-          message.success('Login successful!');
-
-          // Navigate to dashboard - use replace to prevent going back to login
-          navigate('/dashboard', { replace: true });
-        } else {
-          logger.error('Missing tokens in response:', tokenData);
-          message.error('Invalid response format from server');
-        }
-      } else {
-        // Response indicates failure or unexpected structure
-        // BUT check one more time for NEW_PASSWORD_REQUIRED challenge
-        // (in case it wasn't caught earlier)
-        const challenge = response?.data?.challenge ||
-          response?.data?.code ||
-          response?.challenge;
-
-        if (challenge === 'NEW_PASSWORD_REQUIRED' ||
-          response?.message?.toLowerCase().includes('new password required')) {
-          logger.debug('NEW_PASSWORD_REQUIRED detected in else block!');
-          const session = response?.data?.session ||
-            response?.data?.Session ||
-            response?.session;
-
-          if (session) {
-            logger.debug('Opening complete invite modal from else block');
-            setInviteSession(session);
-            setInviteEmail(values.email);
-            setShowCompleteInviteModal(true);
-            setLoading(false);
-            return;
-          }
-        }
-
-        logger.error('Login failed - unexpected response structure:', response);
-        message.error(response?.message || 'Invalid credentials');
-      }
-    } catch (error) {
-      // Error is already handled by the API interceptor
-      logger.error('Login error:', error);
-
-      // Check if this is a NEW_PASSWORD_REQUIRED challenge (invite completion)
-      if (error?.response?.data?.challenge === 'NEW_PASSWORD_REQUIRED' ||
-        error?.challenge === 'NEW_PASSWORD_REQUIRED' ||
-        error?.response?.data?.code === 'NEW_PASSWORD_REQUIRED') {
-        // Extract session token from error response
-        const session = error?.response?.data?.session || error?.session || error?.response?.data?.Session;
-
-        if (session) {
-          setInviteSession(session);
-          setInviteEmail(values.email);
-          setShowCompleteInviteModal(true);
-          setLoading(false);
-          return;
-        }
-      }
-
-      // Check if error response contains tokens (unexpected success in catch)
-      if (error && error.accessToken && error.refreshToken && error.idToken) {
-        // This shouldn't happen, but handle it just in case
-        const { accessToken, refreshToken, idToken } = error;
-        const fallbackUserInfo = getUserFromToken(idToken) || {
-          email: values.email,
-        };
-
-        storeAuth({
-          accessToken,
-          refreshToken,
-          idToken,
-          user: fallbackUserInfo,
-          role: fallbackUserInfo.role || 'USER',
-        });
-
-        dispatch(setCredentials({
-          accessToken,
-          refreshToken,
-          idToken,
-          user: fallbackUserInfo,
-          role: fallbackUserInfo.role || 'USER',
-        }));
-
-        // Fetch current user info from /api/v1/auth/me
-        try {
-          const { authService } = await import('@api/services/auth.service');
-          const meResponse = await authService.getMe();
-
-          // Handle response structure - API returns { success: true, data: {...} }
-          let userData = null;
-          if (meResponse) {
-            if (meResponse.data && typeof meResponse.data === 'object') {
-              userData = meResponse.data;
-            } else if (meResponse.success && meResponse.data) {
-              userData = meResponse.data;
-            } else if (typeof meResponse === 'object' && meResponse.id) {
-              userData = meResponse;
-            }
-          }
-
-          if (userData) {
-            // Parse groups if it's a string (e.g., "[SuperAdmin]")
-            let groupsArray = [];
-            if (userData.groups) {
-              if (Array.isArray(userData.groups)) {
-                groupsArray = userData.groups;
-              } else if (typeof userData.groups === 'string') {
-                try {
-                  // Try to parse as JSON array string
-                  groupsArray = JSON.parse(userData.groups);
-                } catch {
-                  // If not JSON, try to extract from string like "[SuperAdmin]"
-                  const match = userData.groups.match(/\[(.*?)\]/);
-                  if (match && match[1]) {
-                    groupsArray = match[1].split(',').map(g => g.trim().replace(/['"]/g, ''));
-                  } else {
-                    // Fallback: treat as single group
-                    groupsArray = [userData.groups.trim()];
-                  }
-                }
-              }
-            }
-
-            // Extract role from groups (first group) or use default
-            const role = groupsArray.length > 0 ? groupsArray[0] : (userData.role || fallbackUserInfo.role || 'USER');
-
-            // Use email as name if name is empty
-            const displayName = userData.name && userData.name.trim()
-              ? userData.name
-              : (userData.email || fallbackUserInfo.email || values.email);
-
-            const updatedUserInfo = {
-              id: userData.id,
-              email: userData.email || fallbackUserInfo.email || values.email,
-              name: displayName,
-              groups: groupsArray,
-              status: userData.status,
-              enabled: userData.enabled !== undefined ? userData.enabled : true,
-              emailVerified: userData.emailVerified,
-              createdAt: userData.createdAt,
-              lastModified: userData.lastModified,
-              role: role,
-            };
-
-            dispatch(setCredentials({
-              accessToken,
-              refreshToken,
-              idToken,
-              user: updatedUserInfo,
-              role: role,
-            }));
-
-            storeAuth({
-              accessToken,
-              refreshToken,
-              idToken,
-              user: updatedUserInfo,
-              role: role,
-            });
-          }
-        } catch (meError) {
-          logger.warn('Failed to fetch user info from /auth/me', meError);
-        }
-
-        message.success('Login successful!');
-        navigate('/dashboard', { replace: true });
-      } else {
-        message.error(error.message || 'Login failed. Please try again.');
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Use handleLogin from hook
+  const onFinish = handleLogin;
 
   // Handle complete invite (set new password)
   const handleCompleteInvite = async (values) => {
@@ -545,61 +109,17 @@ const Login = () => {
           // Fetch current user info from /api/v1/auth/me
           try {
             const meResponse = await authService.getMe();
-            let userData = null;
-            if (meResponse) {
-              if (meResponse.data && typeof meResponse.data === 'object') {
-                userData = meResponse.data;
-              } else if (meResponse.success && meResponse.data) {
-                userData = meResponse.data;
-              } else if (typeof meResponse === 'object' && meResponse.id) {
-                userData = meResponse;
-              }
-            }
+            const userData = normalizeUserData(meResponse);
 
             if (userData) {
-              // Parse groups
-              let groupsArray = [];
-              if (userData.groups) {
-                if (Array.isArray(userData.groups)) {
-                  groupsArray = userData.groups;
-                } else if (typeof userData.groups === 'string') {
-                  try {
-                    groupsArray = JSON.parse(userData.groups);
-                  } catch {
-                    const match = userData.groups.match(/\[(.*?)\]/);
-                    if (match && match[1]) {
-                      groupsArray = match[1].split(',').map(g => g.trim().replace(/['"]/g, ''));
-                    } else {
-                      groupsArray = [userData.groups.trim()];
-                    }
-                  }
-                }
-              }
-
-              const role = groupsArray.length > 0 ? groupsArray[0] : (userData.role || fallbackUserInfo.role || 'USER');
-              const displayName = userData.name && userData.name.trim()
-                ? userData.name
-                : (userData.email || fallbackUserInfo.email || inviteEmail);
-
-              const updatedUserInfo = {
-                id: userData.id,
-                email: userData.email || fallbackUserInfo.email || inviteEmail,
-                name: displayName,
-                groups: groupsArray,
-                status: userData.status,
-                enabled: userData.enabled !== undefined ? userData.enabled : true,
-                emailVerified: userData.emailVerified,
-                createdAt: userData.createdAt,
-                lastModified: userData.lastModified,
-                role: role,
-              };
+              const updatedUserInfo = buildUserInfo(userData, fallbackUserInfo, inviteEmail);
 
               dispatch(setCredentials({
                 accessToken,
                 refreshToken,
                 idToken,
                 user: updatedUserInfo,
-                role: role,
+                role: updatedUserInfo.role,
               }));
 
               storeAuth({
@@ -607,7 +127,7 @@ const Login = () => {
                 refreshToken,
                 idToken,
                 user: updatedUserInfo,
-                role: role,
+                role: updatedUserInfo.role,
               });
             }
           } catch (meError) {
@@ -637,58 +157,12 @@ const Login = () => {
   return (
     <div className="login-page">
       <Card className="login-card">
-        <div className="login-header">
-          <Title level={2}>1billiontech</Title>
-          <Text type="secondary">Sign in to your account</Text>
-        </div>
-        <Form
-          name="login"
+        <LoginHeader />
+        <LoginForm
           onFinish={onFinish}
-          autoComplete="off"
-          size="large"
-        >
-          <Form.Item
-            name="email"
-            rules={[
-              { required: true, message: 'Please input your email!' },
-              { type: 'email', message: 'Please enter a valid email!' }
-            ]}
-          >
-            <Input
-              prefix={<MailOutlined />}
-              placeholder="Email"
-              type="email"
-            />
-          </Form.Item>
-
-          <Form.Item
-            name="password"
-            rules={[{ required: true, message: 'Please input your password!' }]}
-          >
-            <Input.Password
-              prefix={<LockOutlined />}
-              placeholder="Password"
-            />
-          </Form.Item>
-
-          <Form.Item>
-            <Button type="primary" htmlType="submit" block loading={loading}>
-              Sign In
-            </Button>
-          </Form.Item>
-        </Form>
-        <div className="login-info">
-          <Text type="secondary" className="info-title">Enter your email and password to sign in</Text>
-          <div style={{ marginTop: 12, textAlign: 'center' }}>
-            <Button
-              type="link"
-              onClick={() => setShowForgotPasswordModal(true)}
-              style={{ fontSize: 14, padding: 0 }}
-            >
-              Forgot Password?
-            </Button>
-          </div>
-        </div>
+          loading={loading}
+          onForgotPassword={() => setShowForgotPasswordModal(true)}
+        />
       </Card>
 
       {/* Forgot Password Modal */}

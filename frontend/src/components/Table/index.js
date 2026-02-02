@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, memo } from 'react';
 import { Table } from 'antd';
 import { PAGINATION } from '@constants/app';
 import '@styles/components/Table.scss';
@@ -106,4 +106,18 @@ const CustomTable = ({
 };
 
 // Memoize component to prevent unnecessary re-renders
-export default React.memo(CustomTable);
+// Custom comparison function for better performance
+export default memo(CustomTable, (prevProps, nextProps) => {
+  // Only re-render if these props change
+  return (
+    prevProps.loading === nextProps.loading &&
+    prevProps.size === nextProps.size &&
+    prevProps.bordered === nextProps.bordered &&
+    prevProps.rowKey === nextProps.rowKey &&
+    prevProps.dataSource === nextProps.dataSource &&
+    prevProps.columns === nextProps.columns &&
+    prevProps.pagination === nextProps.pagination &&
+    prevProps.scroll === nextProps.scroll &&
+    prevProps.onRow === nextProps.onRow
+  );
+});

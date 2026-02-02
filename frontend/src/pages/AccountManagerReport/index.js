@@ -6,11 +6,9 @@ import {
     TeamOutlined,
     DollarOutlined,
     PercentageOutlined,
-    FilterOutlined,
     UpOutlined,
     DownOutlined,
     PlusOutlined,
-    ReloadOutlined,
     EditOutlined,
     UserAddOutlined,
     DeleteOutlined,
@@ -23,6 +21,12 @@ import { Doughnut, Bar } from 'react-chartjs-2';
 import { commonOptions, colors } from '@utils/chartConfig';
 import CustomTable from '@components/Table';
 import CustomModal from '@components/Modal';
+import { FilterSection, ReportHeader, SummaryCards } from '@components/ReportLayout';
+import AccountManagerFilters from './components/AccountManagerFilters';
+import ChartsSection from './components/ChartsSection';
+import ProjectsTable from './components/ProjectsTable';
+import ProjectModal from './components/ProjectModal';
+import { useReportFilters } from '@hooks/reports';
 import { projectsService, clientsService, allocationsService, resourcesService, accountManagersService, reportsService, projectTypesService, accountTypesService, projectStatusesService, billingStatusesService } from '@api';
 import { showErrorToast, showSuccessToast, showWarningToast } from '@utils/toast.utils';
 import logger from '@utils/logger';
@@ -35,7 +39,6 @@ const AccountManagerReport = () => {
     const [form] = Form.useForm();
     const [billingType, setBillingType] = useState(null);
     const [accountType, setAccountType] = useState('External');
-    const [filtersExpanded, setFiltersExpanded] = useState(false);
     const [billingStatusExpanded, setBillingStatusExpanded] = useState(true);
     const [employeesByTierExpanded, setEmployeesByTierExpanded] = useState(true);
     const [projectOverviewExpanded, setProjectOverviewExpanded] = useState(true);
@@ -122,16 +125,6 @@ const AccountManagerReport = () => {
     const fetchProjectsForFilterInProgressRef = useRef(false);
     const fetchReportInProgressRef = useRef(false);
 
-    const [filters, setFilters] = useState({
-        accountManager: 'All',
-        projectName: 'All',
-        projectStatus: 'Active',
-        allocationStatus: 'Active',
-        clientName: 'All',
-        billingStatus: 'All',
-    });
-
-    // Default filter values for comparison
     const defaultFilters = {
         accountManager: 'All',
         projectName: 'All',
@@ -141,16 +134,15 @@ const AccountManagerReport = () => {
         billingStatus: 'All',
     };
 
-    // Count active filters (filters that differ from defaults)
-    const activeFiltersCount = useMemo(() => {
-        let count = 0;
-        Object.keys(filters).forEach((key) => {
-            if (filters[key] !== defaultFilters[key] && filters[key] !== '' && filters[key] !== null && filters[key] !== undefined) {
-                count++;
-            }
-        });
-        return count;
-    }, [filters]);
+    // Use shared hooks
+    const {
+        filters,
+        setFilters,
+        activeFiltersCount,
+        handleResetFilters,
+        filtersExpanded,
+        toggleFiltersExpanded,
+    } = useReportFilters(defaultFilters);
 
     // Get selected Account Manager name for display
     const selectedAccountManagerName = useMemo(() => {
@@ -690,12 +682,6 @@ const AccountManagerReport = () => {
     };
 
     // Note: Projects are now fetched via fetchAccountManagerReport which is called when filters change
-
-    // Reset filters to default values
-    const handleResetFilters = (e) => {
-        e.stopPropagation(); // Prevent collapsing/expanding when clicking reset
-        setFilters({ ...defaultFilters });
-    };
 
     // Fetch clients list for client lookup
     useEffect(() => {
@@ -1326,15 +1312,6 @@ const AccountManagerReport = () => {
             setIsSubmittingProject(false);
         }
     };
-
-    // KPI Data from API
-    const kpiData = useMemo(() => ({
-        billableResources: reportData.summary.billableResources || 0,
-        allocatedCount: reportData.summary.allocatedCount || 0,
-        billableCount: reportData.summary.billableCount || 0,
-        avgProjectAllocation: reportData.summary.averageProjectAllocation || 0,
-        avgBillingPercentage: reportData.summary.averageBillingPercentage || 0,
-    }), [reportData.summary]);
 
     // Chart.js data for billing status donut chart from API
     const billingStatusDonutData = useMemo(() => {
@@ -2213,305 +2190,75 @@ const AccountManagerReport = () => {
     ];
 
 
+    // Calculate KPI data
+    const kpiData = useMemo(() => ({
+        billableResources: reportData.summary.billableResources || 0,
+        allocatedCount: reportData.summary.allocatedCount || 0,
+        billableCount: reportData.summary.billableCount || 0,
+        avgProjectAllocation: reportData.summary.averageProjectAllocation?.toFixed(1) || 0,
+        avgBillingPercentage: reportData.summary.averageBillingPercentage?.toFixed(1) || 0,
+    }), [reportData]);
+
+    // Summary cards data
+    const summaryCards = [
+        { value: kpiData.billableResources, label: 'BILLABLE RESOURCES' },
+        { value: kpiData.allocatedCount, label: 'ALLOCATED COUNT' },
+        { value: kpiData.billableCount, label: 'BILLABLE COUNT' },
+        { value: `${kpiData.avgProjectAllocation}%`, label: 'Average Project Allocation' },
+        { value: `${kpiData.avgBillingPercentage}%`, label: 'Average Billing Percentage' },
+    ];
+
     return (
         <div className="account-manager-report-page">
-            {/* Header Section */}
-            <div className="report-header">
-                <h1 className="report-title">ACCOUNT MANAGER REPORT</h1>
-            </div>
+            <ReportHeader title="ACCOUNT MANAGER REPORT" />
 
-            {/* Filters Section */}
-            <Card className="filters-card">
-                <div
-                    className="filters-header"
-                    onClick={() => setFiltersExpanded(!filtersExpanded)}
-                    style={{ cursor: 'pointer' }}
-                >
-                    <div className="filters-header-left">
-                        <FilterOutlined className="filter-icon" />
-                        <span className="filters-title">Filters</span>
-                        {activeFiltersCount > 0 && (
-                            <>
-                                <Badge count={activeFiltersCount} showZero={false} className="active-filters-badge">
-                                    <span></span>
-                                </Badge>
-                                <Button
-                                    type="text"
-                                    size="small"
-                                    icon={<ReloadOutlined />}
-                                    onClick={handleResetFilters}
-                                    className="reset-filters-btn"
-                                >
-                                    Reset
-                                </Button>
-                            </>
-                        )}
-                    </div>
-                    {filtersExpanded ? (
-                        <UpOutlined className="collapse-icon" />
-                    ) : (
-                        <DownOutlined className="collapse-icon" />
-                    )}
-                </div>
-                {filtersExpanded && (
-                    <div className="filters-content">
-                        <Row gutter={[16, 16]} className="filters-row">
-                            <Col xs={24} sm={12} md={8} lg={6}>
-                                <div className="filter-item">
-                                    <label>Account Manager</label>
-                                    <Select
-                                        value={filters.accountManager}
-                                        onChange={(value) => setFilters({ ...filters, accountManager: value })}
-                                        style={{ width: '100%' }}
-                                        loading={loadingAccountManagers}
-                                        showSearch
-                                        filterOption={(input, option) =>
-                                            (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
-                                        }
-                                        placeholder="Select Account Manager"
-                                    >
-                                        <Option value="All">All</Option>
-                                        {accountManagersList.map((am) => (
-                                            <Option key={am.id} value={am.name} label={am.name}>
-                                                {am.name}
-                                            </Option>
-                                        ))}
-                                    </Select>
-                                </div>
-                            </Col>
-                            <Col xs={24} sm={12} md={8} lg={6}>
-                                <div className="filter-item">
-                                    <label>Project Name</label>
-                                    <Select
-                                        value={filters.projectName}
-                                        onChange={(value) => setFilters({ ...filters, projectName: value })}
-                                        style={{ width: '100%' }}
-                                        loading={loadingProjectsForFilter}
-                                        showSearch
-                                        filterOption={(input, option) =>
-                                            (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
-                                        }
-                                        placeholder="Select Project"
-                                    >
-                                        <Option value="All">All</Option>
-                                        {projectsForFilter.map((project) => (
-                                            <Option key={project.id} value={project.name} label={project.name}>
-                                                {project.name}
-                                            </Option>
-                                        ))}
-                                    </Select>
-                                </div>
-                            </Col>
-                            <Col xs={24} sm={12} md={8} lg={6}>
-                                <div className="filter-item">
-                                    <label>Project Status</label>
-                                    <Select
-                                        value={filters.projectStatus}
-                                        onChange={(value) => setFilters({ ...filters, projectStatus: value })}
-                                        style={{ width: '100%' }}
-                                    >
-                                        <Option value="Active">Active</Option>
-                                        <Option value="Inactive">Inactive</Option>
-                                    </Select>
-                                </div>
-                            </Col>
-                            <Col xs={24} sm={12} md={8} lg={6}>
-                                <div className="filter-item">
-                                    <label>Allocation Status</label>
-                                    <Select
-                                        value={filters.allocationStatus}
-                                        onChange={(value) => setFilters({ ...filters, allocationStatus: value })}
-                                        style={{ width: '100%' }}
-                                    >
-                                        <Option value="Active">Active</Option>
-                                        <Option value="Inactive">Inactive</Option>
-                                    </Select>
-                                </div>
-                            </Col>
-                            <Col xs={24} sm={12} md={8} lg={6}>
-                                <div className="filter-item">
-                                    <label>Client Name</label>
-                                    <Select
-                                        value={filters.clientName}
-                                        onChange={(value) => setFilters({ ...filters, clientName: value })}
-                                        style={{ width: '100%' }}
-                                        showSearch
-                                        filterOption={(input, option) =>
-                                            (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
-                                        }
-                                        placeholder="Select Client"
-                                    >
-                                        <Option value="All">All</Option>
-                                        {clientsList.map((client) => (
-                                            <Option key={client.id} value={client.client_name} label={client.client_name}>
-                                                {client.client_name}
-                                            </Option>
-                                        ))}
-                                    </Select>
-                                </div>
-                            </Col>
-                            <Col xs={24} sm={12} md={8} lg={6}>
-                                <div className="filter-item">
-                                    <label>Billing Status</label>
-                                    <Select
-                                        value={filters.billingStatus}
-                                        onChange={(value) => setFilters({ ...filters, billingStatus: value })}
-                                        style={{ width: '100%' }}
-                                    >
-                                        <Option value="All">All</Option>
-                                        <Option value="Billing">Billing</Option>
-                                        <Option value="Non-Billing">Non-Billing</Option>
-                                        <Option value="Bench">Bench</Option>
-                                        <Option value="Training">Training</Option>
-                                        <Option value="Presale">Presale</Option>
-                                    </Select>
-                                </div>
-                            </Col>
-                        </Row>
-                    </div>
-                )}
-            </Card>
+            <FilterSection
+                expanded={filtersExpanded}
+                onToggle={toggleFiltersExpanded}
+                activeFiltersCount={activeFiltersCount}
+                onReset={handleResetFilters}
+            >
+                <AccountManagerFilters
+                    filters={filters}
+                    setFilters={setFilters}
+                    accountManagersList={accountManagersList}
+                    projectsForFilter={projectsForFilter}
+                    clientsList={clientsList}
+                    loadingAccountManagers={loadingAccountManagers}
+                    loadingProjectsForFilter={loadingProjectsForFilter}
+                />
+            </FilterSection>
 
-            {/* KPI Cards */}
-            <div className="kpi-section">
-                <div className="kpi-grid">
-                    <Card className="kpi-card">
-                        <div className="kpi-value">{kpiData.billableResources}</div>
-                        <div className="kpi-label">BILLABLE RESOURCES</div>
-                    </Card>
-                    <Card className="kpi-card">
-                        <div className="kpi-value">{kpiData.allocatedCount}</div>
-                        <div className="kpi-label">ALLOCATED COUNT</div>
-                    </Card>
-                    <Card className="kpi-card">
-                        <div className="kpi-value">{kpiData.billableCount}</div>
-                        <div className="kpi-label">BILLABLE COUNT</div>
-                    </Card>
-                    <Card className="kpi-card">
-                        <div className="kpi-value">{kpiData.avgProjectAllocation}%</div>
-                        <div className="kpi-label">Average Project Allocation</div>
-                    </Card>
-                    <Card className="kpi-card">
-                        <div className="kpi-value">{kpiData.avgBillingPercentage}%</div>
-                        <div className="kpi-label">Average Billing Percentage</div>
-                    </Card>
-                </div>
-            </div>
+            <SummaryCards cards={summaryCards} />
 
-            {/* Charts and Tables Section */}
-            <Row gutter={[16, 16]} className="charts-tables-section">
-                {/* Left Column - Charts */}
-                <Col xs={24} lg={12}>
-                    <Card
-                        className="chart-card"
-                        title={
-                            <div
-                                className="collapsible-header"
-                                onClick={() => setBillingStatusExpanded(!billingStatusExpanded)}
-                            >
-                                <span>No. of Allocations by Billing Status</span>
-                                {billingStatusExpanded ? <UpOutlined /> : <DownOutlined />}
-                            </div>
-                        }
-                    >
-                        {billingStatusExpanded && (
-                            <div className="chart-container">
-                                <Doughnut data={billingStatusDonutData} options={billingStatusDonutOptions} />
-                            </div>
-                        )}
-                    </Card>
-                </Col>
-
-                {/* Right Column - Bar Chart */}
-                <Col xs={24} lg={12}>
-                    <Card
-                        className="chart-card"
-                        title={
-                            <div
-                                className="collapsible-header"
-                                onClick={() => setEmployeesByTierExpanded(!employeesByTierExpanded)}
-                            >
-                                <span>No. of Employees by Tier</span>
-                                {employeesByTierExpanded ? <UpOutlined /> : <DownOutlined />}
-                            </div>
-                        }
-                    >
-                        {employeesByTierExpanded && (
-                            <div className="chart-container">
-                                <Bar data={employeesByTierBarData} options={employeesByTierBarOptions} />
-                            </div>
-                        )}
-                    </Card>
-                </Col>
-            </Row>
+            {/* Charts Section */}
+            <ChartsSection
+                billingStatusExpanded={billingStatusExpanded}
+                employeesByTierExpanded={employeesByTierExpanded}
+                onToggleBillingStatus={() => setBillingStatusExpanded(!billingStatusExpanded)}
+                onToggleEmployeesByTier={() => setEmployeesByTierExpanded(!employeesByTierExpanded)}
+                billingStatusDonutData={billingStatusDonutData}
+                billingStatusDonutOptions={billingStatusDonutOptions}
+                employeesByTierBarData={employeesByTierBarData}
+                employeesByTierBarOptions={employeesByTierBarOptions}
+            />
 
             {/* Project Table */}
-            <Card
-                className="table-card"
-                title={
-                    <div className="project-overview-header">
-                        <span className="project-overview-title">
-                            Project Overview
-                            {selectedAccountManagerName && (
-                                <span style={{ marginLeft: '8px', color: '#1890ff', fontWeight: 'normal' }}>
-                                    - {selectedAccountManagerName}
-                                </span>
-                            )}
-                        </span>
-                        <div className="project-overview-actions">
-                            {projectOverviewExpanded && (
-                                <Button
-                                    type="primary"
-                                    icon={<PlusOutlined />}
-                                    onClick={handleCreateProject}
-                                    className="create-project-btn"
-                                >
-                                    Create New Project
-                                </Button>
-                            )}
-                            <div
-                                className="collapsible-icon"
-                                onClick={() => setProjectOverviewExpanded(!projectOverviewExpanded)}
-                            >
-                                {projectOverviewExpanded ? <UpOutlined /> : <DownOutlined />}
-                            </div>
-                        </div>
-                    </div>
-                }
-            >
-                {projectOverviewExpanded && (
-                    <CustomTable
-                        columns={projectColumns}
-                        dataSource={projectData}
-                        pagination={{
-                            current: projectPagination.current,
-                            pageSize: projectPagination.pageSize,
-                            total: projectPagination.total,
-                            showSizeChanger: true,
-                            showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} projects`,
-                            onChange: (page, pageSize) => {
-                                setProjectPagination(prev => ({ ...prev, current: page, pageSize }));
-                                // Report will be refetched via useEffect when pagination changes
-                            },
-                            onShowSizeChange: (current, size) => {
-                                setProjectPagination(prev => ({ ...prev, current: 1, pageSize: size }));
-                                // Report will be refetched via useEffect when pagination changes
-                            },
-                        }}
-                        size="small"
-                        scroll={{ x: 800 }}
-                        loading={loadingProjects}
-                        onRow={(record) => ({
-                            onClick: () => handleProjectClick(record),
-                            style: {
-                                cursor: 'pointer',
-                                backgroundColor: selectedProjectId === record.id ? '#e6f7ff' : 'transparent',
-                            },
-                        })}
-                        rowClassName={(record) => selectedProjectId === record.id ? 'selected-project-row' : ''}
-                    />
-                )}
-            </Card>
+            <ProjectsTable
+                projectData={projectData}
+                projectColumns={projectColumns}
+                projectPagination={projectPagination}
+                onPaginationChange={(newPagination) => {
+                    setProjectPagination(prev => ({ ...prev, ...newPagination }));
+                }}
+                loadingProjects={loadingProjects}
+                selectedProjectId={selectedProjectId}
+                onProjectClick={handleProjectClick}
+                onCreateProject={handleCreateProject}
+                projectOverviewExpanded={projectOverviewExpanded}
+                onToggleExpanded={() => setProjectOverviewExpanded(!projectOverviewExpanded)}
+                selectedAccountManagerName={selectedAccountManagerName}
+            />
 
             {/* BY ALLOCATION Table */}
             <Card
@@ -2584,291 +2331,26 @@ const AccountManagerReport = () => {
             </Card>
 
             {/* Create/Edit Project Modal */}
-            <CustomModal
-                title={isEditMode ? "Edit Project Details" : "Create New Project"}
-                open={isCreateProjectModalVisible}
-                onClose={handleCreateProjectCancel}
-                width={800}
-                buttons={[
-                    {
-                        text: 'Cancel',
-                        type: 'default',
-                        onClick: handleCreateProjectCancel,
-                    },
-                    {
-                        text: isEditMode ? 'Update Details' : 'Create Project',
-                        type: 'primary',
-                        htmlType: 'submit',
-                        onClick: () => {
-                            form.submit();
-                        },
-                        loading: isSubmittingProject,
-                    },
-                ]}
-            >
-                <Form
-                    form={form}
-                    layout="vertical"
-                    onFinish={handleCreateProjectSubmit}
-                    initialValues={{
-                        accountManager: filters.accountManager && filters.accountManager !== 'All'
-                            ? filters.accountManager
-                            : undefined,
-                        status: projectStatusesList.find(s => s.name === 'Active')?.id,
-                        billingType: undefined,
-                        accountType: accountTypesList.find(t => t.name === 'External')?.id,
-                    }}
-                >
-                    <Row gutter={16}>
-                        <Col xs={24} sm={12}>
-                            <Form.Item
-                                label="Project Name"
-                                name="projectName"
-                                rules={[
-                                    { required: true, message: 'Project name is required' },
-                                    { min: 3, message: 'Project name must be at least 3 characters' },
-                                    { max: 200, message: 'Project name must not exceed 200 characters' },
-                                ]}
-                            >
-                                <Input placeholder="Enter project name" />
-                            </Form.Item>
-                        </Col>
-                        <Col xs={24} sm={12}>
-                            <Form.Item
-                                label="Status"
-                                name="status"
-                                rules={[{ required: true, message: 'Status is required' }]}
-                            >
-                                <Select placeholder="Select status" loading={loadingConfigurations}>
-                                    {projectStatusesList.map((status) => (
-                                        <Option key={status.id} value={status.id}>
-                                            {status.name}
-                                        </Option>
-                                    ))}
-                                </Select>
-                            </Form.Item>
-                        </Col>
-                    </Row>
-
-                    <Row gutter={16}>
-                        <Col xs={24} sm={12}>
-                            <Form.Item
-                                label="Project Type"
-                                name="projectType"
-                                rules={[{ required: true, message: 'Project type is required' }]}
-                            >
-                                <Select placeholder="Select project type" loading={loadingConfigurations}>
-                                    {projectTypesList.map((type) => (
-                                        <Option key={type.id} value={type.id}>
-                                            {type.name}
-                                        </Option>
-                                    ))}
-                                </Select>
-                            </Form.Item>
-                        </Col>
-                        <Col xs={24} sm={12}>
-                            <Form.Item
-                                label="Account Type"
-                                name="accountType"
-                                rules={[{ required: true, message: 'Account type is required' }]}
-                            >
-                                <Select
-                                    placeholder="Select account type"
-                                    onChange={(value) => {
-                                        // Find the account type name from ID
-                                        const selectedType = accountTypesList.find(t => t.id === value);
-                                        setAccountType(selectedType?.name || value);
-                                    }}
-                                    loading={loadingConfigurations}
-                                >
-                                    {accountTypesList.map((type) => (
-                                        <Option key={type.id} value={type.id}>
-                                            {type.name}
-                                        </Option>
-                                    ))}
-                                </Select>
-                            </Form.Item>
-                        </Col>
-                    </Row>
-
-                    <Row gutter={16}>
-                        <Col xs={24} sm={12}>
-                            <Form.Item
-                                label="Project Code"
-                                name="projectCode"
-                            >
-                                <Input placeholder="Enter project code (optional)" />
-                            </Form.Item>
-                        </Col>
-                        <Col xs={24} sm={12}>
-                            <Form.Item
-                                label="Client Name"
-                                name="clientName"
-                                rules={[
-                                    ({ getFieldValue }) => ({
-                                        validator(_, value) {
-                                            const accountTypeId = getFieldValue('accountType');
-                                            // Find the account type to check if it's External
-                                            const selectedAccountType = accountTypesList.find(t => t.id === accountTypeId);
-                                            if (selectedAccountType?.name === 'External' && !value) {
-                                                return Promise.reject(new Error('Client is required for External projects'));
-                                            }
-                                            return Promise.resolve();
-                                        },
-                                    }),
-                                ]}
-                            >
-                                <Select
-                                    placeholder="Select client"
-                                    showSearch
-                                    allowClear
-                                    disabled={accountType === 'Internal'}
-                                    filterOption={(input, option) =>
-                                        (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
-                                    }
-                                >
-                                    {clientsList.map((client) => (
-                                        <Option key={client.id} value={client.id} label={client.client_name}>
-                                            {client.client_name}
-                                        </Option>
-                                    ))}
-                                </Select>
-                            </Form.Item>
-                        </Col>
-                    </Row>
-
-                    <Row gutter={16}>
-                        <Col xs={24} sm={12}>
-                            <Form.Item
-                                label="Project Start Date"
-                                name="projectStartDate"
-                            >
-                                <DatePicker style={{ width: '100%' }} placeholder="Select start date" />
-                            </Form.Item>
-                        </Col>
-                        <Col xs={24} sm={12}>
-                            <Form.Item
-                                label="Project End Date"
-                                name="projectEndDate"
-                                dependencies={['projectStartDate']}
-                                rules={[
-                                    ({ getFieldValue }) => ({
-                                        validator(_, value) {
-                                            const startDate = getFieldValue('projectStartDate');
-                                            if (!value || !startDate || value >= startDate) {
-                                                return Promise.resolve();
-                                            }
-                                            return Promise.reject(new Error('End date must be greater than or equal to start date'));
-                                        },
-                                    }),
-                                ]}
-                            >
-                                <DatePicker style={{ width: '100%' }} placeholder="Select end date" />
-                            </Form.Item>
-                        </Col>
-                    </Row>
-
-                    <Row gutter={16}>
-                        <Col xs={24} sm={12}>
-                            <Form.Item
-                                label="Billing"
-                                name="billingType"
-                                rules={[{ required: true, message: 'Billing type is required' }]}
-                            >
-                                <Select
-                                    placeholder="Select billing type"
-                                    onChange={(value) => setBillingType(value)}
-                                    loading={loadingConfigurations}
-                                >
-                                    {billingStatusesList.map((status) => (
-                                        <Option key={status.id} value={status.id}>
-                                            {status.name}
-                                        </Option>
-                                    ))}
-                                </Select>
-                            </Form.Item>
-                        </Col>
-                        <Col xs={24} sm={12}>
-                            <Form.Item
-                                label="Account Manager"
-                                name="accountManager"
-                                rules={[{ required: true, message: 'Account manager is required' }]}
-                            >
-                                <Select
-                                    placeholder="Select account manager"
-                                    showSearch
-                                    allowClear
-                                    loading={loadingAccountManagers}
-                                    filterOption={(input, option) =>
-                                        (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
-                                    }
-                                >
-                                    {accountManagersList.map((am) => (
-                                        <Option key={am.id} value={am.name} label={am.name}>
-                                            {am.name}
-                                        </Option>
-                                    ))}
-                                </Select>
-                            </Form.Item>
-                        </Col>
-                    </Row>
-
-                    <Row gutter={16}>
-                        <Col xs={24} sm={12}>
-                            <Form.Item
-                                label="Team Size"
-                                name="teamSize"
-                                rules={[
-                                    { required: true, message: 'Team size is required' },
-                                    { type: 'number', min: 1, message: 'Team size must be at least 1' },
-                                ]}
-                            >
-                                <InputNumber
-                                    style={{ width: '100%' }}
-                                    placeholder="Enter team size"
-                                    min={1}
-                                />
-                            </Form.Item>
-                        </Col>
-                        <Col xs={24} sm={12}>
-                            <Form.Item
-                                label="Budget"
-                                name="budget"
-                                rules={[
-                                    { type: 'number', min: 0, message: 'Budget must be 0 or greater' },
-                                ]}
-                            >
-                                <InputNumber
-                                    style={{ width: '100%' }}
-                                    placeholder="Enter budget (optional)"
-                                    min={0}
-                                    formatter={value => `$ ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-                                    parser={value => value.replace(/\$\s?|(,*)/g, '')}
-                                />
-                            </Form.Item>
-                        </Col>
-                    </Row>
-
-                    <Row gutter={16}>
-                        <Col xs={24} sm={12}>
-                            <Form.Item
-                                label="Account Reg/Sales Owner"
-                                name="accountRegSalesOwner"
-                            >
-                                <Input placeholder="Enter account reg/sales owner (optional)" />
-                            </Form.Item>
-                        </Col>
-                    </Row>
-
-
-                    <Form.Item
-                        label="Project Description"
-                        name="description"
-                    >
-                        <Input.TextArea rows={4} placeholder="Enter project description" />
-                    </Form.Item>
-                </Form>
-            </CustomModal>
+            <ProjectModal
+                visible={isCreateProjectModalVisible}
+                isEditMode={isEditMode}
+                form={form}
+                onCancel={handleCreateProjectCancel}
+                onSubmit={handleCreateProjectSubmit}
+                loading={isSubmittingProject}
+                filters={filters}
+                projectStatusesList={projectStatusesList}
+                projectTypesList={projectTypesList}
+                accountTypesList={accountTypesList}
+                billingStatusesList={billingStatusesList}
+                clientsList={clientsList}
+                accountManagersList={accountManagersList}
+                loadingConfigurations={loadingConfigurations}
+                loadingAccountManagers={loadingAccountManagers}
+                accountType={accountType}
+                setAccountType={setAccountType}
+                setBillingType={setBillingType}
+            />
 
             {/* Add Team Members Modal */}
             <CustomModal
