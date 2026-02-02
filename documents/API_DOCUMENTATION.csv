@@ -23,25 +23,49 @@ PUT,/api/v1/resources/{id}/account-manager,Yes,Toggle account manager status for
 PUT,/api/v1/resources/{id}/tier,Yes,Update resource tier,"{""tier"": ""Tier - 2""}","{""success"": true, ""message"": ""Resource tier updated successfully"", ""data"": {""id"": ""uuid"", ""name"": ""string"", ""tier"": ""Tier - 2""}}","200 OK, 404 Not Found, 422 Validation Error","Valid tiers: Synergy, Tier - 1, Tier - 2, Tier - 3, Tier - 4, Intern"
 PUT,/api/v1/resources/{id}/tech-stack,Yes,Update resource tech stack,"{""tech_stack"": "".NET""}","{""success"": true, ""message"": ""Resource tech stack updated successfully"", ""data"": {""id"": ""uuid"", ""name"": ""string"", ""tech_stack"": "".NET""}}","200 OK, 404 Not Found, 422 Validation Error","Common values: .NET, Full Stack, QA, BA/PM, Data Science, Java, React"
 ,,,,,,,
-# TRACK ENDPOINTS,,,,,,,
-GET,/api/v1/tracks,Yes,List all tracks,"Query: page, limit, search","{""success"": true, ""data"": {""data"": [{""id"": ""uuid"", ""name"": ""DS"", ""description"": ""string"", ""is_active"": true}], ""pagination"": {...}}}",200 OK,Returns all tracks (FS/.Net/DS/UI-UX/QA/PM-BA)
-GET,/api/v1/tracks/{id},Yes,Get track by ID,None,"{""success"": true, ""data"": {""id"": ""uuid"", ""name"": ""string"", ""description"": ""string"", ""is_active"": true}}","200 OK, 404 Not Found",
-POST,/api/v1/tracks,Yes,Create a new track,"{""name"": ""string"", ""description"": ""string"", ""is_active"": true}","{""success"": true, ""data"": {""id"": ""uuid"", ""name"": ""string"", ...}}","201 Created, 409 Conflict",Track name must be unique
-PUT,/api/v1/tracks/{id},Yes,Update track,"{""name"": ""string"", ""description"": ""string"", ""is_active"": true}","{""success"": true, ""data"": {""id"": ""uuid"", ...}}","200 OK, 404 Not Found, 409 Conflict",
+# CONFIGURATION ENDPOINTS (Unified),,,,,,,
+GET,/api/v1/configs,Yes,Get all configuration values (hardcoded + database),None,"{""success"": true, ""data"": {""tracks"": [{""id"": 1, ""value"": 1, ""label"": ""QA"", ""description"": ""string"", ""isActive"": true, ""displayOrder"": 1}], ""techStacks"": [...], ""tiers"": [...], ""employeeStatuses"": [...], ""projectStatuses"": [...], ""accountTypes"": [...], ""userRoles"": [...], ""userStatuses"": [...], ""designations"": [...], ""billingStatuses"": [...], ""projectTypes"": [...], ""employeeTypes"": [...], ""tags"": [...], ""universities"": [...]}, ""meta"": {""configBased"": [...], ""databaseBased"": [...]}}",200 OK,"Unified endpoint returning all configs. Config-based (hardcoded): tracks, techStacks, tiers, employeeStatuses, projectStatuses, accountTypes, userRoles, userStatuses. Database-based: designations, billingStatuses, projectTypes, employeeTypes, tags, universities. All items have numeric id and value."
 ,,,,,,,
-# DESIGNATION ENDPOINTS,,,,,,,
-GET,/api/v1/designations,Yes,List all designations,"Query: page, limit, search","{""success"": true, ""data"": {""data"": [{""id"": ""uuid"", ""name"": ""SSE"", ""level"": 4, ""is_active"": true}], ""pagination"": {...}}}",200 OK,Returns all designations with levels
-GET,/api/v1/designations/{id},Yes,Get designation by ID,None,"{""success"": true, ""data"": {""id"": ""uuid"", ""name"": ""string"", ""level"": 4, ""is_active"": true}}","200 OK, 404 Not Found",
-POST,/api/v1/designations,Yes,Create a new designation,"{""name"": ""string"", ""level"": 1, ""is_active"": true}","{""success"": true, ""data"": {""id"": ""uuid"", ""name"": ""string"", ...}}","201 Created, 409 Conflict",Designation name must be unique
-PUT,/api/v1/designations/{id},Yes,Update designation,"{""name"": ""string"", ""level"": 1, ""is_active"": true}","{""success"": true, ""data"": {""id"": ""uuid"", ...}}","200 OK, 404 Not Found, 409 Conflict",
+# TRACK ENDPOINTS (Hardcoded Config),,,,,,,
+GET,/api/v1/tracks,Yes,List all tracks (hardcoded),"Query: search, is_active","{""success"": true, ""data"": {""data"": [{""id"": 1, ""value"": 1, ""label"": ""QA"", ""description"": ""Quality Assurance"", ""isActive"": true, ""displayOrder"": 1}], ""total"": 11}}",200 OK,"Returns hardcoded tracks from shared config. Available: QA, Dev, UI, BA, PM, Support, Synergy, UX, Execs, Delivery, Functional Consultant - MS Dynamics 365"
+GET,/api/v1/tracks/{id},Yes,Get track by ID,None,"{""success"": true, ""data"": {""id"": 1, ""value"": 1, ""label"": ""QA"", ""description"": ""Quality Assurance"", ""isActive"": true, ""displayOrder"": 1}}","200 OK, 404 Not Found",ID is numeric (1-11)
+POST,/api/v1/tracks,Yes,Create track - NOT SUPPORTED,N/A,"{""success"": false, ""error"": ""Tracks are hardcoded configs and cannot be created via API""}",405 Method Not Allowed,Tracks are hardcoded in shared config module
+PUT,/api/v1/tracks/{id},Yes,Update track - NOT SUPPORTED,N/A,"{""success"": false, ""error"": ""Tracks are hardcoded configs and cannot be updated via API""}",405 Method Not Allowed,Tracks are hardcoded in shared config module
+,,,,,,,
+# DESIGNATION ENDPOINTS (Database-managed),,,,,,,
+GET,/api/v1/designations,Yes,List all designations,None,"{""success"": true, ""data"": {""data"": [{""id"": 1, ""value"": 1, ""label"": ""Intern - SE"", ""description"": ""string"", ""isActive"": true, ""displayOrder"": 1, ""level"": 1, ""isInternRole"": true, ""category"": ""Engineering""}], ""total"": 82}}",200 OK,Returns all designations with numeric id/value
+GET,/api/v1/designations/{id},Yes,Get designation by ID,None,"{""success"": true, ""data"": {""id"": 1, ""value"": 1, ""label"": ""string"", ""level"": 4, ""isActive"": true}}","200 OK, 404 Not Found",
+POST,/api/v1/designations,Yes,Create a new designation,"{""name"": ""string"", ""level"": 1, ""is_active"": true}","{""success"": true, ""data"": {""id"": 1, ""name"": ""string"", ...}}","201 Created, 409 Conflict",Designation name must be unique
+PUT,/api/v1/designations/{id},Yes,Update designation,"{""name"": ""string"", ""level"": 1, ""is_active"": true}","{""success"": true, ""data"": {""id"": 1, ...}}","200 OK, 404 Not Found, 409 Conflict",
 GET,/api/v1/designations/{id}/history,Yes,Get designation history,None,"{""success"": true, ""data"": [{""resource_name"": ""string"", ""effective_date"": ""date"", ""end_date"": ""date""}]}","200 OK, 404 Not Found",Tracks designation changes over time
 ,,,,,,,
-# TIER ENDPOINTS,,,,,,,
-GET,/api/v1/tiers,Yes,List all tiers,"Query: search, is_active","{""success"": true, ""data"": {""data"": [{""id"": ""uuid"", ""name"": ""Synergy"", ""level"": 1, ""description"": ""string"", ""is_active"": true}], ""total"": 6}}",200 OK,"Returns all tiers sorted by level (Synergy, Tier-1, Tier-2, Tier-3, Tier-4, Intern)"
-GET,/api/v1/tiers/{id},Yes,Get tier by ID,None,"{""success"": true, ""data"": {""id"": ""uuid"", ""name"": ""string"", ""level"": 1, ""description"": ""string"", ""is_active"": true}}","200 OK, 404 Not Found",
-POST,/api/v1/tiers,Yes,Create a new tier,"{""name"": ""string"", ""level"": 1, ""description"": ""string"", ""is_active"": true}","{""success"": true, ""data"": {""id"": ""uuid"", ""name"": ""string"", ...}}","201 Created, 409 Conflict",Tier name must be unique
-PUT,/api/v1/tiers/{id},Yes,Update tier,"{""name"": ""string"", ""level"": 1, ""description"": ""string"", ""is_active"": true}","{""success"": true, ""data"": {""id"": ""uuid"", ...}}","200 OK, 404 Not Found, 409 Conflict",
-DELETE,/api/v1/tiers/{id},Yes,Delete a tier,None,"{""success"": true, ""data"": {""message"": ""Tier deleted successfully""}}","200 OK, 404 Not Found, 409 Conflict",Cannot delete tier if it is assigned to resources
+# TIER ENDPOINTS (Hardcoded Config),,,,,,,
+GET,/api/v1/tiers,Yes,List all tiers (hardcoded),"Query: search, is_active","{""success"": true, ""data"": {""data"": [{""id"": 1, ""value"": 1, ""label"": ""Tier - 1"", ""description"": ""Tier 1 - Entry level"", ""isActive"": true, ""displayOrder"": 1}], ""total"": 7}}",200 OK,"Returns hardcoded tiers from shared config. Available: Tier - 1, Tier - 2, Tier - 3, Tier - 4, Intern, None, Synergy"
+GET,/api/v1/tiers/{id},Yes,Get tier by ID,None,"{""success"": true, ""data"": {""id"": 1, ""value"": 1, ""label"": ""Tier - 1"", ""description"": ""Tier 1 - Entry level"", ""isActive"": true, ""displayOrder"": 1}}","200 OK, 404 Not Found",ID is numeric (1-7)
+POST,/api/v1/tiers,Yes,Create tier - NOT SUPPORTED,N/A,"{""success"": false, ""error"": ""Tiers are hardcoded configs and cannot be created via API""}",405 Method Not Allowed,Tiers are hardcoded in shared config module
+PUT,/api/v1/tiers/{id},Yes,Update tier - NOT SUPPORTED,N/A,"{""success"": false, ""error"": ""Tiers are hardcoded configs and cannot be updated via API""}",405 Method Not Allowed,Tiers are hardcoded in shared config module
+DELETE,/api/v1/tiers/{id},Yes,Delete tier - NOT SUPPORTED,N/A,"{""success"": false, ""error"": ""Tiers are hardcoded configs and cannot be deleted via API""}",405 Method Not Allowed,Tiers are hardcoded in shared config module
+,,,,,,,
+# BILLING STATUS ENDPOINTS (Database-managed),,,,,,,
+GET,/api/v1/billing-statuses,Yes,List all billing statuses,None,"{""success"": true, ""data"": {""data"": [{""id"": 1, ""value"": 1, ""label"": ""Billing"", ""description"": ""Project is billable"", ""isActive"": true, ""displayOrder"": 1}], ""total"": 7}}",200 OK,"Returns billing statuses: Billing, Non-Billing, Bench, Training, Presale, Support, Execs"
+GET,/api/v1/billing-statuses/{id},Yes,Get billing status by ID,None,"{""success"": true, ""data"": {""id"": 1, ""value"": 1, ""label"": ""Billing"", ""description"": ""string"", ""isActive"": true}}","200 OK, 404 Not Found",
+POST,/api/v1/billing-statuses,Yes,Create a new billing status,"{""name"": ""string"", ""description"": ""string"", ""is_active"": true}","{""success"": true, ""data"": {""id"": 1, ""name"": ""string"", ...}}","201 Created, 409 Conflict",Name must be unique
+PUT,/api/v1/billing-statuses/{id},Yes,Update billing status,"{""name"": ""string"", ""description"": ""string"", ""is_active"": true}","{""success"": true, ""data"": {""id"": 1, ...}}","200 OK, 404 Not Found, 409 Conflict",
+DELETE,/api/v1/billing-statuses/{id},Yes,Delete billing status,None,"{""success"": true, ""message"": ""Billing status deleted successfully""}","200 OK, 404 Not Found, 409 Conflict",Cannot delete if in use
+,,,,,,,
+# PROJECT TYPE ENDPOINTS (Database-managed),,,,,,,
+GET,/api/v1/project-types,Yes,List all project types,None,"{""success"": true, ""data"": {""data"": [{""id"": 1, ""value"": 1, ""label"": ""Client"", ""description"": ""External client project"", ""isActive"": true, ""displayOrder"": 1}], ""total"": 6}}",200 OK,"Returns project types: Client, Research, Training, Pre-Sales, Investment, Preparations"
+GET,/api/v1/project-types/{id},Yes,Get project type by ID,None,"{""success"": true, ""data"": {""id"": 1, ""value"": 1, ""label"": ""Client"", ""description"": ""string"", ""isActive"": true}}","200 OK, 404 Not Found",
+POST,/api/v1/project-types,Yes,Create a new project type,"{""name"": ""string"", ""description"": ""string"", ""is_active"": true}","{""success"": true, ""data"": {""id"": 1, ""name"": ""string"", ...}}","201 Created, 409 Conflict",Name must be unique
+PUT,/api/v1/project-types/{id},Yes,Update project type,"{""name"": ""string"", ""description"": ""string"", ""is_active"": true}","{""success"": true, ""data"": {""id"": 1, ...}}","200 OK, 404 Not Found, 409 Conflict",
+DELETE,/api/v1/project-types/{id},Yes,Delete project type,None,"{""success"": true, ""message"": ""Project type deleted successfully""}","200 OK, 404 Not Found, 409 Conflict",Cannot delete if in use
+,,,,,,,
+# TAG ENDPOINTS (Database-managed),,,,,,,
+GET,/api/v1/tags,Yes,List all tags,None,"{""success"": true, ""data"": {""data"": [{""id"": 1, ""value"": 1, ""label"": ""Synergy"", ""description"": ""Synergy program participant"", ""isActive"": true, ""displayOrder"": 1}], ""total"": 5}}",200 OK,"Returns tags: Synergy, GDC, Leaders League, High Performer, Critical Resource"
+GET,/api/v1/tags/{id},Yes,Get tag by ID,None,"{""success"": true, ""data"": {""id"": 1, ""value"": 1, ""label"": ""Synergy"", ""description"": ""string"", ""isActive"": true}}","200 OK, 404 Not Found",
+POST,/api/v1/tags,Yes,Create a new tag,"{""name"": ""string"", ""description"": ""string"", ""is_active"": true}","{""success"": true, ""data"": {""id"": 1, ""name"": ""string"", ...}}","201 Created, 409 Conflict",Name must be unique
+PUT,/api/v1/tags/{id},Yes,Update tag,"{""name"": ""string"", ""description"": ""string"", ""is_active"": true}","{""success"": true, ""data"": {""id"": 1, ...}}","200 OK, 404 Not Found, 409 Conflict",
+DELETE,/api/v1/tags/{id},Yes,Delete tag,None,"{""success"": true, ""message"": ""Tag deleted successfully""}","200 OK, 404 Not Found, 409 Conflict",Cannot delete if in use
 ,,,,,,,
 # CLIENT ENDPOINTS,,,,,,,
 GET,/api/v1/clients,Yes,List clients with pagination,"Query: page, limit, search, is_active","{""success"": true, ""data"": {""data"": [], ""pagination"": {""total"": 0, ""page"": 1, ""limit"": 20, ""totalPages"": 0}}}","200 OK, 422 Validation Error",Supports search by name or contact person

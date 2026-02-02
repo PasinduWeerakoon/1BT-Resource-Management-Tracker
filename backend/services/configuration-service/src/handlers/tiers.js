@@ -33,8 +33,8 @@ export const list = async (event) => {
         // Filter by search term
         if (search) {
             const searchLower = search.toLowerCase();
-            tiers = tiers.filter(t => 
-                t.label.toLowerCase().includes(searchLower) || 
+            tiers = tiers.filter(t =>
+                t.label.toLowerCase().includes(searchLower) ||
                 t.description.toLowerCase().includes(searchLower)
             );
         }

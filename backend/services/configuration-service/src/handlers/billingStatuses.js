@@ -79,7 +79,7 @@ export const create = async (event) => {
 
     try {
         const body = JSON.parse(event.body || '{}');
-        
+
         // Basic validation
         if (!body.name || typeof body.name !== 'string' || body.name.trim().length === 0) {
             return validationError([{ field: 'name', message: 'Name is required' }]);

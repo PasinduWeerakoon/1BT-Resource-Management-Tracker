@@ -33,8 +33,8 @@ export const list = async (event) => {
         // Filter by search term
         if (search) {
             const searchLower = search.toLowerCase();
-            tracks = tracks.filter(t => 
-                t.label.toLowerCase().includes(searchLower) || 
+            tracks = tracks.filter(t =>
+                t.label.toLowerCase().includes(searchLower) ||
                 t.description.toLowerCase().includes(searchLower)
             );
         }
