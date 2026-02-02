@@ -11,6 +11,19 @@ import audit from '/opt/nodejs/lib/audit/index.js';
 const SERVICE_NAME = 'resource-service';
 
 /**
+ * Transform database row to config format
+ */
+const transformRow = (row) => ({
+    id: row.id,
+    value: row.id,
+    label: row.name,
+    description: row.description || row.name,
+    isActive: row.is_active,
+    displayOrder: row.id,
+    ...(row.is_default !== undefined && { isDefault: row.is_default }),
+});
+
+/**
  * List all tags
  */
 export const list = async (event) => {
@@ -23,7 +36,7 @@ export const list = async (event) => {
         const result = await db.query(query);
 
         return success({
-            data: result.rows,
+            data: result.rows.map(transformRow),
             total: result.rows.length
         });
 
