@@ -1,6 +1,11 @@
 /**
  * Auth Service - Authentication Handlers
  * Microservice for all authentication operations
+ * 
+ * User-Employee Relationship:
+ * - Not all employees are users (employees exist without login access)
+ * - All users MUST be employees (user.employee_id is required)
+ * - Admin/Super Admin can invite employees to become users with a role
  */
 
 import {
@@ -18,6 +23,9 @@ import {
 } from '@aws-sdk/client-cognito-identity-provider';
 import createError from 'http-errors';
 import { withMiddleware, success } from '/opt/nodejs/index.js';
+import { getDrizzle } from '/opt/nodejs/database/drizzle.js';
+import { employees, users } from '/opt/nodejs/database/schema.js';
+import { eq, and, isNull } from 'drizzle-orm';
 import audit from '/opt/nodejs/lib/audit/index.js';
 
 const SERVICE_NAME = 'auth-service';
@@ -177,53 +185,204 @@ const resetPasswordHandler = async (event) => {
 
 /**
  * Invite User Handler (Protected - Admin only)
+ * Step 1: Creates Cognito user only (non-VPC function)
+ * Frontend should call linkUserToEmployee after this succeeds
  */
 const inviteUserHandler = async (event) => {
-    // User is already authenticated by JWT authorizer
     const callingUserGroups = event.user?.groups || [];
 
-    // Check if caller has admin rights
     const isAdmin = callingUserGroups.includes('Admin') || callingUserGroups.includes('SuperAdmin');
     if (!isAdmin) {
         throw createError(403, 'Forbidden: Admin access required');
     }
 
-    const { email, name, role } = event.body;
-    if (!email) throw createError(400, 'Email required');
+    const { employee_id, email, name, role } = event.body;
+
+    if (!employee_id) throw createError(400, 'Employee ID is required');
+    if (!email) throw createError(400, 'Email is required');
+    if (!name) throw createError(400, 'Name is required');
+    if (!role) throw createError(400, 'Role is required');
+
+    const validRoles = ['Super User', 'Admin', 'User'];
+    if (!validRoles.includes(role)) {
+        throw createError(400, `Invalid role. Must be one of: ${validRoles.join(', ')}`);
+    }
+
+    const cognitoGroupMap = {
+        'Super User': 'SuperAdmin',
+        'Admin': 'Admin',
+        'User': 'User'
+    };
+    const cognitoGroup = cognitoGroupMap[role];
 
     try {
-        await cognito.send(new AdminCreateUserCommand({
+        // Create Cognito user (sends invitation email)
+        const cognitoResponse = await cognito.send(new AdminCreateUserCommand({
             UserPoolId: USER_POOL_ID,
             Username: email,
             UserAttributes: [
                 { Name: 'email', Value: email },
                 { Name: 'email_verified', Value: 'true' },
-                { Name: 'name', Value: name || '' }
+                { Name: 'name', Value: name }
             ],
             DesiredDeliveryMediums: ['EMAIL']
         }));
 
-        // Add to group if role specified
-        if (role && ['Admin', 'User'].includes(role)) {
-            await cognito.send(new AdminAddUserToGroupCommand({
-                UserPoolId: USER_POOL_ID,
-                Username: email,
-                GroupName: role
-            }));
-        }
+        const cognitoUserId = cognitoResponse.User?.Username;
 
-        return success({ message: `Invitation sent to ${email}` });
+        // Add to Cognito group
+        await cognito.send(new AdminAddUserToGroupCommand({
+            UserPoolId: USER_POOL_ID,
+            Username: email,
+            GroupName: cognitoGroup
+        }));
+
+        // Audit log (uses SQS, no VPC needed)
+        await audit.create(event, 'user', employee_id, email, {
+            employeeId: employee_id,
+            name: name,
+            role: role,
+            cognitoUserId: cognitoUserId
+        }, SERVICE_NAME, { action: 'INVITE_USER_COGNITO' });
+
+        return success({
+            message: `Cognito user created. Invitation sent to ${email}`,
+            cognitoUserId: cognitoUserId,
+            email: email,
+            name: name,
+            role: role,
+            employeeId: employee_id,
+            nextStep: 'Call POST /api/v1/auth/link-user to create database record'
+        });
     } catch (error) {
         console.error('Invite error:', error);
+
         if (error.name === 'UsernameExistsException') {
-            throw createError(409, 'User already exists');
+            throw createError(409, 'A Cognito user with this email already exists');
         }
-        throw createError(500, 'Failed to invite user');
+
+        throw createError(500, 'Failed to create Cognito user: ' + error.message);
     }
 };
 
 /**
- * Complete Invite Handler
+ * Link User to Employee Handler (Protected - Admin only)
+ * Step 2: Creates database user record linked to employee (VPC function)
+ * Called after inviteUser succeeds
+ */
+const linkUserToEmployeeHandler = async (event) => {
+    const callingUserGroups = event.user?.groups || [];
+
+    const isAdmin = callingUserGroups.includes('Admin') || callingUserGroups.includes('SuperAdmin');
+    if (!isAdmin) {
+        throw createError(403, 'Forbidden: Admin access required');
+    }
+
+    const { employee_id, email, role, cognito_user_id } = event.body;
+
+    if (!employee_id) throw createError(400, 'Employee ID is required');
+    if (!email) throw createError(400, 'Email is required');
+    if (!role) throw createError(400, 'Role is required');
+    if (!cognito_user_id) throw createError(400, 'Cognito User ID is required');
+
+    try {
+        const drizzle = await getDrizzle();
+
+        // Verify employee exists
+        const employeeResult = await drizzle
+            .select({
+                id: employees.id,
+                name: employees.name,
+                email: employees.email
+            })
+            .from(employees)
+            .where(and(
+                eq(employees.id, employee_id),
+                isNull(employees.deletedAt)
+            ));
+
+        if (employeeResult.length === 0) {
+            throw createError(404, 'Employee not found');
+        }
+
+        const employee = employeeResult[0];
+
+        // Check if employee is already a user
+        const existingUser = await drizzle
+            .select({ id: users.id })
+            .from(users)
+            .where(and(
+                eq(users.employeeId, employee_id),
+                isNull(users.deletedAt)
+            ));
+
+        if (existingUser.length > 0) {
+            throw createError(409, 'This employee is already linked to a user account');
+        }
+
+        // Check if email is already used
+        const emailExists = await drizzle
+            .select({ id: users.id })
+            .from(users)
+            .where(and(
+                eq(users.email, email),
+                isNull(users.deletedAt)
+            ));
+
+        if (emailExists.length > 0) {
+            throw createError(409, 'A user with this email already exists in database');
+        }
+
+        // Create database user record
+        const [newUser] = await drizzle
+            .insert(users)
+            .values({
+                cognitoUserId: cognito_user_id,
+                username: email,
+                email: email,
+                passwordHash: 'COGNITO_MANAGED',
+                role: role,
+                employeeId: employee_id,
+                status: 'Pending',
+                createdBy: event.user?.userId || null
+            })
+            .returning();
+
+        // Audit log
+        await audit.create(event, 'user', newUser.id, email, {
+            employeeId: employee_id,
+            employeeName: employee.name,
+            role: role,
+            cognitoUserId: cognito_user_id
+        }, SERVICE_NAME, { action: 'LINK_USER_TO_EMPLOYEE' });
+
+        return success({
+            message: 'User record created and linked to employee',
+            user: {
+                id: newUser.id,
+                email: newUser.email,
+                role: newUser.role,
+                employeeId: newUser.employeeId,
+                employeeName: employee.name,
+                status: newUser.status,
+                cognitoUserId: newUser.cognitoUserId
+            }
+        });
+    } catch (error) {
+        console.error('Link user error:', error);
+
+        if (error.statusCode) {
+            throw error;
+        }
+
+        throw createError(500, 'Failed to create user record: ' + error.message);
+    }
+};
+
+/**
+ * Complete Invite Handler (Non-VPC)
+ * Called when invited user sets their password for the first time
+ * Only handles Cognito password change, returns tokens and info for DB update
  */
 const completeInviteHandler = async (event) => {
     const { email, newPassword, session } = event.body;
@@ -241,10 +400,19 @@ const completeInviteHandler = async (event) => {
             Session: session
         }));
 
+        // Get the Cognito sub from the ID token
+        const idToken = response.AuthenticationResult.IdToken;
+        const tokenParts = idToken.split('.');
+        const payload = JSON.parse(Buffer.from(tokenParts[1], 'base64').toString());
+        const cognitoSub = payload.sub;
+
         return success({
             accessToken: response.AuthenticationResult.AccessToken,
             idToken: response.AuthenticationResult.IdToken,
-            refreshToken: response.AuthenticationResult.RefreshToken
+            refreshToken: response.AuthenticationResult.RefreshToken,
+            cognitoSub: cognitoSub,
+            email: email,
+            nextStep: 'Call POST /api/v1/auth/activate-user to update database status'
         });
     } catch (error) {
         console.error('Complete invite error:', error);
@@ -258,6 +426,54 @@ const completeInviteHandler = async (event) => {
         }
 
         throw createError(400, 'Failed to set password');
+    }
+};
+
+/**
+ * Activate User Handler (VPC)
+ * Updates user status to Active after password is set
+ * Called after completeInvite succeeds
+ */
+const activateUserHandler = async (event) => {
+    const { email, cognito_sub } = event.body;
+
+    if (!email) throw createError(400, 'Email is required');
+    if (!cognito_sub) throw createError(400, 'Cognito sub is required');
+
+    try {
+        const drizzle = await getDrizzle();
+
+        // Update user record
+        const result = await drizzle
+            .update(users)
+            .set({
+                cognitoUserId: cognito_sub,
+                status: 'Active',
+                updatedAt: new Date()
+            })
+            .where(eq(users.email, email))
+            .returning();
+
+        if (result.length === 0) {
+            throw createError(404, 'User not found');
+        }
+
+        return success({
+            message: 'User activated successfully',
+            user: {
+                id: result[0].id,
+                email: result[0].email,
+                status: result[0].status
+            }
+        });
+    } catch (error) {
+        console.error('Activate user error:', error);
+
+        if (error.statusCode) {
+            throw error;
+        }
+
+        throw createError(500, 'Failed to activate user: ' + error.message);
     }
 };
 
@@ -395,6 +611,107 @@ const getSystemUsersHandler = async (event) => {
     }
 };
 
+/**
+ * Get Invitable Employees Handler
+ * Returns employees who don't have user accounts yet (eligible for invitation)
+ * Admin/SuperAdmin only
+ */
+const getInvitableEmployeesHandler = async (event) => {
+    const callingUserGroups = event.user?.groups || [];
+    const isAdmin = callingUserGroups.includes('Admin') || callingUserGroups.includes('SuperAdmin');
+
+    if (!isAdmin) {
+        throw createError(403, 'Forbidden: Admin access required');
+    }
+
+    try {
+        const drizzle = await getDrizzle();
+
+        // Get employees who don't have a user account
+        // Using a left join and filtering for null user records
+        const result = await drizzle.execute(`
+            SELECT e.id, e.name, e.email, e.epf_no, d.name as designation_name, e.is_external, e.created_at
+            FROM employees e
+            LEFT JOIN designations d ON d.id = e.designation_id
+            LEFT JOIN users u ON u.employee_id = e.id AND u.deleted_at IS NULL
+            WHERE e.deleted_at IS NULL
+            AND u.id IS NULL
+            AND e.email IS NOT NULL
+            ORDER BY e.name ASC
+        `);
+
+        const invitableEmployees = result.rows || result;
+
+        return success({
+            employees: invitableEmployees.map(e => ({
+                id: e.id,
+                name: e.name,
+                email: e.email,
+                epfNo: e.epf_no,
+                designation: e.designation_name,
+                isExternal: e.is_external,
+                createdAt: e.created_at
+            })),
+            count: invitableEmployees.length
+        });
+    } catch (error) {
+        console.error('Get invitable employees error:', error);
+        throw createError(500, 'Failed to get invitable employees: ' + error.message);
+    }
+};
+
+/**
+ * Get DB Users Handler
+ * Returns users from the database with their employee info
+ * Admin/SuperAdmin only
+ */
+const getDbUsersHandler = async (event) => {
+    const callingUserGroups = event.user?.groups || [];
+    const isAdmin = callingUserGroups.includes('Admin') || callingUserGroups.includes('SuperAdmin');
+
+    if (!isAdmin) {
+        throw createError(403, 'Forbidden: Admin access required');
+    }
+
+    try {
+        const drizzle = await getDrizzle();
+
+        const result = await drizzle.execute(`
+            SELECT u.id, u.cognito_user_id, u.username, u.email, u.role, u.status,
+                   u.employee_id, u.created_at, u.updated_at,
+                   e.name as employee_name, e.epf_no, d.name as designation_name
+            FROM users u
+            LEFT JOIN employees e ON e.id = u.employee_id
+            LEFT JOIN designations d ON d.id = e.designation_id
+            WHERE u.deleted_at IS NULL
+            ORDER BY u.created_at DESC
+        `);
+
+        const dbUsers = result.rows || result;
+
+        return success({
+            users: dbUsers.map(u => ({
+                id: u.id,
+                cognitoUserId: u.cognito_user_id,
+                username: u.username,
+                email: u.email,
+                role: u.role,
+                status: u.status,
+                employeeId: u.employee_id,
+                employeeName: u.employee_name,
+                epfNo: u.epf_no,
+                designation: u.designation_name,
+                createdAt: u.created_at,
+                updatedAt: u.updated_at
+            })),
+            count: dbUsers.length
+        });
+    } catch (error) {
+        console.error('Get DB users error:', error);
+        throw createError(500, 'Failed to get users: ' + error.message);
+    }
+};
+
 // Export wrapped handlers
 export const login = withMiddleware(loginHandler, { requireAuth: false, serviceName: 'auth-service' });
 export const logout = withMiddleware(logoutHandler, { requireAuth: false, serviceName: 'auth-service' });
@@ -402,6 +719,10 @@ export const refresh = withMiddleware(refreshHandler, { requireAuth: false, serv
 export const forgotPassword = withMiddleware(forgotPasswordHandler, { requireAuth: false, serviceName: 'auth-service' });
 export const resetPassword = withMiddleware(resetPasswordHandler, { requireAuth: false, serviceName: 'auth-service' });
 export const inviteUser = withMiddleware(inviteUserHandler, { requireAuth: true, serviceName: 'auth-service' });
+export const linkUserToEmployee = withMiddleware(linkUserToEmployeeHandler, { requireAuth: true, serviceName: 'auth-service' });
 export const completeInvite = withMiddleware(completeInviteHandler, { requireAuth: false, serviceName: 'auth-service' });
+export const activateUser = withMiddleware(activateUserHandler, { requireAuth: false, serviceName: 'auth-service' });
 export const getCurrentUser = withMiddleware(getCurrentUserHandler, { requireAuth: true, serviceName: 'auth-service', parseBody: false });
 export const getSystemUsers = withMiddleware(getSystemUsersHandler, { requireAuth: true, serviceName: 'auth-service', parseBody: false });
+export const getInvitableEmployees = withMiddleware(getInvitableEmployeesHandler, { requireAuth: true, serviceName: 'auth-service', parseBody: false });
+export const getDbUsers = withMiddleware(getDbUsersHandler, { requireAuth: true, serviceName: 'auth-service', parseBody: false });
