@@ -63,7 +63,7 @@ const autoEndAllocationsOnInactive = async (resourceId, userId, log) => {
                     updated_by = $2,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE id = $3
-            `, [today, userId || '00000000-0000-0000-0000-000000000000', allocation.id]);
+            `, [today, userId, allocation.id]);
 
             // Log to allocation change history
             await db.query(`
@@ -74,7 +74,7 @@ const autoEndAllocationsOnInactive = async (resourceId, userId, log) => {
             `, [
                 allocation.id,
                 'UPDATED',
-                userId || '00000000-0000-0000-0000-000000000000',
+                userId,
                 JSON.stringify(['end_date', 'is_active']),
                 JSON.stringify({ end_date: allocation.end_date, is_active: true }),
                 JSON.stringify({ end_date: today, is_active: false }),
@@ -720,7 +720,7 @@ export const update = async (event) => {
             return conflict('Resource has been modified by another user. Please refresh and try again.');
         }
 
-        // Get user info for updated_by - use system UUID as fallback
+        // Get user info for updated_by - use null as fallback (updated_by is nullable integer)
         const cognitoSub = event.requestContext?.authorizer?.jwt?.claims?.sub
             || event.requestContext?.authorizer?.claims?.sub;
 
@@ -735,9 +735,7 @@ export const update = async (event) => {
                 userId = userResult[0].id;
             }
         }
-        if (!userId) {
-            userId = '00000000-0000-0000-0000-000000000000';
-        }
+        // userId remains null if not found - updated_by is a nullable integer column
 
         // Map API snake_case to Drizzle schema camelCase
         // Note: track_id, tier_id, tech_stack_id are INTEGER IDs mapping to shared configs
