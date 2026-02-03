@@ -40,64 +40,88 @@ const paginationSchema = {
 };
 
 // Resource Schemas
+// Note: track_id, tier_id, tech_stack_id are INTEGER IDs mapping to configs in /opt/nodejs/configs/index.js
+// Note: designation_id, employee_type_id, university_id are INTEGER IDs referencing lookup tables
 export const resourceSchemas = {
     list: Joi.object({
         ...paginationSchema,
         search: Joi.string().allow('').optional(),
-        track_id: Joi.string().pattern(uuidPattern).optional(),
-        designation_id: Joi.string().pattern(uuidPattern).optional(),
-        status: Joi.string().valid('Active', 'Inactive', 'Serving Notice Period', 'On Leave').optional(),
-        tier: Joi.string().optional(),
+        track_id: Joi.number().integer().min(1).optional(),
+        designation_id: Joi.number().integer().min(1).optional(),
+        status: Joi.string().valid('Active', 'Inactive', 'Serving Notice Period', 'On Leave', 'Terminated').optional(),
+        tier_id: Joi.number().integer().min(1).optional(),
         employee_number: Joi.string().optional(),
         name: Joi.string().optional(),
     }),
 
     create: Joi.object({
-        employee_id: Joi.string().max(20).required(),
-        employee_number: Joi.string().max(20).required(),
+        // Required fields
+        epf_no: Joi.string().max(20).required(),          // EPF Number (maps to epf_no column)
+        emp_no: Joi.string().max(20).required(),          // Employee Number (maps to emp_no column)
         name: Joi.string().max(100).required(),
-        phone_number: Joi.string().max(100).required(),
-        email: Joi.string().pattern(emailPattern).optional(),
-        address: Joi.string().max(500).optional(),
-        track_id: Joi.string().pattern(uuidPattern).required(),
-        designation_id: Joi.string().pattern(uuidPattern).required(),
-        date_of_joining: Joi.date().iso().optional(),
-        date_of_birth: Joi.date().iso().optional(),
-        nic_passport: Joi.string().max(50).optional(),
+        email: Joi.string().email().required(),
+        // Required INTEGER IDs (config-based)
+        track_id: Joi.number().integer().min(1).required(),     // Maps to TRACKS config
+        tier_id: Joi.number().integer().min(1).required(),      // Maps to TIERS config
+        // Required INTEGER IDs (database lookup tables)
+        designation_id: Joi.number().integer().min(1).required(),
+        employee_type_id: Joi.number().integer().min(1).required(),
+        // Optional fields
+        global_employee_id: Joi.string().max(50).allow(null, '').optional(),
+        phone_number: Joi.string().max(20).allow(null, '').optional(),
+        tech_stack_id: Joi.number().integer().min(1).allow(null).optional(),  // Maps to TECH_STACKS config
+        university_id: Joi.number().integer().min(1).allow(null).optional(),
+        joined_date: Joi.date().iso().allow(null).optional(),
+        last_increment_date: Joi.date().iso().allow(null).optional(),
+        last_promotion_date: Joi.date().iso().allow(null).optional(),
+        internship_completion_target_date: Joi.date().iso().allow(null).optional(),
         is_intern: Joi.boolean().default(false),
-        employee_type: Joi.string().valid('Internal', 'External').default('Internal'),
-        tier: Joi.string().valid('Synergy', 'Tier - 1', 'Tier - 2', 'Tier - 3', 'Tier - 4', 'Intern').optional(),
-        tech_stack: Joi.string().max(50).optional(),
-        photo_url: Joi.string().max(500).optional(),
-        intern_classification: Joi.string().max(20).optional(),
+        is_internal: Joi.boolean().default(true),  // Internal vs External employee
+        photo_url: Joi.string().max(500).allow(null, '').optional(),
         skills: Joi.array().items(Joi.string()).optional(),
-        status: Joi.string().valid('Active', 'Inactive', 'Serving Notice Period', 'On Leave').default('Active'),
-        tag_ids: Joi.array().items(Joi.string().pattern(uuidPattern)).optional(),
+        status: Joi.string().valid('Active', 'Inactive', 'Serving Notice Period', 'On Leave', 'Terminated').default('Active'),
+        tag_ids: Joi.array().items(Joi.number().integer().min(1)).optional(),
+        // Billing tab fields
+        total_allocation: Joi.number().min(0).max(100).default(0),
+        total_resource_billing: Joi.number().min(0).max(100).default(0),
+        // Additional fields
+        helper_id: Joi.number().integer().min(1).allow(null).optional(),
+        helper_is_external: Joi.boolean().default(false),
     }),
 
     update: Joi.object({
         version: Joi.number().integer().min(1).optional(),
-        employee_number: Joi.string().max(20).optional(),
+        emp_no: Joi.string().max(20).optional(),
         name: Joi.string().max(100).optional(),
-        phone_number: Joi.string().max(100).optional(),
-        email: Joi.string().pattern(emailPattern).optional(),
-        address: Joi.string().max(500).optional(),
-        track_id: Joi.string().pattern(uuidPattern).optional(),
-        designation_id: Joi.string().pattern(uuidPattern).optional(),
-        date_of_joining: Joi.date().iso().optional(),
-        date_of_birth: Joi.date().iso().optional(),
-        nic_passport: Joi.string().max(50).optional(),
+        email: Joi.string().email().allow(null, '').optional(),
+        phone_number: Joi.string().max(20).allow(null, '').optional(),
+        global_employee_id: Joi.string().max(50).allow(null, '').optional(),
+        // INTEGER IDs (config-based)
+        track_id: Joi.number().integer().min(1).allow(null).optional(),
+        tier_id: Joi.number().integer().min(1).allow(null).optional(),
+        tech_stack_id: Joi.number().integer().min(1).allow(null).optional(),
+        // INTEGER IDs (database lookup tables)
+        designation_id: Joi.number().integer().min(1).allow(null).optional(),
+        employee_type_id: Joi.number().integer().min(1).allow(null).optional(),
+        university_id: Joi.number().integer().min(1).allow(null).optional(),
+        // Dates
+        joined_date: Joi.date().iso().allow(null).optional(),
+        last_increment_date: Joi.date().iso().allow(null).optional(),
+        last_promotion_date: Joi.date().iso().allow(null).optional(),
+        internship_completion_target_date: Joi.date().iso().allow(null).optional(),
+        notice_period_end_date: Joi.date().iso().allow(null).optional(),
+        // Other fields
         is_intern: Joi.boolean().optional(),
-        employee_type: Joi.string().valid('Internal', 'External').optional(),
-        tier: Joi.string().valid('Synergy', 'Tier - 1', 'Tier - 2', 'Tier - 3', 'Tier - 4', 'Intern').allow(null).optional(),
-        tech_stack: Joi.string().max(50).allow(null).optional(),
-        photo_url: Joi.string().max(500).allow(null).optional(),
-        intern_classification: Joi.string().max(20).optional(),
+        is_internal: Joi.boolean().optional(),
+        photo_url: Joi.string().max(500).allow(null, '').optional(),
         skills: Joi.array().items(Joi.string()).optional(),
-        status: Joi.string().valid('Active', 'Inactive', 'Serving Notice Period', 'On Leave').optional(),
-        notice_period_end_date: Joi.date().iso().optional(),
+        status: Joi.string().valid('Active', 'Inactive', 'Serving Notice Period', 'On Leave', 'Terminated').optional(),
         is_account_manager: Joi.boolean().optional(),
-        tag_ids: Joi.array().items(Joi.string().pattern(uuidPattern)).optional(),
+        tag_ids: Joi.array().items(Joi.number().integer().min(1)).optional(),
+        total_allocation: Joi.number().min(0).max(999).optional(),
+        total_resource_billing: Joi.number().min(0).max(999).optional(),
+        helper_id: Joi.number().integer().min(1).allow(null).optional(),
+        helper_is_external: Joi.boolean().optional(),
     }),
 };
 

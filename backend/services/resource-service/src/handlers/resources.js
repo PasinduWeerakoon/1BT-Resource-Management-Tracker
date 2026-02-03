@@ -18,7 +18,8 @@
 import * as db from '/opt/nodejs/database/index.js';
 import { getDrizzle, withTransaction } from '/opt/nodejs/database/drizzle.js';
 import schema from '/opt/nodejs/database/schema.js';
-const { employees, allocations, projects, designations, users, clients, tags, employeeTags } = schema;
+// Alias 'employees' as 'resources' to maintain backward compatibility in handlers
+const { employees: resources, allocations, projects, designations, users, clients, tags, employeeTags } = schema;
 import { eq, and, isNull, ilike, or, sql, desc, inArray } from 'drizzle-orm';
 import logger from '/opt/nodejs/logger/index.js';
 import { success, error, notFound, validationError, conflict } from '/opt/nodejs/utils/response.js';
@@ -207,10 +208,10 @@ const createInitialBenchAllocation = async (tx, resourceId, trackId, userId, log
         const result = await tx
             .insert(allocations)
             .values({
-                resourceId: resourceId,
+                employeeId: resourceId,  // employeeId in schema, resourceId is the employee ID passed in
                 projectId: benchProjectId,
-                allocationPercentage: '100',
-                billingPercentage: '0', // Bench is non-billing
+                allocationPercentage: 100,
+                billingPercentage: 0, // Bench is non-billing
                 allocatedDate: new Date().toISOString().split('T')[0], // YYYY-MM-DD format
                 isActive: true,
                 notes: 'Auto-created bench allocation for new resource',
@@ -496,37 +497,37 @@ export const create = async (event) => {
 
         log.info('Creating resource', {
             email: validated.email,
-            employee_id: validated.employee_id,
-            employee_type: validated.employee_type,
+            epf_no: validated.epf_no,
+            emp_no: validated.emp_no,
             validated_data: validated
         });
 
         const drizzle = await getDrizzle();
 
-        // Check for duplicate employee_id using Drizzle
-        const existingEmployeeId = await drizzle
+        // Check for duplicate EPF number using Drizzle
+        const existingEpfNo = await drizzle
             .select({ id: resources.id })
             .from(resources)
             .where(and(
-                eq(resources.epfNo, validated.employee_id),
+                eq(resources.epfNo, validated.epf_no),
                 isNull(resources.deletedAt)
             ));
 
-        if (existingEmployeeId.length > 0) {
-            return conflict('A resource with this employee_id already exists');
+        if (existingEpfNo.length > 0) {
+            return conflict('A resource with this EPF number already exists');
         }
 
-        // Check for duplicate employee_number using Drizzle
-        const existingEmployeeNumber = await drizzle
+        // Check for duplicate employee number using Drizzle
+        const existingEmpNo = await drizzle
             .select({ id: resources.id })
             .from(resources)
             .where(and(
-                eq(resources.employeeNumber, validated.employee_number),
+                eq(resources.empNo, validated.emp_no),
                 isNull(resources.deletedAt)
             ));
 
-        if (existingEmployeeNumber.length > 0) {
-            return conflict('A resource with this employee_number already exists');
+        if (existingEmpNo.length > 0) {
+            return conflict('A resource with this employee number already exists');
         }
 
         // Get user info from auth context for created_by
@@ -546,60 +547,64 @@ export const create = async (event) => {
         }
         // Use a system UUID if no user found
         if (!userId) {
-            userId = '00000000-0000-0000-0000-000000000000';
+            userId = 1; // System user ID (INTEGER, not UUID)
         }
 
         // Use transaction to ensure resource creation, tags, and bench allocation are atomic
         // If any fails, all are rolled back
         const result = await withTransaction(async (tx) => {
-            // Prepare employeeType - Joi validation ensures it's 'Internal' or 'External' or defaults to 'Internal'
-            // Explicitly check for the value to ensure it's not being overridden
-            const employeeType = (validated.employee_type && (validated.employee_type === 'Internal' || validated.employee_type === 'External'))
-                ? validated.employee_type
-                : 'Internal';
-
-            log.info('Inserting resource with employee_type', {
-                raw_employee_type: validated.employee_type,
-                validated_employee_type: validated.employee_type,
-                employeeType: employeeType,
-                willUse: employeeType,
-                typeCheck: typeof validated.employee_type,
-                isExternal: validated.employee_type === 'External',
-                isInternal: validated.employee_type === 'Internal'
+            log.info('Inserting resource', {
+                epf_no: validated.epf_no,
+                emp_no: validated.emp_no,
+                name: validated.name,
+                track_id: validated.track_id,
+                tier_id: validated.tier_id,
+                designation_id: validated.designation_id,
+                employee_type_id: validated.employee_type_id,
+                is_internal: validated.is_internal
             });
 
             // Insert resource using Drizzle (use camelCase properties from schema)
             // track_id, tier_id, tech_stack_id are INTEGER IDs mapping to shared configs
+            // designation_id, employee_type_id, university_id are INTEGER IDs referencing lookup tables
             const [newResource] = await tx
                 .insert(resources)
                 .values({
-                    employeeId: validated.employee_id,
-                    employeeNumber: validated.employee_number,
+                    epfNo: validated.epf_no,
+                    empNo: validated.emp_no,
+                    globalEmployeeId: validated.global_employee_id || null,
                     name: validated.name,
-                    phoneNumber: validated.phone_number,
                     email: validated.email || null,
-                    address: validated.address || null,
-                    designationId: validated.designation_id,
-                    trackId: validated.track_id || null,
-                    tierId: validated.tier_id || null,
+                    phoneNumber: validated.phone_number || null,
+                    // Config-based INTEGER IDs
+                    trackId: validated.track_id,
+                    tierId: validated.tier_id,
                     techStackId: validated.tech_stack_id || null,
-                    internClassification: validated.intern_classification || null,
+                    // Lookup table INTEGER IDs
+                    designationId: validated.designation_id,
+                    employeeTypeId: validated.employee_type_id,
+                    universityId: validated.university_id || null,
+                    // Dates
+                    joinedDate: validated.joined_date || null,
+                    lastIncrementDate: validated.last_increment_date || null,
+                    lastPromotionDate: validated.last_promotion_date || null,
+                    internshipCompletionTargetDate: validated.internship_completion_target_date || null,
+                    // Other fields
                     skills: validated.skills || [],
-                    dateOfJoining: validated.date_of_joining || null,
-                    dateOfBirth: validated.date_of_birth || null,
-                    nicPassport: validated.nic_passport || null,
-                    isIntern: validated.is_intern !== undefined ? validated.is_intern : false,
-                    employeeType: employeeType,
                     photoUrl: validated.photo_url || null,
                     status: validated.status || 'Active',
+                    totalAllocation: validated.total_allocation || 0,
+                    totalResourceBilling: validated.total_resource_billing || 0,
+                    helperId: validated.helper_id || null,
+                    helperIsExternal: validated.helper_is_external || false,
                     createdBy: userId
                 })
                 .returning();
 
             log.info('Resource created in transaction', {
                 id: newResource.id,
-                employeeType: newResource.employeeType,
-                employee_type_from_db: newResource.employeeType
+                epfNo: newResource.epfNo,
+                empNo: newResource.empNo
             });
 
             // Handle tags if provided
@@ -614,14 +619,14 @@ export const create = async (event) => {
                     throw new Error('One or more tag IDs are invalid');
                 }
 
-                // Insert resource tags
+                // Insert resource tags (employeeTags table)
                 const tagInserts = validated.tag_ids.map(tagId => ({
-                    resourceId: newResource.id,
+                    employeeId: newResource.id,
                     tagId: tagId,
                     createdBy: userId
                 }));
 
-                await tx.insert(resourceTags).values(tagInserts);
+                await tx.insert(employeeTags).values(tagInserts);
                 log.info('Resource tags created', { resourceId: newResource.id, tagCount: tagInserts.length });
             }
 
@@ -642,7 +647,7 @@ export const create = async (event) => {
             newResource.name,
             newResource,
             SERVICE_NAME,
-            { employee_id: newResource.employee_id, benchAllocation: benchAllocation?.id }
+            { epf_no: newResource.epfNo, benchAllocation: benchAllocation?.id }
         );
 
         // Include bench allocation info in response
