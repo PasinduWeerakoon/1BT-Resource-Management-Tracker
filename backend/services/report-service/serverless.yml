@@ -64,6 +64,34 @@ custom:
     id: !ImportValue onebt-${self:provider.stage}-CognitoAuthorizerId
 
 functions:
+  # ==================== DASHBOARD STATS ====================
+  dashboardResourceCounts:
+    handler: src/handlers/reports/index.getDashboardResourceCounts
+    description: Get dashboard resource counts (billing, allocated, bench, etc.)
+    events:
+      - httpApi:
+          path: /api/v1/dashboard/resource-counts
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  dashboardPercentages:
+    handler: src/handlers/reports/index.getDashboardPercentages
+    description: Get dashboard percentages (allocation, billable, shadow)
+    events:
+      - httpApi:
+          path: /api/v1/dashboard/percentages
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  dashboardCharts:
+    handler: src/handlers/reports/index.getDashboardCharts
+    description: Get dashboard charts data (accounts by track and tech stack)
+    events:
+      - httpApi:
+          path: /api/v1/dashboard/charts
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
   # ==================== REPORTS ====================
   benchReport:
     handler: src/handlers/reports/index.getBenchReport
@@ -162,3 +190,32 @@ functions:
           path: /api/v1/reports/external-consultants
           method: GET
           authorizer: ${self:custom.authorizer}
+
+  # ==================== SCHEDULED JOBS ====================
+  calculateDailyStats:
+    handler: src/handlers/scheduledJobs.calculateDailyStats
+    description: Calculate and cache daily dashboard statistics
+    timeout: 120 # Allow more time for complex calculations
+    memorySize: 1024 # More memory for aggregations
+    events:
+      # Run at midnight UTC every day
+      - schedule:
+          rate: cron(0 0 * * ? *)
+          enabled: true
+          description: Daily dashboard stats calculation at midnight UTC
+      # Also expose as HTTP endpoint for manual triggers
+      - httpApi:
+          path: /api/v1/dashboard/calculate-stats
+          method: POST
+          authorizer: ${self:custom.authorizer}
+
+  cleanupOldStats:
+    handler: src/handlers/scheduledJobs.cleanupOldStats
+    description: Cleanup dashboard stats older than 365 days
+    timeout: 60
+    events:
+      # Run weekly on Sunday at 2 AM UTC
+      - schedule:
+          rate: cron(0 2 ? * SUN *)
+          enabled: true
+          description: Weekly cleanup of old dashboard stats
