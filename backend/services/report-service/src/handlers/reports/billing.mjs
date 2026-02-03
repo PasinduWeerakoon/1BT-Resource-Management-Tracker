@@ -28,7 +28,8 @@ const resolveConfigLabel = (configArray, id) => {
 
 /**
  * Get non-billing resources report
- * Non-billing resources are those allocated to projects with Non-Billing billing status
+ * Non-billing resources are those with allocations that have billing_status_id = 2 (Non-Billing)
+ * Uses the allocation's billing_status_id, not the project's billing_status_id
  */
 export const getNonBillingReport = async (event) => {
     const log = logger.child({ handler: 'reports.getNonBillingReport' });
@@ -36,7 +37,7 @@ export const getNonBillingReport = async (event) => {
     try {
         log.info('Getting non-billing report');
 
-        // Non-billing resources are those allocated to non-billable projects
+        // Non-billing resources are those with allocations where billing_status_id = 2 (Non-Billing)
         const query = `
             SELECT 
                 r.id,
@@ -52,15 +53,17 @@ export const getNonBillingReport = async (event) => {
                 a.billing_percentage,
                 a.allocated_date,
                 a.deallocated_date,
-                bs.name as billing_status
+                bs.name as billing_status,
+                a.billing_status_id
             FROM allocations a
             JOIN employees r ON a.employee_id = r.id
             JOIN projects p ON a.project_id = p.id
             LEFT JOIN designations d ON r.designation_id = d.id
-            LEFT JOIN billing_statuses bs ON p.billing_status_id = bs.id
+            LEFT JOIN billing_statuses bs ON a.billing_status_id = bs.id
             WHERE a.is_active = true
+            AND a.deleted_at IS NULL
             AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
-            AND bs.name = 'Non-Billing'
+            AND a.billing_status_id = 2
             AND r.deleted_at IS NULL
             ORDER BY r.name ASC
         `;

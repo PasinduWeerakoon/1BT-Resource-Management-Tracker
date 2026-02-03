@@ -29,7 +29,14 @@ const resolveConfigLabel = (configArray, id) => {
 };
 
 /**
- * Get bench report - resources with available capacity
+ * Get bench report - resources with bench allocations (allocation billing_status = Bench OR allocated to Bench project)
+ * 
+ * Bench resources are those where:
+ * 1. The allocation has billing_status_id = 3 (Bench), OR
+ * 2. The allocation is to a project with is_bench_project = true
+ * 
+ * fullBench: 100% allocation to bench
+ * partialBench: Less than 100% allocation to bench (has other project allocations)
  */
 export const getBenchReport = async (event) => {
     const log = logger.child({ handler: 'reports.getBenchReport' });
@@ -37,26 +44,43 @@ export const getBenchReport = async (event) => {
     try {
         log.info('Getting bench report');
 
+        // Query resources with bench allocations
+        // Bench = allocation.billing_status_id = 3 OR project.is_bench_project = true
         const query = `
-            WITH resource_allocations AS (
+            WITH bench_allocations AS (
+                SELECT 
+                    a.employee_id,
+                    SUM(a.allocation_percentage) as bench_allocation_percentage
+                FROM allocations a
+                LEFT JOIN projects p ON a.project_id = p.id
+                WHERE a.is_active = true 
+                AND a.deleted_at IS NULL
+                AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
+                AND (a.billing_status_id = 3 OR p.is_bench_project = true)
+                GROUP BY a.employee_id
+            ),
+            total_allocations AS (
                 SELECT 
                     employee_id,
                     SUM(allocation_percentage) as total_allocation
                 FROM allocations
                 WHERE is_active = true 
+                AND deleted_at IS NULL
                 AND (deallocated_date IS NULL OR deallocated_date >= CURRENT_DATE)
                 GROUP BY employee_id
             ),
-            bench_allocations AS (
+            non_bench_allocations AS (
                 SELECT 
                     a.employee_id,
-                    a.allocation_percentage as bench_allocation
+                    SUM(a.allocation_percentage) as non_bench_allocation
                 FROM allocations a
-                INNER JOIN projects p ON a.project_id = p.id
+                LEFT JOIN projects p ON a.project_id = p.id
                 WHERE a.is_active = true 
+                AND a.deleted_at IS NULL
                 AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
-                AND p.is_bench_project = true
-                AND p.deleted_at IS NULL
+                AND a.billing_status_id != 3 
+                AND (p.is_bench_project = false OR p.is_bench_project IS NULL)
+                GROUP BY a.employee_id
             )
             SELECT 
                 r.id,
@@ -65,22 +89,22 @@ export const getBenchReport = async (event) => {
                 d.name as designation,
                 r.track_id,
                 r.tier_id,
-                COALESCE(ra.total_allocation, 0) as current_allocation,
-                (100 - COALESCE(ra.total_allocation, 0)) as available_capacity,
-                COALESCE(ba.bench_allocation, 0) as bench_allocation_percentage,
+                COALESCE(ba.bench_allocation_percentage, 0) as bench_allocation_percentage,
+                COALESCE(nba.non_bench_allocation, 0) as non_bench_allocation,
+                COALESCE(ta.total_allocation, 0) as total_allocation,
+                (100 - COALESCE(ta.total_allocation, 0)) as available_capacity,
                 r.joined_date,
                 CASE WHEN r.joined_date IS NOT NULL 
                      THEN (CURRENT_DATE - r.joined_date::DATE)
                      ELSE NULL END as days_in_company
             FROM employees r
-            LEFT JOIN resource_allocations ra ON r.id = ra.employee_id
-            LEFT JOIN bench_allocations ba ON r.id = ba.employee_id
+            INNER JOIN bench_allocations ba ON r.id = ba.employee_id
+            LEFT JOIN total_allocations ta ON r.id = ta.employee_id
+            LEFT JOIN non_bench_allocations nba ON r.id = nba.employee_id
             LEFT JOIN designations d ON r.designation_id = d.id
-            
             WHERE r.status = 'Active'
-            AND (ra.total_allocation IS NULL OR ra.total_allocation < 100)
             AND r.deleted_at IS NULL
-            ORDER BY available_capacity DESC, r.joined_date DESC
+            ORDER BY ba.bench_allocation_percentage DESC, r.name ASC
         `;
 
         const result = await db.query(query);
@@ -92,9 +116,11 @@ export const getBenchReport = async (event) => {
             tier: resolveConfigLabel(TIERS, row.tier_id)
         }));
 
-        // Categorize by capacity
-        const fullBench = data.filter(r => r.current_allocation === 0);
-        const partialBench = data.filter(r => r.current_allocation > 0 && r.current_allocation < 100);
+        // Categorize by bench status
+        // fullBench: 100% bench allocation (no other project allocations)
+        // partialBench: Has bench allocation but also has other project allocations
+        const fullBench = data.filter(r => parseInt(r.bench_allocation_percentage) === 100 || parseInt(r.non_bench_allocation) === 0);
+        const partialBench = data.filter(r => parseInt(r.bench_allocation_percentage) < 100 && parseInt(r.non_bench_allocation) > 0);
 
         return success({
             data,
@@ -102,8 +128,8 @@ export const getBenchReport = async (event) => {
                 totalOnBench: data.length,
                 fullBench: fullBench.length,
                 partialBench: partialBench.length,
-                avgAvailableCapacity: data.length > 0
-                    ? Math.round(data.reduce((sum, r) => sum + parseInt(r.available_capacity), 0) / data.length)
+                avgBenchAllocation: data.length > 0
+                    ? Math.round(data.reduce((sum, r) => sum + parseInt(r.bench_allocation_percentage), 0) / data.length)
                     : 0
             },
             generatedAt: new Date().toISOString()
