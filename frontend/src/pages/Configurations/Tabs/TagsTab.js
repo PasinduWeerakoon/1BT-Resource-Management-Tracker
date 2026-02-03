@@ -2,20 +2,26 @@
  * Tags Tab Component
  */
 
-import React from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { Form, Input, Switch } from 'antd';
+import { useDispatch, useSelector } from 'react-redux';
 import { useConfigCRUD } from '../hooks/useConfigCRUD';
-import { useConfigData } from '../hooks/useConfigData';
 import ConfigTable from '../components/ConfigTable';
 import ConfigModal from '../components/ConfigModal';
 import { tagsService } from '@api';
 import { showErrorToast } from '@utils/toast.utils';
+import { selectTags, selectTagsLoading, fetchTagsData } from '@redux/slices/configSlice';
 
 const TagsTab = () => {
-  // Data fetching
-  const { data: tags, loading: loadingTags, fetchData: fetchTags } = useConfigData({
-    fetchFunction: tagsService.getAll,
-    transformData: (item) => ({
+  const dispatch = useDispatch();
+  // Get data from Redux
+  const tagsData = useSelector(selectTags);
+  const loadingTags = useSelector(selectTagsLoading);
+
+  // Transform data for table display
+  const tags = useMemo(() => {
+    return tagsData.map((item, index) => ({
+      key: item.id || `tag-${index}`,
       id: item.id,
       name: item.label || item.name, // Use label from API response as name
       description: item.description || '',
@@ -23,9 +29,20 @@ const TagsTab = () => {
       is_default: item.isDefault !== undefined ? item.isDefault : (item.is_default !== undefined ? item.is_default : false),
       value: item.value || item.id,
       displayOrder: item.displayOrder || 0,
-    }),
-    autoFetch: true,
-  });
+    }));
+  }, [tagsData]);
+
+  useEffect(() => {
+    // Fetch data if not already loaded
+    if (!tagsData.length && !loadingTags) {
+      dispatch(fetchTagsData({ force: false }));
+    }
+  }, [dispatch, tagsData.length, loadingTags]);
+
+  // Refetch function for after CRUD operations
+  const refetchTags = async () => {
+    await dispatch(fetchTagsData({ force: true })).unwrap();
+  };
 
   // CRUD operations
   const {
@@ -40,7 +57,7 @@ const TagsTab = () => {
     handleDelete,
   } = useConfigCRUD({
     service: tagsService,
-    onFetch: fetchTags,
+    onFetch: refetchTags,
   });
 
   // Custom edit handler to prevent editing default tags

@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { Card, Modal, Form, Input, Button, Typography } from 'antd';
 import { LockOutlined } from '@ant-design/icons';
 import { initializeAuth } from '@redux/slices/authSlice';
+import { fetchAllConfigData } from '@redux/slices/configSlice';
 import { authService } from '@api';
 import { storeAuth } from '@utils/auth.utils';
 import { getUserFromToken } from '@utils/jwt.utils';

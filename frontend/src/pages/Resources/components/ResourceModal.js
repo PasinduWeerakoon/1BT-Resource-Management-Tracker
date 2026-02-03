@@ -42,20 +42,19 @@ const ResourceModal = ({
   designations,
   tracks,
   tags,
+  employeeTypes,
+  techStacks,
+  universities,
 }) => {
   const [currentStep, setCurrentStep] = useState(0);
   const [isFormValid, setIsFormValid] = useState(false);
 
-  // Tech stack options
-  const techStacks = ['.NET', 'Full Stack', 'QA', 'BA/PM', 'Data Science', 'Java', 'React'];
-
   // Watch required fields to determine if form is valid
   const name = Form.useWatch('name', form);
   const email = Form.useWatch('email', form);
-  const employeeNumber = Form.useWatch('employeeNumber', form);
-  const employee_id = Form.useWatch('employee_id', form);
-  const is_internal_employee = Form.useWatch('is_internal_employee', form);
-  const employment_type = Form.useWatch('employment_type', form);
+  const emp_no = Form.useWatch('emp_no', form);
+  const epf_no = Form.useWatch('epf_no', form);
+  const employee_type_id = Form.useWatch('employee_type_id', form);
   const designation_id = Form.useWatch('designation_id', form);
   const tier_id = Form.useWatch('tier_id', form);
   const track_id = Form.useWatch('track_id', form);
@@ -67,8 +66,8 @@ const ResourceModal = ({
       try {
         // Get all required fields based on mode
         const requiredFields = isEditMode
-          ? ['name', 'email', 'employeeNumber', 'is_internal_employee', 'employment_type', 'designation_id', 'tier_id', 'track_id', 'status']
-          : ['name', 'email', 'employee_id', 'employeeNumber', 'is_internal_employee', 'employment_type', 'designation_id', 'tier_id', 'track_id'];
+          ? ['name', 'email', 'epf_no', 'emp_no', 'employee_type_id', 'designation_id', 'tier_id', 'track_id', 'status']
+          : ['name', 'email', 'epf_no', 'emp_no', 'employee_type_id', 'designation_id', 'tier_id', 'track_id'];
 
         // Validate required fields
         await form.validateFields(requiredFields);
@@ -81,8 +80,8 @@ const ResourceModal = ({
             return false;
           }
           // For date fields, check if it's a valid dayjs object
-          if (field === 'bod' || field === 'joinDate') {
-            return value && value.isValid && value.isValid();
+          if (field === 'joined_date' || field === 'last_increment_date' || field === 'last_promotion_date' || field === 'internship_completion_target_date') {
+            return !value || (value && value.isValid && value.isValid());
           }
           return true;
         });
@@ -99,7 +98,7 @@ const ResourceModal = ({
     }, 100);
 
     return () => clearTimeout(timer);
-  }, [name, email, employeeNumber, employee_id, is_internal_employee, employment_type, designation_id, tier_id, track_id, status, isEditMode, form]);
+  }, [name, email, epf_no, emp_no, employee_type_id, designation_id, tier_id, track_id, status, isEditMode, form]);
 
   // Handle step navigation
   const handleNext = async () => {
@@ -124,10 +123,10 @@ const ResourceModal = ({
   // Get fields for each step for validation
   const getStepFields = (step) => {
     const stepFields = {
-      0: ['name', 'email'], // Personal Info (only name and email are required)
+      0: ['name', 'email', 'epf_no'], // Personal Info (name, email, epf_no are required)
       1: isEditMode
-        ? ['employeeNumber', 'is_internal_employee', 'employment_type', 'designation_id', 'tier_id', 'track_id', 'status']
-        : ['employee_id', 'employeeNumber', 'is_internal_employee', 'employment_type', 'designation_id', 'tier_id', 'track_id'], // Employment (joinDate is optional)
+        ? ['emp_no', 'employee_type_id', 'designation_id', 'tier_id', 'track_id', 'status']
+        : ['emp_no', 'employee_type_id', 'designation_id', 'tier_id', 'track_id'], // Employment (joined_date is optional)
       2: [], // Education (optional fields)
       3: [], // Billing (optional fields)
       4: [], // Additional (optional fields)
@@ -161,12 +160,12 @@ const ResourceModal = ({
   // Get step number for a field
   const getStepForField = (fieldName) => {
     const fieldStepMap = {
-      name: 0, email: 0, mobile: 0, bod: 0, nicOrPassport: 0, epf_no: 0, global_employeeid: 0, photo: 0,
-      employee_id: 1, employeeNumber: 1, is_internal_employee: 1, employment_type: 1, designation_id: 1,
-      tier_id: 1, track_id: 1, tech_stack: 1, joinDate: 1, last_increment_date: 1, last_promotion_date: 1, status: 1,
-      university: 2, is_intern: 2, internship_completion_target_date: 2,
+      name: 0, email: 0, mobile: 0, epf_no: 0, global_employee_id: 0, photo: 0,
+      emp_no: 1, employee_type_id: 1, designation_id: 1, tier_id: 1, track_id: 1,
+      tech_stack_id: 1, joined_date: 1, last_increment_date: 1, last_promotion_date: 1, status: 1,
+      university_id: 2, is_intern: 2, internship_completion_target_date: 2,
       total_allocation: 3, total_resource_billing: 3,
-      tag_ids: 4, helper_id: 4, helper: 4,
+      tag_ids: 4, skills: 4, helper_id: 4, helper: 4,
     };
     return fieldStepMap[fieldName] !== undefined ? fieldStepMap[fieldName] : null;
   };
@@ -191,10 +190,11 @@ const ResourceModal = ({
             tiers={tiers}
             tracks={tracks}
             techStacks={techStacks}
+            employeeTypes={employeeTypes}
           />
         );
       case 2:
-        return <EducationInternshipStep form={form} />;
+        return <EducationInternshipStep form={form} universities={universities} />;
       case 3:
         return <BillingAllocationStep form={form} />;
       case 4:
@@ -255,18 +255,9 @@ const ResourceModal = ({
           >
             Previous
           </Button>
-          {currentStep < stepItems.length - 1 ? (
+          {currentStep < stepItems.length - 1 && (
             <Button type="primary" onClick={handleNext}>
               Next
-            </Button>
-          ) : (
-            <Button
-              type="primary"
-              onClick={handleSubmit}
-              loading={loading}
-              disabled={!isFormValid}
-            >
-              {isEditMode ? 'Update Details' : 'Add Employee'}
             </Button>
           )}
         </Space>
@@ -286,6 +277,9 @@ ResourceModal.propTypes = {
   designations: PropTypes.array,
   tracks: PropTypes.array,
   tags: PropTypes.array,
+  employeeTypes: PropTypes.array,
+  techStacks: PropTypes.array,
+  universities: PropTypes.array,
 };
 
 ResourceModal.defaultProps = {
@@ -293,6 +287,9 @@ ResourceModal.defaultProps = {
   designations: [],
   tracks: [],
   tags: [],
+  employeeTypes: [],
+  techStacks: [],
+  universities: [],
 };
 
 export default ResourceModal;

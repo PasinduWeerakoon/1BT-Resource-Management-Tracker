@@ -16,26 +16,16 @@ const EmploymentDetailsStep = ({
   designations, 
   tiers, 
   tracks, 
-  techStacks 
+  techStacks,
+  employeeTypes,
 }) => {
 
   return (
     <Row gutter={16}>
-      {!isEditMode && (
-        <Col xs={24} sm={12}>
-          <Form.Item
-            label="Employee ID"
-            name="employee_id"
-            rules={[{ required: true, message: 'Employee ID is required' }]}
-          >
-            <Input placeholder="Enter employee ID" />
-          </Form.Item>
-        </Col>
-      )}
       <Col xs={24} sm={12}>
         <Form.Item
           label="Employee Number"
-          name="employeeNumber"
+          name="emp_no"
           rules={[{ required: true, message: 'Employee number is required' }]}
         >
           <Input placeholder="Enter employee number" disabled={isEditMode} />
@@ -43,29 +33,21 @@ const EmploymentDetailsStep = ({
       </Col>
       <Col xs={24} sm={12}>
         <Form.Item
-          label="Is Internal Employee"
-          name="is_internal_employee"
-          valuePropName="checked"
-          initialValue={true}
-          rules={[{ required: true, message: 'Please specify if employee is internal' }]}
-        >
-          <Switch 
-            checkedChildren="Internal" 
-            unCheckedChildren="External"
-          />
-        </Form.Item>
-      </Col>
-      <Col xs={24} sm={12}>
-        <Form.Item
           label="Employment Type"
-          name="employment_type"
+          name="employee_type_id"
           rules={[{ required: true, message: 'Employment type is required' }]}
         >
-          <Select placeholder="Select employment type">
-            <Option value="Permanent">Permanent</Option>
-            <Option value="Probation">Probation</Option>
-            <Option value="Intern">Intern</Option>
-            <Option value="Contract">Contract</Option>
+          <Select 
+            placeholder="Select employment type"
+            showSearch
+            optionFilterProp="children"
+            loading={!employeeTypes || employeeTypes.length === 0}
+          >
+            {employeeTypes?.map((type) => (
+              <Option key={type.id} value={type.id}>
+                {type.name}
+              </Option>
+            ))}
           </Select>
         </Form.Item>
       </Col>
@@ -132,17 +114,18 @@ const EmploymentDetailsStep = ({
       <Col xs={24} sm={12}>
         <Form.Item
           label="Tech Stack"
-          name="tech_stack"
+          name="tech_stack_id"
         >
           <Select 
             placeholder="Select tech stack" 
             allowClear
             showSearch
             optionFilterProp="children"
+            loading={!techStacks || techStacks.length === 0}
           >
             {techStacks?.map((stack) => (
-              <Option key={stack} value={stack}>
-                {stack}
+              <Option key={stack.id} value={stack.id}>
+                {stack.name}
               </Option>
             ))}
           </Select>
@@ -151,7 +134,7 @@ const EmploymentDetailsStep = ({
       <Col xs={24} sm={12}>
         <Form.Item
           label="Join Date"
-          name="joinDate"
+          name="joined_date"
         >
           <DatePicker style={{ width: '100%' }} placeholder="Select join date" />
         </Form.Item>
@@ -168,11 +151,11 @@ const EmploymentDetailsStep = ({
         <Form.Item
           label="Last Promotion Date"
           name="last_promotion_date"
-          dependencies={['joinDate']}
+            dependencies={['joined_date']}
           rules={[
             ({ getFieldValue }) => ({
               validator(_, value) {
-                const joinDate = getFieldValue('joinDate');
+                const joinDate = getFieldValue('joined_date');
                 if (!value || !joinDate || dayjs(value).isAfter(dayjs(joinDate)) || dayjs(value).isSame(dayjs(joinDate))) {
                   return Promise.resolve();
                 }
@@ -211,13 +194,15 @@ EmploymentDetailsStep.propTypes = {
   tiers: PropTypes.array,
   tracks: PropTypes.array,
   techStacks: PropTypes.array,
+  employeeTypes: PropTypes.array,
 };
 
 EmploymentDetailsStep.defaultProps = {
   designations: [],
   tiers: [],
   tracks: [],
-  techStacks: ['.NET', 'Full Stack', 'QA', 'BA/PM', 'Data Science', 'Java', 'React'],
+  techStacks: [],
+  employeeTypes: [],
 };
 
 export default EmploymentDetailsStep;

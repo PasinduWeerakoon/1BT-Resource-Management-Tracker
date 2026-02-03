@@ -2,14 +2,14 @@
  * Billing Statuses Tab Component
  */
 
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { Form, Input, Switch } from 'antd';
 import { useConfigCRUD } from '../hooks/useConfigCRUD';
 import ConfigTable from '../components/ConfigTable';
 import ConfigModal from '../components/ConfigModal';
 import { billingStatusesService } from '@api';
-import { selectBillingStatuses, selectBillingStatusesLoading, fetchBillingStatuses } from '@redux/slices/configSlice';
+import { selectBillingStatuses, selectBillingStatusesLoading, fetchBillingStatusesData } from '@redux/slices/configSlice';
 import { showErrorToast } from '@utils/toast.utils';
 
 const BillingStatusesTab = () => {
@@ -33,8 +33,15 @@ const BillingStatusesTab = () => {
   }, [billingStatusesData]);
 
   // Refetch function for after CRUD operations
+  useEffect(() => {
+    // Fetch data if not already loaded
+    if (!billingStatusesData.length && !loadingBillingStatuses) {
+      dispatch(fetchBillingStatusesData({ force: false }));
+    }
+  }, [dispatch, billingStatusesData.length, loadingBillingStatuses]);
+
   const refetchBillingStatuses = async () => {
-    await dispatch(fetchBillingStatuses()).unwrap();
+    await dispatch(fetchBillingStatusesData({ force: true })).unwrap();
   };
 
   // CRUD operations

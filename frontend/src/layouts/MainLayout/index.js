@@ -6,7 +6,7 @@ import Footer from '../Footer';
 import Sidebar from '../Sidebar';
 import { setMobile } from '@redux/slices/layoutSlice';
 import { setCredentials } from '@redux/slices/authSlice';
-import { fetchAllConfigData, selectTiers, selectTracks, selectProjectTypes, selectBillingStatuses } from '@redux/slices/configSlice';
+import { fetchAllConfigData, selectTiers, selectTracks, selectProjectTypes, selectBillingStatuses, selectTags, selectDesignations, selectTechStacks, selectUniversities, selectEmployeeTypes } from '@redux/slices/configSlice';
 import { storeAuth } from '@utils/auth.utils';
 import { authService } from '@api';
 import logger from '@utils/logger';
@@ -22,6 +22,11 @@ const MainLayout = ({ children }) => {
   const tracks = useSelector(selectTracks);
   const projectTypes = useSelector(selectProjectTypes);
   const billingStatuses = useSelector(selectBillingStatuses);
+  const tags = useSelector(selectTags);
+  const designations = useSelector(selectDesignations);
+  const techStacks = useSelector(selectTechStacks);
+  const universities = useSelector(selectUniversities);
+  const employeeTypes = useSelector(selectEmployeeTypes);
   const fetchUserInfoInProgressRef = useRef(false);
   const fetchConfigDataInProgressRef = useRef(false);
 
@@ -134,14 +139,20 @@ const MainLayout = ({ children }) => {
         return;
       }
 
-      // Check if any config data is missing
+      // Check if any config data is missing (if all are loaded, no need to fetch)
       const hasTiers = tiers && tiers.length > 0;
       const hasTracks = tracks && tracks.length > 0;
       const hasProjectTypes = projectTypes && projectTypes.length > 0;
       const hasBillingStatuses = billingStatuses && billingStatuses.length > 0;
+      const hasTags = tags && tags.length > 0;
+      const hasDesignations = designations && designations.length > 0;
+      const hasTechStacks = techStacks && techStacks.length > 0;
+      const hasUniversities = universities && universities.length > 0;
+      const hasEmployeeTypes = employeeTypes && employeeTypes.length > 0;
 
-      // Only fetch if at least one is missing
-      if (hasTiers && hasTracks && hasProjectTypes && hasBillingStatuses) {
+      // Only fetch if at least one is missing (since we fetch all in one call)
+      if (hasTiers && hasTracks && hasProjectTypes && hasBillingStatuses && 
+          hasTags && hasDesignations && hasTechStacks && hasUniversities && hasEmployeeTypes) {
         return;
       }
 
@@ -158,7 +169,7 @@ const MainLayout = ({ children }) => {
 
     fetchConfigData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAuthenticated, accessToken]); // Run when auth state changes
+  }, [isAuthenticated, accessToken, tiers.length, tracks.length, projectTypes.length, billingStatuses.length, tags.length, designations.length, techStacks.length, universities.length, employeeTypes.length]); // Run when auth state changes or configs are missing
 
   useEffect(() => {
     const handleResize = () => {

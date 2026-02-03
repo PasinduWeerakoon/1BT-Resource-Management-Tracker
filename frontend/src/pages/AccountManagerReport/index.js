@@ -2228,24 +2228,24 @@ const AccountManagerReport = () => {
                 title={
                     <div className="project-overview-header">
                         <span className="project-overview-title">
-                            BY ALLOCATION
-                            {displayProjectName && (
-                                <span style={{ marginLeft: '8px', color: '#1890ff', fontWeight: 'normal' }}>
-                                    - {displayProjectName}
-                                </span>
-                            )}
-                        </span>
+                                BY ALLOCATION
+                                {displayProjectName && (
+                                    <span style={{ marginLeft: '8px', color: '#1890ff', fontWeight: 'normal' }}>
+                                        - {displayProjectName}
+                                    </span>
+                                )}
+                            </span>
                         <div className="project-overview-actions">
-                            {byAllocationExpanded && (
-                                <Button
-                                    type="primary"
-                                    icon={<PlusOutlined />}
-                                    onClick={handleAddAllocation}
+                        {byAllocationExpanded && (
+                            <Button
+                                type="primary"
+                                icon={<PlusOutlined />}
+                                onClick={handleAddAllocation}
                                     className="create-project-btn"
-                                >
-                                    Add Allocation
-                                </Button>
-                            )}
+                            >
+                                Add Allocation
+                            </Button>
+                        )}
                             <div
                                 className="collapsible-icon"
                                 onClick={() => setByAllocationExpanded(!byAllocationExpanded)}

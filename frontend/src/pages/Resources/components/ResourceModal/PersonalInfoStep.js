@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { Form, Input, DatePicker, Upload, Row, Col } from 'antd';
+import { Form, Input, Upload, Row, Col } from 'antd';
 import { UploadOutlined } from '@ant-design/icons';
 import PropTypes from 'prop-types';
 
@@ -42,24 +42,9 @@ const PersonalInfoStep = ({ form, isEditMode }) => {
       </Col>
       <Col xs={24} sm={12}>
         <Form.Item
-          label="Date of Birth"
-          name="bod"
-        >
-          <DatePicker style={{ width: '100%' }} placeholder="Select date of birth" />
-        </Form.Item>
-      </Col>
-      <Col xs={24} sm={12}>
-        <Form.Item
-          label="NIC or Passport"
-          name="nicOrPassport"
-        >
-          <Input placeholder="Enter NIC or Passport number" />
-        </Form.Item>
-      </Col>
-      <Col xs={24} sm={12}>
-        <Form.Item
           label="EPF No"
           name="epf_no"
+          rules={[{ required: true, message: 'EPF number is required' }]}
         >
           <Input placeholder="Enter EPF number" />
         </Form.Item>
@@ -67,7 +52,7 @@ const PersonalInfoStep = ({ form, isEditMode }) => {
       <Col xs={24} sm={12}>
         <Form.Item
           label="Global Employee ID"
-          name="global_employeeid"
+          name="global_employee_id"
         >
           <Input placeholder="Enter global employee ID" />
         </Form.Item>

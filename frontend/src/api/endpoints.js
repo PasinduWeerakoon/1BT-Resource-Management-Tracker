@@ -120,6 +120,11 @@ export const ENDPOINTS = {
     DELETE: (id) => `${BASE_URL}/tiers/${id}`,
   },
 
+  // Configs (Unified endpoint for all configurations)
+  CONFIGS: {
+    GET_ALL: `${BASE_URL}/configs`,
+  },
+
   // Clients
   CLIENTS: {
     BASE: `${BASE_URL}/clients`,

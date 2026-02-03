@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { Form, Input, Select, Row, Col } from 'antd';
+import { Form, Input, Select, Switch, Row, Col } from 'antd';
 import PropTypes from 'prop-types';
 
 const { Option } = Select;
@@ -33,6 +33,20 @@ const AdditionalInfoStep = ({ form, tags }) => {
               </Option>
             ))}
           </Select>
+        </Form.Item>
+      </Col>
+      <Col xs={24} sm={12}>
+        <Form.Item
+          label="Skills"
+          name="skills"
+        >
+          <Select
+            mode="tags"
+            placeholder="Enter skills (press Enter to add)"
+            allowClear
+            tokenSeparators={[',']}
+            style={{ width: '100%' }}
+          />
         </Form.Item>
       </Col>
       <Col xs={24} sm={12}>

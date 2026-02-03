@@ -2,21 +2,27 @@
  * Designations Tab Component
  */
 
-import React from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { Form, Input, Select, Switch } from 'antd';
+import { useDispatch, useSelector } from 'react-redux';
 import { useConfigCRUD } from '../hooks/useConfigCRUD';
-import { useConfigData } from '../hooks/useConfigData';
 import ConfigTable from '../components/ConfigTable';
 import ConfigModal from '../components/ConfigModal';
 import { designationsService } from '@api';
+import { selectDesignations, selectDesignationsLoading, fetchDesignationsData } from '@redux/slices/configSlice';
 
 const { Option } = Select;
 
 const DesignationsTab = () => {
-    // Data fetching
-    const { data: designations, loading: loadingDesignations, fetchData: fetchDesignations } = useConfigData({
-        fetchFunction: designationsService.getAll,
-        transformData: (item) => ({
+    const dispatch = useDispatch();
+    // Get data from Redux
+    const designationsData = useSelector(selectDesignations);
+    const loadingDesignations = useSelector(selectDesignationsLoading);
+
+    // Transform data for table display
+    const designations = useMemo(() => {
+        return designationsData.map((item, index) => ({
+            key: item.id || `designation-${index}`,
             id: item.id,
             name: item.label || item.name, // Use label from API response as name
             level: item.level,
@@ -28,9 +34,20 @@ const DesignationsTab = () => {
             is_default: item.isDefault !== undefined ? item.isDefault : (item.is_default !== undefined ? item.is_default : false),
             isInternRole: item.isInternRole || false,
             displayOrder: item.displayOrder || 0,
-        }),
-        autoFetch: true,
-    });
+        }));
+    }, [designationsData]);
+
+    useEffect(() => {
+        // Fetch data if not already loaded
+        if (!designationsData.length && !loadingDesignations) {
+            dispatch(fetchDesignationsData({ force: false }));
+        }
+    }, [dispatch, designationsData.length, loadingDesignations]);
+
+    // Refetch function for after CRUD operations
+    const refetchDesignations = async () => {
+        await dispatch(fetchDesignationsData({ force: true })).unwrap();
+    };
 
     // CRUD operations
     const {
@@ -45,7 +62,7 @@ const DesignationsTab = () => {
         handleDelete,
     } = useConfigCRUD({
         service: designationsService,
-        onFetch: fetchDesignations,
+        onFetch: refetchDesignations,
         transformPayload: (values) => {
             // Convert tier string (Tier 01) to level number (1)
             const level = values.tier ? Number.parseInt(values.tier.replace('Tier ', ''), 10) : 1;

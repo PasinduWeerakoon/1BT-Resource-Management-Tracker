@@ -2,14 +2,14 @@
  * Tiers Tab Component
  */
 
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { Form, Input, InputNumber, Switch } from 'antd';
 import { useConfigCRUD } from '../hooks/useConfigCRUD';
 import ConfigTable from '../components/ConfigTable';
 import ConfigModal from '../components/ConfigModal';
 import { tiersService } from '@api';
-import { selectTiers, selectTiersLoading, fetchTiers } from '@redux/slices/configSlice';
+import { selectTiers, selectTiersLoading, fetchTiersData } from '@redux/slices/configSlice';
 import { showErrorToast } from '@utils/toast.utils';
 
 const TiersTab = () => {
@@ -32,9 +32,16 @@ const TiersTab = () => {
     }));
   }, [tiersData]);
 
+  useEffect(() => {
+    // Fetch data if not already loaded
+    if (!tiersData.length && !loadingTiers) {
+      dispatch(fetchTiersData({ force: false }));
+    }
+  }, [dispatch, tiersData.length, loadingTiers]);
+
   // Refetch function for after CRUD operations
   const refetchTiers = async () => {
-    await dispatch(fetchTiers()).unwrap();
+    await dispatch(fetchTiersData({ force: true })).unwrap();
   };
 
   // CRUD operations

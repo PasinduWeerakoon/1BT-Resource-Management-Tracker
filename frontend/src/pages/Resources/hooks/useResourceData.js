@@ -5,8 +5,8 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useSelector } from 'react-redux';
-import { resourcesService, designationsService, tagsService } from '@api';
-import { selectTiers, selectTracks } from '@redux/slices/configSlice';
+import { resourcesService } from '@api';
+import { selectTiers, selectTracks, selectDesignations, selectTags } from '@redux/slices/configSlice';
 import { showErrorToast } from '@utils/toast.utils';
 import logger from '@utils/logger';
 import dayjs from 'dayjs';
@@ -16,68 +16,18 @@ export const useResourceData = ({ filters, debouncedSearch, pagination, setPagin
   const { message } = App.useApp();
   const [employees, setEmployees] = useState([]);
   const [fetchingEmployees, setFetchingEmployees] = useState(false);
-  const [designations, setDesignations] = useState([]);
-  const [tags, setTags] = useState([]);
-  const dropdownDataFetched = useRef(false);
 
-  // Get tiers and tracks from Redux
+  // Get all config data from Redux
   const tiersData = useSelector(selectTiers);
   const tracksData = useSelector(selectTracks);
+  const designationsData = useSelector(selectDesignations);
+  const tagsData = useSelector(selectTags);
 
   // Transform Redux data for display (already has name from label)
   const tiers = tiersData || [];
   const tracks = tracksData || [];
-
-  // Fetch designations and tags on component mount (not in Redux yet)
-  useEffect(() => {
-    const fetchDropdownData = async () => {
-      if (dropdownDataFetched.current) return;
-      dropdownDataFetched.current = true;
-
-      try {
-        const [designationsRes, tagsRes] = await Promise.all([
-          designationsService.getAll(),
-          tagsService.getAll(),
-        ]);
-
-        // Transform and set designations
-        if (designationsRes && designationsRes.data) {
-          let designationsData = [];
-          if (Array.isArray(designationsRes.data)) {
-            designationsData = designationsRes.data;
-          } else if (designationsRes.data && designationsRes.data.data && Array.isArray(designationsRes.data.data)) {
-            designationsData = designationsRes.data.data;
-          }
-          // Transform label to name for display
-          const transformedDesignations = designationsData.map(item => ({
-            ...item,
-            name: item.label || item.name,
-          }));
-          setDesignations(transformedDesignations);
-        }
-
-        // Transform and set tags
-        if (tagsRes && tagsRes.data) {
-          let tagsData = [];
-          if (Array.isArray(tagsRes.data)) {
-            tagsData = tagsRes.data;
-          } else if (tagsRes.data && tagsRes.data.data && Array.isArray(tagsRes.data.data)) {
-            tagsData = tagsRes.data.data;
-          }
-          // Transform label to name for display
-          const transformedTags = tagsData.map(item => ({
-            ...item,
-            name: item.label || item.name,
-          }));
-          setTags(transformedTags);
-        }
-      } catch (error) {
-        logger.error('Failed to fetch dropdown data', error);
-      }
-    };
-
-    fetchDropdownData();
-  }, []);
+  const designations = designationsData || [];
+  const tags = tagsData || [];
 
   // Fetch employees from API
   const fetchEmployees = async (page = 1, limit = 20) => {

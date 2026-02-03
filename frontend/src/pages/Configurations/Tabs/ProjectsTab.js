@@ -4,11 +4,12 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { useSelector } from 'react-redux';
 import { useConfigCRUD } from '../hooks/useConfigCRUD';
 import ConfigTable from '../components/ConfigTable';
 import ConfigModal from '../components/ConfigModal';
 import ProjectForm from './ProjectsTab/components/ProjectForm';
-import { projectsService, projectTypesService, billingStatusesService } from '@api';
+import { projectsService } from '@api';
 import { showErrorToast } from '@utils/toast.utils';
 import logger from '@utils/logger';
 import dayjs from 'dayjs';
@@ -16,6 +17,7 @@ import { PAGINATION } from '@constants/app';
 import useProjectData from './ProjectsTab/hooks/useProjectData';
 import useProjectForm from './ProjectsTab/hooks/useProjectForm';
 import { getProjectColumns } from './ProjectsTab/utils/tableColumns';
+import { selectProjectTypes, selectBillingStatuses } from '@redux/slices/configSlice';
 
 const ProjectsTab = () => {
     const [pagination, setPagination] = useState({
@@ -23,9 +25,10 @@ const ProjectsTab = () => {
         pageSize: PAGINATION.DEFAULT_PAGE_SIZE,
         total: 0,
     });
-    const [projectTypesForModal, setProjectTypesForModal] = useState([]);
-    const [billingStatusesForModal, setBillingStatusesForModal] = useState([]);
-    const [loadingConfigForModal, setLoadingConfigForModal] = useState(false);
+
+    // Get config data from Redux
+    const projectTypesForModal = useSelector(selectProjectTypes);
+    const billingStatusesForModal = useSelector(selectBillingStatuses);
 
     // Use project data hook
     const {
@@ -38,35 +41,6 @@ const ProjectsTab = () => {
         fetchProjects,
     } = useProjectData(pagination);
 
-    // Fetch all configuration data for Projects modal
-    useEffect(() => {
-        const fetchConfigurationsForModal = async () => {
-            try {
-                setLoadingConfigForModal(true);
-                const [projectTypesRes, billingStatusesRes] = await Promise.all([
-                    projectTypesService.getAll(),
-                    billingStatusesService.getAll(),
-                ]);
-
-                const extractData = (response) => {
-                    if (Array.isArray(response?.data)) return response.data;
-                    if (Array.isArray(response?.data?.data)) return response.data.data;
-                    if (Array.isArray(response)) return response;
-                    return [];
-                };
-
-                setProjectTypesForModal(extractData(projectTypesRes));
-                setBillingStatusesForModal(extractData(billingStatusesRes));
-            } catch (error) {
-                logger.error('Failed to fetch configurations for Projects modal:', error);
-                showErrorToast('Failed to load configuration data');
-            } finally {
-                setLoadingConfigForModal(false);
-            }
-        };
-
-        fetchConfigurationsForModal();
-    }, []);
 
     // Fetch projects on mount
     useEffect(() => {
@@ -241,7 +215,6 @@ const ProjectsTab = () => {
                     accountManagersList={accountManagersList}
                     projectTypesForModal={projectTypesForModal}
                     billingStatusesForModal={billingStatusesForModal}
-                    loadingConfigForModal={loadingConfigForModal}
                     loadingAccountManagers={loadingAccountManagers}
                 />
             </ConfigModal>

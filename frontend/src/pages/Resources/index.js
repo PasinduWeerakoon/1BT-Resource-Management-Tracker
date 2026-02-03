@@ -5,6 +5,7 @@
  */
 
 import React, { useState, useRef, useCallback, useMemo } from 'react';
+import { useSelector } from 'react-redux';
 import { Form, Card, Button, Modal, Select } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import { useResourceFilters } from './hooks/useResourceFilters';
@@ -14,6 +15,7 @@ import ResourceFilters from './components/ResourceFilters';
 import ResourceTable from './components/ResourceTable';
 import ResourceModal from './components/ResourceModal';
 import ResourceProfile from './components/ResourceProfile';
+import { selectEmployeeTypes, selectTechStacks, selectUniversities } from '@redux/slices/configSlice';
 import '@styles/pages/Resources.scss';
 
 const { Option } = Select;
@@ -28,6 +30,11 @@ const Resources = () => {
   });
   const [isProfileModalVisible, setIsProfileModalVisible] = useState(false);
   const [selectedEmployeeForProfile, setSelectedEmployeeForProfile] = useState(null);
+
+  // Get config data from Redux
+  const employeeTypes = useSelector(selectEmployeeTypes);
+  const techStacks = useSelector(selectTechStacks);
+  const universities = useSelector(selectUniversities);
 
   // Use custom hooks
   const {
@@ -76,6 +83,9 @@ const Resources = () => {
     fetchEmployees,
     pagination,
     tiers,
+    employeeTypes,
+    techStacks,
+    universities,
   });
 
   // Handle View Profile - memoized with useCallback
@@ -220,6 +230,9 @@ const Resources = () => {
         designations={designations}
         tracks={tracks}
         tags={tags}
+        employeeTypes={employeeTypes}
+        techStacks={techStacks}
+        universities={universities}
       />
 
       {/* Employee Profile Modal */}

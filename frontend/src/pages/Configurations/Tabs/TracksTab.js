@@ -2,20 +2,27 @@
  * Tracks Tab Component
  */
 
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { Form, Input, Switch } from 'antd';
 import { useConfigCRUD } from '../hooks/useConfigCRUD';
 import ConfigTable from '../components/ConfigTable';
 import ConfigModal from '../components/ConfigModal';
 import { tracksService } from '@api';
-import { selectTracks, selectTracksLoading, fetchTracks } from '@redux/slices/configSlice';
+import { selectTracks, selectTracksLoading, fetchTracksData } from '@redux/slices/configSlice';
 
 const TracksTab = () => {
   const dispatch = useDispatch();
   // Get data from Redux
   const tracksData = useSelector(selectTracks);
   const loadingTracks = useSelector(selectTracksLoading);
+
+  useEffect(() => {
+    // Fetch data if not already loaded
+    if (!tracksData.length && !loadingTracks) {
+      dispatch(fetchTracksData({ force: false }));
+    }
+  }, [dispatch, tracksData.length, loadingTracks]);
 
   // Transform data for table display
   const tracks = useMemo(() => {
@@ -33,7 +40,7 @@ const TracksTab = () => {
 
   // Refetch function for after CRUD operations
   const refetchTracks = async () => {
-    await dispatch(fetchTracks()).unwrap();
+    await dispatch(fetchTracksData({ force: true })).unwrap();
   };
 
   // CRUD operations
