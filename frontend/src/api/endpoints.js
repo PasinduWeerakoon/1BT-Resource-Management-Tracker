@@ -197,6 +197,13 @@ export const ENDPOINTS = {
     EXTERNAL_CONSULTANTS: `${BASE_URL}/reports/external-consultants`,
   },
 
+  // Dashboard Summary
+  DASHBOARD: {
+    RESOURCE_COUNTS: `${BASE_URL}/dashboard/resource-counts`,
+    PERCENTAGES: `${BASE_URL}/dashboard/percentages`,
+    CHARTS: `${BASE_URL}/dashboard/charts`,
+  },
+
   // Audit Logs
   AUDIT_LOGS: {
     BASE: `${BASE_URL}/audit-logs`,

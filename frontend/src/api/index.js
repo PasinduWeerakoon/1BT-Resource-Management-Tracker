@@ -77,6 +77,7 @@ export { default as accountTypesService } from './services/accountTypes.service'
 export { default as projectStatusesService } from './services/projectStatuses.service';
 export { default as tiersService } from './services/tiers.service';
 export { default as configsService } from './services/configs.service';
+export { default as summaryService } from './services/summary.service';
 
 // Utilities
 export * from './utils';
