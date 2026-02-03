@@ -481,7 +481,60 @@ ADD COLUMN IF NOT EXISTS billing_status_id INTEGER REFERENCES billing_statuses(i
 CREATE INDEX IF NOT EXISTS idx_future_alloc_billing_status ON future_allocations(billing_status_id);
 
 -- Add comment for documentation
-COMMENT ON COLUMN future_allocations.billing_status_id IS 'FK to billing_statuses table - required for non-bench allocations when activated';`
+COMMENT ON COLUMN future_allocations.billing_status_id IS 'FK to billing_statuses table - required for non-bench allocations when activated';`,
+
+    '012_add_tier_id_to_designations': `-- Migration: 012_add_tier_id_to_designations
+-- Adds tier_id column to designations table to properly map designations to tiers
+-- This enables the intern report to use tier_id = 5 (Intern tier) correctly
+
+-- Add tier_id column
+ALTER TABLE designations ADD COLUMN IF NOT EXISTS tier_id INTEGER;
+
+-- Update existing designations with correct tier_id based on is_intern_role and level
+-- Intern roles -> Tier 5 (Intern)
+UPDATE designations SET tier_id = 5 WHERE is_intern_role = true;
+
+-- Level 1 (Trainee, non-intern) -> Tier 1 (Entry)
+UPDATE designations SET tier_id = 1 WHERE is_intern_role = false AND level = 1;
+
+-- Level 2-3 (ASE, SE, QAE, BA) -> Tier 2 (Intermediate)
+UPDATE designations SET tier_id = 2 WHERE is_intern_role = false AND level IN (2, 3);
+
+-- Level 4-5 (SSE, SQAE, ATL, PM, SBA) -> Tier 3 (Senior)
+UPDATE designations SET tier_id = 3 WHERE is_intern_role = false AND level IN (4, 5);
+
+-- Level 6+ (TL, STL, Architect, Leads) -> Tier 4 (Expert)
+UPDATE designations SET tier_id = 4 WHERE is_intern_role = false AND level >= 6;
+
+-- Level 0 (None/Other) -> Tier 6 (None)
+UPDATE designations SET tier_id = 6 WHERE level = 0 OR level IS NULL;
+
+-- Set default for any remaining nulls
+UPDATE designations SET tier_id = 6 WHERE tier_id IS NULL;
+
+-- Add NOT NULL constraint and default value
+ALTER TABLE designations ALTER COLUMN tier_id SET NOT NULL;
+ALTER TABLE designations ALTER COLUMN tier_id SET DEFAULT 6;
+
+-- Add index for tier_id queries
+CREATE INDEX IF NOT EXISTS idx_designations_tier_id ON designations(tier_id);
+
+-- Add comment for documentation
+COMMENT ON COLUMN designations.tier_id IS 'FK to TIERS config: 1=Tier-1, 2=Tier-2, 3=Tier-3, 4=Tier-4, 5=Intern, 6=None, 7=Synergy';`,
+
+    '013_sync_employee_tier_from_designation': `-- Migration: 013_sync_employee_tier_from_designation
+-- Updates employee tier_id to match their designation's tier_id
+-- This ensures employees with Intern designations have tier_id = 5
+
+-- Update all employees to use their designation's tier_id
+UPDATE employees e
+SET tier_id = d.tier_id
+FROM designations d
+WHERE e.designation_id = d.id
+AND e.tier_id != d.tier_id;
+
+-- Add comment for documentation
+COMMENT ON COLUMN employees.tier_id IS 'Tier from TIERS config - should match designation.tier_id';`
 };
 
 // ============================================================================
@@ -489,40 +542,46 @@ COMMENT ON COLUMN future_allocations.billing_status_id IS 'FK to billing_statuse
 // ============================================================================
 
 const SEEDS = {
-    '001_seed_designations': `INSERT INTO designations (name, level, is_intern_role, category, is_active, is_default, display_order)
+    '001_seed_designations': `INSERT INTO designations (name, level, tier_id, is_intern_role, category, is_active, is_default, display_order)
 VALUES 
-    ('Intern - SE', 1, true, 'Engineering', true, true, 1),
-    ('Trainee - SE', 1, false, 'Engineering', true, true, 2),
-    ('ASE', 2, false, 'Engineering', true, true, 6),
-    ('SE', 3, false, 'Engineering', true, true, 11),
-    ('SSE', 4, false, 'Engineering', true, true, 14),
-    ('ATL', 5, false, 'Engineering', true, true, 15),
-    ('TL', 6, false, 'Engineering', true, true, 16),
-    ('STL', 7, false, 'Engineering', true, true, 19),
-    ('Architect', 8, false, 'Engineering', true, true, 21),
-    ('Principal Architect', 9, false, 'Engineering', true, true, 22),
-    ('Intern - QA', 1, true, 'QA', true, true, 25),
-    ('Trainee - QA', 1, false, 'QA', true, true, 26),
-    ('QAE', 3, false, 'QA', true, true, 27),
-    ('SQAE', 4, false, 'QA', true, true, 28),
-    ('QAL', 6, false, 'QA', true, true, 30),
-    ('SQAL', 7, false, 'QA', true, true, 31),
-    ('Intern - BA', 1, true, 'BA/PM', true, true, 35),
-    ('BA', 3, false, 'BA/PM', true, true, 36),
-    ('SBA', 4, false, 'BA/PM', true, true, 37),
-    ('PM', 5, false, 'BA/PM', true, true, 41),
-    ('SPM', 6, false, 'BA/PM', true, true, 42),
-    ('PPM', 7, false, 'BA/PM', true, true, 43),
-    ('Intern - DevOps', 1, true, 'DevOps', true, true, 50),
-    ('DevOps Engineer', 3, false, 'DevOps', true, true, 51),
-    ('Senior DevOps Engineer', 4, false, 'DevOps', true, true, 52),
-    ('DevOps Lead', 6, false, 'DevOps', true, true, 53),
-    ('Intern - UI/UX', 1, true, 'Design', true, true, 60),
-    ('UI/UX Designer', 3, false, 'Design', true, true, 61),
-    ('Senior UI/UX Designer', 4, false, 'Design', true, true, 62),
-    ('Design Lead', 6, false, 'Design', true, true, 63),
-    ('None', 0, false, 'Other', true, true, 82)
-ON CONFLICT (name) DO UPDATE SET level = EXCLUDED.level, is_intern_role = EXCLUDED.is_intern_role, category = EXCLUDED.category, display_order = EXCLUDED.display_order, updated_at = NOW();`,
+    -- Engineering Track
+    ('Intern - SE', 1, 5, true, 'Engineering', true, true, 1),
+    ('Trainee - SE', 1, 1, false, 'Engineering', true, true, 2),
+    ('ASE', 2, 1, false, 'Engineering', true, true, 6),
+    ('SE', 3, 2, false, 'Engineering', true, true, 11),
+    ('SSE', 4, 3, false, 'Engineering', true, true, 14),
+    ('ATL', 5, 3, false, 'Engineering', true, true, 15),
+    ('TL', 6, 4, false, 'Engineering', true, true, 16),
+    ('STL', 7, 4, false, 'Engineering', true, true, 19),
+    ('Architect', 8, 4, false, 'Engineering', true, true, 21),
+    ('Principal Architect', 9, 4, false, 'Engineering', true, true, 22),
+    -- QA Track
+    ('Intern - QA', 1, 5, true, 'QA', true, true, 25),
+    ('Trainee - QA', 1, 1, false, 'QA', true, true, 26),
+    ('QAE', 3, 2, false, 'QA', true, true, 27),
+    ('SQAE', 4, 3, false, 'QA', true, true, 28),
+    ('QAL', 6, 4, false, 'QA', true, true, 30),
+    ('SQAL', 7, 4, false, 'QA', true, true, 31),
+    -- BA/PM Track
+    ('Intern - BA', 1, 5, true, 'BA/PM', true, true, 35),
+    ('BA', 3, 2, false, 'BA/PM', true, true, 36),
+    ('SBA', 4, 3, false, 'BA/PM', true, true, 37),
+    ('PM', 5, 3, false, 'BA/PM', true, true, 41),
+    ('SPM', 6, 4, false, 'BA/PM', true, true, 42),
+    ('PPM', 7, 4, false, 'BA/PM', true, true, 43),
+    -- DevOps Track
+    ('Intern - DevOps', 1, 5, true, 'DevOps', true, true, 50),
+    ('DevOps Engineer', 3, 2, false, 'DevOps', true, true, 51),
+    ('Senior DevOps Engineer', 4, 3, false, 'DevOps', true, true, 52),
+    ('DevOps Lead', 6, 4, false, 'DevOps', true, true, 53),
+    -- Design Track
+    ('Intern - UI/UX', 1, 5, true, 'Design', true, true, 60),
+    ('UI/UX Designer', 3, 2, false, 'Design', true, true, 61),
+    ('Senior UI/UX Designer', 4, 3, false, 'Design', true, true, 62),
+    ('Design Lead', 6, 4, false, 'Design', true, true, 63),
+    -- Other
+    ('None', 0, 6, false, 'Other', true, true, 82)
+ON CONFLICT (name) DO UPDATE SET level = EXCLUDED.level, tier_id = EXCLUDED.tier_id, is_intern_role = EXCLUDED.is_intern_role, category = EXCLUDED.category, display_order = EXCLUDED.display_order, updated_at = NOW();`,
 
     '002_seed_billing_statuses': `INSERT INTO billing_statuses (name, description, is_active, is_default, display_order)
 VALUES 

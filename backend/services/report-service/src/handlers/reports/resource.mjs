@@ -216,6 +216,9 @@ export const getUtilizationReport = async (event) => {
  * Get intern report
  * Returns all interns with their current projects, total intern count, and intern percentage
  * Supports filters: project_name, account_manager, track_id, tech_stack_id
+ * 
+ * Interns are identified by tier_id = 5 (Intern tier) on the employee
+ * The tier_id is set based on the employee's designation which has a tier_id mapping
  */
 export const getInternReport = async (event) => {
     const log = logger.child({ handler: 'reports.getInternReport' });
@@ -281,11 +284,11 @@ export const getInternReport = async (event) => {
         `;
 
         // Get total intern count - apply resource filters only
+        // Interns are identified by tier_id = 5 only (proper tier mapping from designation)
         const totalInternsQuery = project_name || account_manager
             ? `
                 SELECT COUNT(DISTINCT r.id) as total
                 FROM employees r
-                
                 INNER JOIN allocations a ON r.id = a.employee_id 
                     AND a.is_active = true 
                     AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
@@ -297,7 +300,6 @@ export const getInternReport = async (event) => {
             : `
                 SELECT COUNT(DISTINCT r.id) as total
                 FROM employees r
-                
                 ${resourceWhereClause}
             `;
 

@@ -167,6 +167,7 @@ export const resourceSchemas = {
 };
 
 // Designation Schemas
+// tier_id must map to TIERS config: 1=Tier-1, 2=Tier-2, 3=Tier-3, 4=Tier-4, 5=Intern, 6=None, 7=Synergy
 export const designationSchemas = {
     list: Joi.object({
         ...paginationSchema,
@@ -175,13 +176,19 @@ export const designationSchemas = {
 
     create: Joi.object({
         name: Joi.string().max(100).required(),
-        level: Joi.number().integer().min(1).max(20).required(),
+        level: Joi.number().integer().min(0).max(20).required(),
+        tier_id: Joi.number().integer().min(1).max(7).required(), // Maps to TIERS config
+        is_intern_role: Joi.boolean().default(false),
+        category: Joi.string().max(50).optional(),
         description: Joi.string().max(500).optional(),
     }),
 
     update: Joi.object({
         name: Joi.string().max(100).optional(),
-        level: Joi.number().integer().min(1).max(20).optional(),
+        level: Joi.number().integer().min(0).max(20).optional(),
+        tier_id: Joi.number().integer().min(1).max(7).optional(), // Maps to TIERS config
+        is_intern_role: Joi.boolean().optional(),
+        category: Joi.string().max(50).optional(),
         description: Joi.string().max(500).optional(),
     }),
 };
