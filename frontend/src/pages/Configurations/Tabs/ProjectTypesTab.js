@@ -2,30 +2,40 @@
  * Project Types Tab Component
  */
 
-import React from 'react';
+import React, { useMemo } from 'react';
+import { useSelector, useDispatch } from 'react-redux';
 import { Form, Input, Switch } from 'antd';
 import { useConfigCRUD } from '../hooks/useConfigCRUD';
-import { useConfigData } from '../hooks/useConfigData';
 import ConfigTable from '../components/ConfigTable';
 import ConfigModal from '../components/ConfigModal';
 import { projectTypesService } from '@api';
+import { selectProjectTypes, selectProjectTypesLoading, fetchProjectTypes } from '@redux/slices/configSlice';
 import { showErrorToast } from '@utils/toast.utils';
 
 const ProjectTypesTab = () => {
-  // Data fetching
-  const { data: projectTypes, loading: loadingProjectTypes, fetchData: fetchProjectTypes } = useConfigData({
-    fetchFunction: projectTypesService.getAll,
-    transformData: (item) => ({
+  const dispatch = useDispatch();
+  // Get data from Redux
+  const projectTypesData = useSelector(selectProjectTypes);
+  const loadingProjectTypes = useSelector(selectProjectTypesLoading);
+
+  // Transform data for table display
+  const projectTypes = useMemo(() => {
+    return projectTypesData.map((item, index) => ({
+      key: item.id || `project-type-${index}`,
       id: item.id,
-      name: item.label || item.name, // Use label from API response as name
+      name: item.label || item.name,
       description: item.description || '',
       is_active: item.isActive !== undefined ? item.isActive : (item.is_active !== undefined ? item.is_active : true),
       is_default: item.isDefault !== undefined ? item.isDefault : (item.is_default !== undefined ? item.is_default : false),
       value: item.value || item.id,
       displayOrder: item.displayOrder || 0,
-    }),
-    autoFetch: true,
-  });
+    }));
+  }, [projectTypesData]);
+
+  // Refetch function for after CRUD operations
+  const refetchProjectTypes = async () => {
+    await dispatch(fetchProjectTypes()).unwrap();
+  };
 
   // CRUD operations
   const {
@@ -40,7 +50,7 @@ const ProjectTypesTab = () => {
     handleDelete,
   } = useConfigCRUD({
     service: projectTypesService,
-    onFetch: fetchProjectTypes,
+    onFetch: refetchProjectTypes,
   });
 
   // Custom edit handler to prevent editing default project types

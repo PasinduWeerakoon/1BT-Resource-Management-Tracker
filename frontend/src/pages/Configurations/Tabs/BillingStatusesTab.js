@@ -2,30 +2,40 @@
  * Billing Statuses Tab Component
  */
 
-import React from 'react';
+import React, { useMemo } from 'react';
+import { useSelector, useDispatch } from 'react-redux';
 import { Form, Input, Switch } from 'antd';
 import { useConfigCRUD } from '../hooks/useConfigCRUD';
-import { useConfigData } from '../hooks/useConfigData';
 import ConfigTable from '../components/ConfigTable';
 import ConfigModal from '../components/ConfigModal';
 import { billingStatusesService } from '@api';
+import { selectBillingStatuses, selectBillingStatusesLoading, fetchBillingStatuses } from '@redux/slices/configSlice';
 import { showErrorToast } from '@utils/toast.utils';
 
 const BillingStatusesTab = () => {
-  // Data fetching
-  const { data: billingStatuses, loading: loadingBillingStatuses, fetchData: fetchBillingStatuses } = useConfigData({
-    fetchFunction: billingStatusesService.getAll,
-    transformData: (item) => ({
+  const dispatch = useDispatch();
+  // Get data from Redux
+  const billingStatusesData = useSelector(selectBillingStatuses);
+  const loadingBillingStatuses = useSelector(selectBillingStatusesLoading);
+
+  // Transform data for table display
+  const billingStatuses = useMemo(() => {
+    return billingStatusesData.map((item, index) => ({
+      key: item.id || `billing-status-${index}`,
       id: item.id,
-      name: item.label || item.name, // Use label from API response as name
+      name: item.label || item.name,
       description: item.description || '',
       is_active: item.isActive !== undefined ? item.isActive : (item.is_active !== undefined ? item.is_active : true),
       is_default: item.isDefault !== undefined ? item.isDefault : (item.is_default !== undefined ? item.is_default : false),
       value: item.value || item.id,
       displayOrder: item.displayOrder || 0,
-    }),
-    autoFetch: true,
-  });
+    }));
+  }, [billingStatusesData]);
+
+  // Refetch function for after CRUD operations
+  const refetchBillingStatuses = async () => {
+    await dispatch(fetchBillingStatuses()).unwrap();
+  };
 
   // CRUD operations
   const {
@@ -40,7 +50,7 @@ const BillingStatusesTab = () => {
     handleDelete,
   } = useConfigCRUD({
     service: billingStatusesService,
-    onFetch: fetchBillingStatuses,
+    onFetch: refetchBillingStatuses,
   });
 
   // Custom edit handler to prevent editing default billing statuses

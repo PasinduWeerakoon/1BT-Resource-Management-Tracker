@@ -2,30 +2,40 @@
  * Tiers Tab Component
  */
 
-import React from 'react';
+import React, { useMemo } from 'react';
+import { useSelector, useDispatch } from 'react-redux';
 import { Form, Input, InputNumber, Switch } from 'antd';
 import { useConfigCRUD } from '../hooks/useConfigCRUD';
-import { useConfigData } from '../hooks/useConfigData';
 import ConfigTable from '../components/ConfigTable';
 import ConfigModal from '../components/ConfigModal';
 import { tiersService } from '@api';
+import { selectTiers, selectTiersLoading, fetchTiers } from '@redux/slices/configSlice';
 import { showErrorToast } from '@utils/toast.utils';
 
 const TiersTab = () => {
-  // Data fetching
-  const { data: tiers, loading: loadingTiers, fetchData: fetchTiers } = useConfigData({
-    fetchFunction: tiersService.getAll,
-    transformData: (item) => ({
+  const dispatch = useDispatch();
+  // Get data from Redux
+  const tiersData = useSelector(selectTiers);
+  const loadingTiers = useSelector(selectTiersLoading);
+
+  // Transform data for table display
+  const tiers = useMemo(() => {
+    return tiersData.map((item, index) => ({
+      key: item.id || `tier-${index}`,
       id: item.id,
-      name: item.label || item.name, // Use label from API response as name
-      level: item.value || item.level, // Use value from API response as level
+      name: item.label || item.name,
+      level: item.value || item.level,
       description: item.description || '',
       is_active: item.isActive !== undefined ? item.isActive : (item.is_active !== undefined ? item.is_active : true),
       is_default: item.isDefault !== undefined ? item.isDefault : (item.is_default !== undefined ? item.is_default : false),
       displayOrder: item.displayOrder || 0,
-    }),
-    autoFetch: true,
-  });
+    }));
+  }, [tiersData]);
+
+  // Refetch function for after CRUD operations
+  const refetchTiers = async () => {
+    await dispatch(fetchTiers()).unwrap();
+  };
 
   // CRUD operations
   const {
@@ -40,7 +50,7 @@ const TiersTab = () => {
     handleDelete,
   } = useConfigCRUD({
     service: tiersService,
-    onFetch: fetchTiers,
+    onFetch: refetchTiers,
   });
 
   // Custom edit handler to prevent editing default tiers

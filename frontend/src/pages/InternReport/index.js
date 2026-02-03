@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Row, Col, Card } from 'antd';
+import { useSelector } from 'react-redux';
 import CustomTable from '@components/Table';
-import { accountManagersService, projectsService, tracksService } from '@api';
+import { accountManagersService, projectsService } from '@api';
+import { selectTracks } from '@redux/slices/configSlice';
 import { useUserAllocationModal } from '@hooks/useUserAllocationModal';
 import UserAllocationModal from '@components/UserAllocationModal';
 import { useReportFilters } from '@hooks/reports';
@@ -29,13 +31,14 @@ const InternReport = () => {
     toggleFiltersExpanded,
   } = useReportFilters(defaultFilters);
 
+  // Get configuration data from Redux (cached on login)
+  const tracks = useSelector(selectTracks);
+
   // Filter options for dropdowns
   const [accountManagers, setAccountManagers] = useState([]);
   const [loadingAccountManagers, setLoadingAccountManagers] = useState(false);
   const [projects, setProjects] = useState([]);
   const [loadingProjects, setLoadingProjects] = useState(false);
-  const [tracks, setTracks] = useState([]);
-  const [loadingTracks, setLoadingTracks] = useState(false);
   const [techStacks, setTechStacks] = useState([]);
 
   // Report data - using custom hook
@@ -98,38 +101,11 @@ const InternReport = () => {
       }
     };
 
-    const fetchTracks = async () => {
-      try {
-        setLoadingTracks(true);
-        const response = await tracksService.getAll({ limit: 100 });
-        let tracksData = [];
-
-        if (response) {
-          if (Array.isArray(response.data)) {
-            tracksData = response.data;
-          } else if (response.data && response.data.data && Array.isArray(response.data.data)) {
-            tracksData = response.data.data;
-          }
-        }
-
-        const formatted = tracksData
-          .map((track) => ({
-            id: track.id,
-            name: track.name,
-          }))
-          .filter((track) => track.id && track.name);
-
-        setTracks(formatted);
-      } catch (error) {
-        logger.error('Failed to fetch tracks', error);
-      } finally {
-        setLoadingTracks(false);
-      }
-    };
+    // Tracks are now loaded from Redux (cached on login)
+    // No need to fetch them here
 
     fetchAccountManagers();
     fetchProjects();
-    fetchTracks();
   }, []);
 
 
@@ -232,7 +208,6 @@ const InternReport = () => {
           techStacks={techStacks}
           loadingProjects={loadingProjects}
           loadingAccountManagers={loadingAccountManagers}
-          loadingTracks={loadingTracks}
         />
       </FilterSection>
 

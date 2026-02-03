@@ -21,8 +21,6 @@ const { Option } = Select;
  * @param {Array} props.techStacks - List of tech stacks
  * @param {boolean} props.loadingProjects - Loading state for projects
  * @param {boolean} props.loadingAccountManagers - Loading state for account managers
- * @param {boolean} props.loadingTracks - Loading state for tracks
- * @param {boolean} props.loadingTiers - Loading state for tiers
  */
 const TierBreakdownFilters = ({
   filters,
@@ -34,8 +32,6 @@ const TierBreakdownFilters = ({
   techStacks = [],
   loadingProjects = false,
   loadingAccountManagers = false,
-  loadingTracks = false,
-  loadingTiers = false,
 }) => {
   return (
     <Row gutter={[16, 16]} className="filters-row">
@@ -46,7 +42,6 @@ const TierBreakdownFilters = ({
             value={filters.tier}
             onChange={(value) => setFilters({ ...filters, tier: value })}
             style={{ width: '100%' }}
-            loading={loadingTiers}
             showSearch
             allowClear
             filterOption={(input, option) =>
@@ -115,7 +110,6 @@ const TierBreakdownFilters = ({
             value={filters.track}
             onChange={(value) => setFilters({ ...filters, track: value })}
             style={{ width: '100%' }}
-            loading={loadingTracks}
             showSearch
             allowClear
             filterOption={(input, option) =>
@@ -167,8 +161,6 @@ TierBreakdownFilters.propTypes = {
   techStacks: PropTypes.array,
   loadingProjects: PropTypes.bool,
   loadingAccountManagers: PropTypes.bool,
-  loadingTracks: PropTypes.bool,
-  loadingTiers: PropTypes.bool,
 };
 
 export default TierBreakdownFilters;

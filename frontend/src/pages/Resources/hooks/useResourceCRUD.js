@@ -9,7 +9,7 @@ import { App } from 'antd';
 import logger from '@utils/logger';
 import dayjs from 'dayjs';
 
-export const useResourceCRUD = ({ form, fetchEmployees, pagination }) => {
+export const useResourceCRUD = ({ form, fetchEmployees, pagination, tiers }) => {
   const { message } = App.useApp();
   const [loading, setLoading] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
@@ -52,7 +52,7 @@ export const useResourceCRUD = ({ form, fetchEmployees, pagination }) => {
       is_intern: record.is_intern !== undefined ? record.is_intern : false,
       tech_stack: record.tech_stack,
       tag_ids: tagIds,
-      tier: record.tier,
+      tier_id: record.tier_id || (record.tier && tiers ? tiers.find(t => t.name === record.tier)?.id : undefined),
       status: record.status,
       photo_url: record.photo_url || record.photo,
       // New fields
@@ -96,7 +96,7 @@ export const useResourceCRUD = ({ form, fetchEmployees, pagination }) => {
           is_intern: values.is_intern !== undefined ? values.is_intern : false,
           is_internal_employee: values.is_internal_employee !== undefined ? values.is_internal_employee : true,
           employment_type: values.employment_type || 'Permanent',
-          tier: values.tier || undefined,
+          tier_id: values.tier_id || undefined,
           tech_stack: values.tech_stack || undefined,
           photo_url: values.photo_url || undefined,
           status: values.status || 'Active',
@@ -144,7 +144,7 @@ export const useResourceCRUD = ({ form, fetchEmployees, pagination }) => {
           is_intern: values.is_intern || false,
           is_internal_employee: values.is_internal_employee !== undefined ? values.is_internal_employee : true,
           employment_type: values.employment_type || 'Permanent',
-          tier: values.tier || undefined,
+          tier_id: values.tier_id || undefined,
           tech_stack: values.tech_stack || undefined,
           photo_url: values.photo_url || undefined,
           status: values.status || 'Active',

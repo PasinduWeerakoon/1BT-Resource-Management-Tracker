@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Badge } from 'antd';
+import { useSelector } from 'react-redux';
 import CustomTable from '@components/Table';
-import { reportsService, tracksService, resourcesService } from '@api';
+import { reportsService, resourcesService } from '@api';
+import { selectTracks } from '@redux/slices/configSlice';
 import { useReportFilters, useReportData } from '@hooks/reports';
 import { FilterSection, ReportHeader } from '@components/ReportLayout';
 import EmployeeReportFilters from './components/EmployeeReportFilters';
@@ -24,32 +26,9 @@ const EmployeeReport = () => {
     toggleFiltersExpanded,
   } = useReportFilters(defaultFilters);
 
-  const [tracksList, setTracksList] = useState([]);
+  // Get tracks from Redux (cached on login)
+  const tracksList = useSelector(selectTracks);
   const [resourcesList, setResourcesList] = useState([]);
-
-  // Fetch tracks for filter dropdown
-  useEffect(() => {
-    const fetchTracks = async () => {
-      try {
-        const response = await tracksService.getAll({ limit: 100 });
-        let tracksData = [];
-        
-        if (response) {
-          if (Array.isArray(response.data)) {
-            tracksData = response.data;
-          } else if (response.data && response.data.data && Array.isArray(response.data.data)) {
-            tracksData = response.data.data;
-          }
-        }
-        
-        setTracksList(tracksData);
-      } catch (error) {
-        logger.error('Failed to fetch tracks', error);
-      }
-    };
-    
-    fetchTracks();
-  }, []);
 
   // Fetch resources for filter dropdown
   useEffect(() => {

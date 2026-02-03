@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Row, Col, Card, Select } from 'antd';
+import { useSelector } from 'react-redux';
 import CustomTable from '@components/Table';
-import { reportsService, tracksService } from '@api';
+import { reportsService } from '@api';
+import { selectTracks } from '@redux/slices/configSlice';
 import { useReportFilters, useReportData } from '@hooks/reports';
 import { FilterSection, ReportHeader, SummaryCards } from '@components/ReportLayout';
 import { createNumberColumn, commonColumns } from '@utils/tableColumnFactories';
@@ -25,31 +27,8 @@ const BenchReport = () => {
     toggleFiltersExpanded,
   } = useReportFilters(defaultFilters);
 
-  const [tracksList, setTracksList] = useState([]);
-
-  // Fetch tracks for filter dropdown
-  useEffect(() => {
-    const fetchTracks = async () => {
-      try {
-        const response = await tracksService.getAll({ limit: 100 });
-        let tracksData = [];
-        
-        if (response) {
-          if (Array.isArray(response.data)) {
-            tracksData = response.data;
-          } else if (response.data && response.data.data && Array.isArray(response.data.data)) {
-            tracksData = response.data.data;
-          }
-        }
-        
-        setTracksList(tracksData);
-      } catch (error) {
-        logger.error('Failed to fetch tracks', error);
-      }
-    };
-    
-    fetchTracks();
-  }, []);
+  // Get tracks from Redux (cached on login)
+  const tracksList = useSelector(selectTracks);
 
   // Transform function for report data
   const transformReportData = (item, index) => ({

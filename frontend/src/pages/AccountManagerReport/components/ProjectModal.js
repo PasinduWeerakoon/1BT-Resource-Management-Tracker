@@ -27,7 +27,6 @@ const { Option } = Select;
  * @param {Array} props.billingStatusesList - List of billing statuses
  * @param {Array} props.clientsList - List of clients
  * @param {Array} props.accountManagersList - List of account managers
- * @param {boolean} props.loadingConfigurations - Loading state for configurations
  * @param {boolean} props.loadingAccountManagers - Loading state for account managers
  * @param {string} props.accountType - Current account type
  * @param {Function} props.setAccountType - Set account type handler
@@ -47,7 +46,6 @@ const ProjectModal = ({
   billingStatusesList = [],
   clientsList = [],
   accountManagersList = [],
-  loadingConfigurations = false,
   loadingAccountManagers = false,
   accountType,
   setAccountType,
@@ -84,9 +82,9 @@ const ProjectModal = ({
           accountManager: filters.accountManager && filters.accountManager !== 'All'
             ? filters.accountManager
             : undefined,
-          status: projectStatusesList.find(s => s.name === 'Active')?.id,
+          status: projectStatusesList.find(s => s.name === 'Active')?.id || 'Active',
           billingType: undefined,
-          accountType: accountTypesList.find(t => t.name === 'External')?.id,
+          accountType: accountTypesList.find(t => t.name === 'External')?.id || 'External',
         }}
       >
         <Row gutter={16}>
@@ -109,7 +107,7 @@ const ProjectModal = ({
               name="status"
               rules={[{ required: true, message: 'Status is required' }]}
             >
-              <Select placeholder="Select status" loading={loadingConfigurations}>
+              <Select placeholder="Select status">
                 {projectStatusesList.map((status) => (
                   <Option key={status.id} value={status.id}>
                     {status.name}
@@ -127,7 +125,7 @@ const ProjectModal = ({
               name="projectType"
               rules={[{ required: true, message: 'Project type is required' }]}
             >
-              <Select placeholder="Select project type" loading={loadingConfigurations}>
+              <Select placeholder="Select project type">
                 {projectTypesList.map((type) => (
                   <Option key={type.id} value={type.id}>
                     {type.name}
@@ -148,7 +146,6 @@ const ProjectModal = ({
                   const selectedType = accountTypesList.find(t => t.id === value);
                   setAccountType(selectedType?.name || value);
                 }}
-                loading={loadingConfigurations}
               >
                 {accountTypesList.map((type) => (
                   <Option key={type.id} value={type.id}>
@@ -246,7 +243,6 @@ const ProjectModal = ({
               <Select
                 placeholder="Select billing type"
                 onChange={(value) => setBillingType(value)}
-                loading={loadingConfigurations}
               >
                 {billingStatusesList.map((status) => (
                   <Option key={status.id} value={status.id}>
@@ -362,7 +358,6 @@ ProjectModal.propTypes = {
   billingStatusesList: PropTypes.array,
   clientsList: PropTypes.array,
   accountManagersList: PropTypes.array,
-  loadingConfigurations: PropTypes.bool,
   loadingAccountManagers: PropTypes.bool,
   accountType: PropTypes.string,
   setAccountType: PropTypes.func.isRequired,

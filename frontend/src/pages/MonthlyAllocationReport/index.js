@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Row, Col, Card, Table, Radio } from 'antd';
+import { useSelector } from 'react-redux';
 import CustomTable from '@components/Table';
-import { tracksService } from '@api';
+import { selectTracks } from '@redux/slices/configSlice';
 import { useReportFilters } from '@hooks/reports';
 import { FilterSection, ReportHeader } from '@components/ReportLayout';
 import MonthlyAllocationFilters from './components/MonthlyAllocationFilters';
@@ -29,7 +30,9 @@ const MonthlyAllocationReport = () => {
   } = useReportFilters(defaultFilters);
 
   const [viewMode, setViewMode] = useState('detailed'); // 'detailed' or 'grouped'
-  const [tracksList, setTracksList] = useState([]);
+
+  // Get tracks from Redux (cached on login)
+  const tracksList = useSelector(selectTracks);
 
   // Use custom hook for data fetching
   const { loading, reportData, groupedData, periodInfo } = useMonthlyAllocationData(filters);
@@ -49,30 +52,6 @@ const MonthlyAllocationReport = () => {
     { value: 11, label: 'November' },
     { value: 12, label: 'December' },
   ], []);
-
-  // Fetch tracks for filter dropdown
-  useEffect(() => {
-    const fetchTracks = async () => {
-      try {
-        const response = await tracksService.getAll({ limit: 100 });
-        let tracksData = [];
-        
-        if (response) {
-          if (Array.isArray(response.data)) {
-            tracksData = response.data;
-          } else if (response.data && response.data.data && Array.isArray(response.data.data)) {
-            tracksData = response.data.data;
-          }
-        }
-        
-        setTracksList(tracksData);
-      } catch (error) {
-        logger.error('Failed to fetch tracks', error);
-      }
-    };
-    
-    fetchTracks();
-  }, []);
 
 
   // Expand allocations column renderer for grouped view

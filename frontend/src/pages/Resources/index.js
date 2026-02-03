@@ -75,6 +75,7 @@ const Resources = () => {
     form,
     fetchEmployees,
     pagination,
+    tiers,
   });
 
   // Handle View Profile - memoized with useCallback

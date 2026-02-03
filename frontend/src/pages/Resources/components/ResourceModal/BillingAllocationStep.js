@@ -32,17 +32,18 @@ const BillingAllocationStep = ({ form }) => {
           label="Total Resource Billing"
           name="total_resource_billing"
           rules={[
-            { type: 'number', min: 0, message: 'Total resource billing must be 0 or greater' },
+            { type: 'number', min: 0, max: 100, message: 'Total resource billing must be between 0 and 100' },
           ]}
         >
           <InputNumber
             style={{ width: '100%' }}
-            placeholder="Enter total resource billing"
+            placeholder="Enter total resource billing percentage"
             min={0}
+            max={100}
             step={0.01}
             precision={2}
-            formatter={value => `$ ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-            parser={value => value.replace(/\$\s?|(,*)/g, '')}
+            formatter={value => `${value}%`}
+            parser={value => value.replace('%', '')}
           />
         </Form.Item>
       </Col>

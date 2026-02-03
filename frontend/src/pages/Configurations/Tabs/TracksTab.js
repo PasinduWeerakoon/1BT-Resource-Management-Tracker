@@ -2,29 +2,39 @@
  * Tracks Tab Component
  */
 
-import React from 'react';
+import React, { useMemo } from 'react';
+import { useSelector, useDispatch } from 'react-redux';
 import { Form, Input, Switch } from 'antd';
 import { useConfigCRUD } from '../hooks/useConfigCRUD';
-import { useConfigData } from '../hooks/useConfigData';
 import ConfigTable from '../components/ConfigTable';
 import ConfigModal from '../components/ConfigModal';
 import { tracksService } from '@api';
+import { selectTracks, selectTracksLoading, fetchTracks } from '@redux/slices/configSlice';
 
 const TracksTab = () => {
-  // Data fetching
-  const { data: tracks, loading: loadingTracks, fetchData: fetchTracks } = useConfigData({
-    fetchFunction: tracksService.getAll,
-    transformData: (item) => ({
+  const dispatch = useDispatch();
+  // Get data from Redux
+  const tracksData = useSelector(selectTracks);
+  const loadingTracks = useSelector(selectTracksLoading);
+
+  // Transform data for table display
+  const tracks = useMemo(() => {
+    return tracksData.map((item, index) => ({
+      key: item.id || `track-${index}`,
       id: item.id,
-      name: item.label || item.name, // Use label from API response as name
+      name: item.label || item.name,
       description: item.description || '',
       is_active: item.isActive !== undefined ? item.isActive : (item.is_active !== undefined ? item.is_active : true),
       is_default: item.isDefault !== undefined ? item.isDefault : (item.is_default !== undefined ? item.is_default : false),
       value: item.value || item.id,
       displayOrder: item.displayOrder || 0,
-    }),
-    autoFetch: true,
-  });
+    }));
+  }, [tracksData]);
+
+  // Refetch function for after CRUD operations
+  const refetchTracks = async () => {
+    await dispatch(fetchTracks()).unwrap();
+  };
 
   // CRUD operations
   const {
@@ -39,7 +49,7 @@ const TracksTab = () => {
     handleDelete,
   } = useConfigCRUD({
     service: tracksService,
-    onFetch: fetchTracks,
+    onFetch: refetchTracks,
     deleteConfig: {
       method: 'update',
       payload: { is_active: false },

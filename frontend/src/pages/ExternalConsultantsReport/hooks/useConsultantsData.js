@@ -4,7 +4,9 @@
  */
 
 import { useState, useEffect } from 'react';
-import { reportsService, tracksService, projectsService, resourcesService } from '@api';
+import { useSelector } from 'react-redux';
+import { reportsService, projectsService, resourcesService } from '@api';
+import { selectTracks } from '@redux/slices/configSlice';
 import { showErrorToast } from '@utils/toast.utils';
 import logger from '@utils/logger';
 import {
@@ -22,33 +24,11 @@ import {
 export const useConsultantsData = (filters) => {
   const [loading, setLoading] = useState(false);
   const [reportData, setReportData] = useState(null);
-  const [tracksList, setTracksList] = useState([]);
   const [projectsList, setProjectsList] = useState([]);
   const [totalEmployees, setTotalEmployees] = useState(0);
 
-  // Fetch tracks for filter dropdown
-  useEffect(() => {
-    const fetchTracks = async () => {
-      try {
-        const response = await tracksService.getAll({ limit: 100 });
-        let tracksData = [];
-        
-        if (response) {
-          if (Array.isArray(response.data)) {
-            tracksData = response.data;
-          } else if (response.data && response.data.data && Array.isArray(response.data.data)) {
-            tracksData = response.data.data;
-          }
-        }
-        
-        setTracksList(tracksData);
-      } catch (error) {
-        logger.error('Failed to fetch tracks', error);
-      }
-    };
-    
-    fetchTracks();
-  }, []);
+  // Get tracks from Redux (cached on login)
+  const tracksList = useSelector(selectTracks);
 
   // Fetch projects for filter dropdown
   useEffect(() => {

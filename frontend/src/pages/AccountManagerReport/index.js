@@ -27,7 +27,9 @@ import ChartsSection from './components/ChartsSection';
 import ProjectsTable from './components/ProjectsTable';
 import ProjectModal from './components/ProjectModal';
 import { useReportFilters } from '@hooks/reports';
-import { projectsService, clientsService, allocationsService, resourcesService, accountManagersService, reportsService, projectTypesService, accountTypesService, projectStatusesService, billingStatusesService } from '@api';
+import { useSelector } from 'react-redux';
+import { projectsService, clientsService, allocationsService, resourcesService, accountManagersService, reportsService } from '@api';
+import { selectProjectTypes, selectBillingStatuses, selectTiers, selectTracks } from '@redux/slices/configSlice';
 import { showErrorToast, showSuccessToast, showWarningToast } from '@utils/toast.utils';
 import logger from '@utils/logger';
 import '@styles/pages/AccountManagerReport.scss';
@@ -89,12 +91,23 @@ const AccountManagerReport = () => {
     const [projectsForFilter, setProjectsForFilter] = useState([]);
     const [loadingProjectsForFilter, setLoadingProjectsForFilter] = useState(false);
 
-    // Configuration data from APIs
-    const [projectTypesList, setProjectTypesList] = useState([]);
-    const [accountTypesList, setAccountTypesList] = useState([]);
-    const [projectStatusesList, setProjectStatusesList] = useState([]);
-    const [billingStatusesList, setBillingStatusesList] = useState([]);
-    const [loadingConfigurations, setLoadingConfigurations] = useState(false);
+    // Get configuration data from Redux (cached on login)
+    const projectTypesList = useSelector(selectProjectTypes);
+    const billingStatusesList = useSelector(selectBillingStatuses);
+    const tiersList = useSelector(selectTiers);
+    const tracksList = useSelector(selectTracks);
+
+    // Hardcoded values for Account Types and Project Statuses (no longer fetched from API)
+    const accountTypesList = [
+        { id: 'External', name: 'External' },
+        { id: 'Internal', name: 'Internal' },
+    ];
+    const projectStatusesList = [
+        { id: 'Active', name: 'Active' },
+        { id: 'On Hold', name: 'On Hold' },
+        { id: 'Completed', name: 'Completed' },
+        { id: 'Cancelled', name: 'Cancelled' },
+    ];
 
     const [reportData, setReportData] = useState({
         summary: {
@@ -249,61 +262,8 @@ const AccountManagerReport = () => {
         fetchAccountManagers();
     }, []);
 
-    // Fetch configuration data (Project Types, Account Types, Project Statuses, Billing Statuses)
-    useEffect(() => {
-        const fetchConfigurations = async () => {
-            try {
-                setLoadingConfigurations(true);
-
-                // Fetch all configuration data in parallel
-                const [projectTypesRes, accountTypesRes, projectStatusesRes, billingStatusesRes] = await Promise.all([
-                    projectTypesService.getAll(),
-                    accountTypesService.getAll(),
-                    projectStatusesService.getAll(),
-                    billingStatusesService.getAll(),
-                ]);
-
-                // Process project types
-                if (projectTypesRes && projectTypesRes.data) {
-                    const types = Array.isArray(projectTypesRes.data)
-                        ? projectTypesRes.data
-                        : (projectTypesRes.data.data || []);
-                    setProjectTypesList(types);
-                }
-
-                // Process account types
-                if (accountTypesRes && accountTypesRes.data) {
-                    const types = Array.isArray(accountTypesRes.data)
-                        ? accountTypesRes.data
-                        : (accountTypesRes.data.data || []);
-                    setAccountTypesList(types);
-                }
-
-                // Process project statuses
-                if (projectStatusesRes && projectStatusesRes.data) {
-                    const statuses = Array.isArray(projectStatusesRes.data)
-                        ? projectStatusesRes.data
-                        : (projectStatusesRes.data.data || []);
-                    setProjectStatusesList(statuses);
-                }
-
-                // Process billing statuses
-                if (billingStatusesRes && billingStatusesRes.data) {
-                    const statuses = Array.isArray(billingStatusesRes.data)
-                        ? billingStatusesRes.data
-                        : (billingStatusesRes.data.data || []);
-                    setBillingStatusesList(statuses);
-                }
-            } catch (error) {
-                logger.error('Failed to fetch configurations:', error);
-                showErrorToast('Failed to load configuration data');
-            } finally {
-                setLoadingConfigurations(false);
-            }
-        };
-
-        fetchConfigurations();
-    }, []);
+    // Configuration data is now loaded from Redux (fetched on login)
+    // No need to fetch here - it's already cached
 
     // Fetch projects for filter dropdown
     useEffect(() => {
@@ -1211,19 +1171,21 @@ const AccountManagerReport = () => {
                 }
             }
 
-            // Prepare API payload with UUIDs (no need for mapping, values are already UUIDs)
+            // Prepare API payload
+            // Account Type and Status are now hardcoded strings, not IDs
+            // Project Type and Billing Status use IDs from Redux data
             const projectPayload = {
                 project_name: values.projectName,
                 project_code: values.projectCode || '', // Optional
                 client_id: client_id, // Required only for External projects
-                project_type_id: values.projectType, // UUID from dropdown
-                account_type_id: values.accountType, // UUID from dropdown
+                project_type_id: values.projectType, // ID from Redux (projectTypesList)
+                account_type: values.accountType, // String value: 'External' or 'Internal'
                 account_manager: values.accountManager, // Required string
                 account_reg_sales_owner: values.accountRegSalesOwner || '', // Optional string
                 team_size: values.teamSize || 1, // Number, default 1
-                billing_status_id: values.billingType, // UUID from dropdown
+                billing_status_id: values.billingType, // ID from Redux (billingStatusesList)
                 budget: values.budget || 0, // Number, default 0
-                status_id: values.status, // UUID from dropdown
+                status: values.status, // String value: 'Active', 'On Hold', 'Completed', 'Cancelled'
                 project_start_date: values.projectStartDate ? values.projectStartDate.format('YYYY-MM-DD') : null,
                 project_end_date: values.projectEndDate ? values.projectEndDate.format('YYYY-MM-DD') : null,
                 description: values.description || '',
@@ -2264,33 +2226,33 @@ const AccountManagerReport = () => {
             <Card
                 className="table-card"
                 title={
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-                        <div
-                            className="collapsible-header"
-                            onClick={() => setByAllocationExpanded(!byAllocationExpanded)}
-                            style={{ flex: 1 }}
-                        >
-                            <span>
-                                BY ALLOCATION
-                                {displayProjectName && (
-                                    <span style={{ marginLeft: '8px', color: '#1890ff', fontWeight: 'normal' }}>
-                                        - {displayProjectName}
-                                    </span>
-                                )}
-                            </span>
-                            {byAllocationExpanded ? <UpOutlined /> : <DownOutlined />}
-                        </div>
-                        {byAllocationExpanded && (
-                            <Button
-                                type="primary"
-                                icon={<PlusOutlined />}
-                                onClick={handleAddAllocation}
-                                size="small"
-                                style={{ marginLeft: 16 }}
+                    <div className="project-overview-header">
+                        <span className="project-overview-title">
+                            BY ALLOCATION
+                            {displayProjectName && (
+                                <span style={{ marginLeft: '8px', color: '#1890ff', fontWeight: 'normal' }}>
+                                    - {displayProjectName}
+                                </span>
+                            )}
+                        </span>
+                        <div className="project-overview-actions">
+                            {byAllocationExpanded && (
+                                <Button
+                                    type="primary"
+                                    icon={<PlusOutlined />}
+                                    onClick={handleAddAllocation}
+                                    className="create-project-btn"
+                                >
+                                    Add Allocation
+                                </Button>
+                            )}
+                            <div
+                                className="collapsible-icon"
+                                onClick={() => setByAllocationExpanded(!byAllocationExpanded)}
                             >
-                                Add Allocation
-                            </Button>
-                        )}
+                                {byAllocationExpanded ? <UpOutlined /> : <DownOutlined />}
+                            </div>
+                        </div>
                     </div>
                 }
             >
@@ -2345,7 +2307,6 @@ const AccountManagerReport = () => {
                 billingStatusesList={billingStatusesList}
                 clientsList={clientsList}
                 accountManagersList={accountManagersList}
-                loadingConfigurations={loadingConfigurations}
                 loadingAccountManagers={loadingAccountManagers}
                 accountType={accountType}
                 setAccountType={setAccountType}

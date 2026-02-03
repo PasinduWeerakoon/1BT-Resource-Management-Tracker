@@ -134,6 +134,14 @@ const Login = () => {
             logger.warn('Failed to fetch user info from /auth/me:', meError);
           }
 
+          // Fetch configuration data after successful login
+          try {
+            await dispatch(fetchAllConfigData()).unwrap();
+            logger.debug('Configuration data fetched successfully');
+          } catch (configError) {
+            logger.warn('Failed to fetch configuration data:', configError);
+          }
+
           showSuccessToast('Password set successfully! You are now logged in.');
           setShowCompleteInviteModal(false);
           completeInviteForm.resetFields();

@@ -52,17 +52,13 @@ const ResourceModal = ({
   // Watch required fields to determine if form is valid
   const name = Form.useWatch('name', form);
   const email = Form.useWatch('email', form);
-  const mobile = Form.useWatch('mobile', form);
-  const bod = Form.useWatch('bod', form);
-  const nicOrPassport = Form.useWatch('nicOrPassport', form);
   const employeeNumber = Form.useWatch('employeeNumber', form);
   const employee_id = Form.useWatch('employee_id', form);
   const is_internal_employee = Form.useWatch('is_internal_employee', form);
   const employment_type = Form.useWatch('employment_type', form);
   const designation_id = Form.useWatch('designation_id', form);
-  const tier = Form.useWatch('tier', form);
+  const tier_id = Form.useWatch('tier_id', form);
   const track_id = Form.useWatch('track_id', form);
-  const joinDate = Form.useWatch('joinDate', form);
   const status = Form.useWatch('status', form);
 
   // Check if all required fields are filled
@@ -71,8 +67,8 @@ const ResourceModal = ({
       try {
         // Get all required fields based on mode
         const requiredFields = isEditMode
-          ? ['name', 'email', 'mobile', 'bod', 'nicOrPassport', 'employeeNumber', 'is_internal_employee', 'employment_type', 'designation_id', 'tier', 'track_id', 'joinDate', 'status']
-          : ['name', 'email', 'mobile', 'bod', 'nicOrPassport', 'employee_id', 'employeeNumber', 'is_internal_employee', 'employment_type', 'designation_id', 'tier', 'track_id', 'joinDate'];
+          ? ['name', 'email', 'employeeNumber', 'is_internal_employee', 'employment_type', 'designation_id', 'tier_id', 'track_id', 'status']
+          : ['name', 'email', 'employee_id', 'employeeNumber', 'is_internal_employee', 'employment_type', 'designation_id', 'tier_id', 'track_id'];
 
         // Validate required fields
         await form.validateFields(requiredFields);
@@ -103,7 +99,7 @@ const ResourceModal = ({
     }, 100);
 
     return () => clearTimeout(timer);
-  }, [name, email, mobile, bod, nicOrPassport, employeeNumber, employee_id, is_internal_employee, employment_type, designation_id, tier, track_id, joinDate, status, isEditMode, form]);
+  }, [name, email, employeeNumber, employee_id, is_internal_employee, employment_type, designation_id, tier_id, track_id, status, isEditMode, form]);
 
   // Handle step navigation
   const handleNext = async () => {
@@ -128,10 +124,10 @@ const ResourceModal = ({
   // Get fields for each step for validation
   const getStepFields = (step) => {
     const stepFields = {
-      0: ['name', 'email', 'mobile', 'bod', 'nicOrPassport'], // Personal Info
+      0: ['name', 'email'], // Personal Info (only name and email are required)
       1: isEditMode
-        ? ['employeeNumber', 'is_internal_employee', 'employment_type', 'designation_id', 'tier', 'track_id', 'joinDate', 'status']
-        : ['employee_id', 'employeeNumber', 'is_internal_employee', 'employment_type', 'designation_id', 'tier', 'track_id', 'joinDate'], // Employment
+        ? ['employeeNumber', 'is_internal_employee', 'employment_type', 'designation_id', 'tier_id', 'track_id', 'status']
+        : ['employee_id', 'employeeNumber', 'is_internal_employee', 'employment_type', 'designation_id', 'tier_id', 'track_id'], // Employment (joinDate is optional)
       2: [], // Education (optional fields)
       3: [], // Billing (optional fields)
       4: [], // Additional (optional fields)
@@ -167,7 +163,7 @@ const ResourceModal = ({
     const fieldStepMap = {
       name: 0, email: 0, mobile: 0, bod: 0, nicOrPassport: 0, epf_no: 0, global_employeeid: 0, photo: 0,
       employee_id: 1, employeeNumber: 1, is_internal_employee: 1, employment_type: 1, designation_id: 1,
-      tier: 1, track_id: 1, tech_stack: 1, joinDate: 1, last_increment_date: 1, last_promotion_date: 1, status: 1,
+      tier_id: 1, track_id: 1, tech_stack: 1, joinDate: 1, last_increment_date: 1, last_promotion_date: 1, status: 1,
       university: 2, is_intern: 2, internship_completion_target_date: 2,
       total_allocation: 3, total_resource_billing: 3,
       tag_ids: 4, helper_id: 4, helper: 4,

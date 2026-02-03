@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Row, Col, Card } from 'antd';
 import { Bar } from 'react-chartjs-2';
+import { useSelector } from 'react-redux';
 import { commonOptions, colors } from '@utils/chartConfig';
 import CustomTable from '@components/Table';
-import { accountManagersService, projectsService, tracksService, tiersService } from '@api';
+import { accountManagersService, projectsService } from '@api';
+import { selectTiers, selectTracks } from '@redux/slices/configSlice';
 import { useReportFilters } from '@hooks/reports';
 import { FilterSection, ReportHeader, SummaryCards } from '@components/ReportLayout';
 import TierBreakdownFilters from './components/TierBreakdownFilters';
@@ -30,15 +32,15 @@ const TierBreakdownReport = () => {
     toggleFiltersExpanded,
   } = useReportFilters(defaultFilters);
 
+  // Get configuration data from Redux (cached on login)
+  const tracks = useSelector(selectTracks);
+  const tiers = useSelector(selectTiers);
+
   // Filter options for dropdowns
   const [accountManagers, setAccountManagers] = useState([]);
   const [loadingAccountManagers, setLoadingAccountManagers] = useState(false);
   const [projects, setProjects] = useState([]);
   const [loadingProjects, setLoadingProjects] = useState(false);
-  const [tracks, setTracks] = useState([]);
-  const [loadingTracks, setLoadingTracks] = useState(false);
-  const [tiers, setTiers] = useState([]);
-  const [loadingTiers, setLoadingTiers] = useState(false);
   const [techStacks, setTechStacks] = useState([]);
 
   // Report data - using custom hook
@@ -102,69 +104,11 @@ const TierBreakdownReport = () => {
       }
     };
 
-    const fetchTracks = async () => {
-      try {
-        setLoadingTracks(true);
-        const response = await tracksService.getAll({ limit: 100 });
-        let tracksData = [];
-
-        if (response) {
-          if (Array.isArray(response.data)) {
-            tracksData = response.data;
-          } else if (response.data && response.data.data && Array.isArray(response.data.data)) {
-            tracksData = response.data.data;
-          }
-        }
-
-        const formatted = tracksData
-          .map((track) => ({
-            id: track.id,
-            name: track.name,
-          }))
-          .filter((track) => track.id && track.name);
-
-        setTracks(formatted);
-      } catch (error) {
-        logger.error('Failed to fetch tracks', error);
-      } finally {
-        setLoadingTracks(false);
-      }
-    };
-
-    const fetchTiers = async () => {
-      try {
-        setLoadingTiers(true);
-        const response = await tiersService.getAll();
-        let tiersData = [];
-
-        if (response) {
-          if (Array.isArray(response.data)) {
-            tiersData = response.data;
-          } else if (response.data && response.data.data && Array.isArray(response.data.data)) {
-            tiersData = response.data.data;
-          }
-        }
-
-        const formatted = tiersData
-          .map((tier) => ({
-            id: tier.id,
-            name: tier.name,
-            level: tier.level,
-          }))
-          .filter((tier) => tier.id && tier.name);
-
-        setTiers(formatted);
-      } catch (error) {
-        logger.error('Failed to fetch tiers', error);
-      } finally {
-        setLoadingTiers(false);
-      }
-    };
+    // Tracks and Tiers are now loaded from Redux (cached on login)
+    // No need to fetch them here
 
     fetchAccountManagers();
     fetchProjects();
-    fetchTracks();
-    fetchTiers();
   }, []);
 
 
@@ -263,8 +207,6 @@ const TierBreakdownReport = () => {
           techStacks={techStacks}
           loadingProjects={loadingProjects}
           loadingAccountManagers={loadingAccountManagers}
-          loadingTracks={loadingTracks}
-          loadingTiers={loadingTiers}
         />
       </FilterSection>
 

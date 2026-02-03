@@ -6,6 +6,7 @@ import Footer from '../Footer';
 import Sidebar from '../Sidebar';
 import { setMobile } from '@redux/slices/layoutSlice';
 import { setCredentials } from '@redux/slices/authSlice';
+import { fetchAllConfigData, selectTiers, selectTracks, selectProjectTypes, selectBillingStatuses } from '@redux/slices/configSlice';
 import { storeAuth } from '@utils/auth.utils';
 import { authService } from '@api';
 import logger from '@utils/logger';
@@ -17,7 +18,12 @@ const MainLayout = ({ children }) => {
   const dispatch = useDispatch();
   const { sidebarCollapsed, isMobile } = useSelector((state) => state.layout);
   const { isAuthenticated, accessToken, refreshToken, idToken, user: currentUser } = useSelector((state) => state.auth);
+  const tiers = useSelector(selectTiers);
+  const tracks = useSelector(selectTracks);
+  const projectTypes = useSelector(selectProjectTypes);
+  const billingStatuses = useSelector(selectBillingStatuses);
   const fetchUserInfoInProgressRef = useRef(false);
+  const fetchConfigDataInProgressRef = useRef(false);
 
   // Fetch user info from /auth/me on mount if authenticated
   useEffect(() => {
@@ -119,6 +125,40 @@ const MainLayout = ({ children }) => {
     fetchUserInfo();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only run once on mount
+
+  // Fetch configuration data on mount if authenticated and data not loaded
+  useEffect(() => {
+    const fetchConfigData = async () => {
+      // Prevent duplicate calls
+      if (fetchConfigDataInProgressRef.current || !isAuthenticated || !accessToken) {
+        return;
+      }
+
+      // Check if any config data is missing
+      const hasTiers = tiers && tiers.length > 0;
+      const hasTracks = tracks && tracks.length > 0;
+      const hasProjectTypes = projectTypes && projectTypes.length > 0;
+      const hasBillingStatuses = billingStatuses && billingStatuses.length > 0;
+
+      // Only fetch if at least one is missing
+      if (hasTiers && hasTracks && hasProjectTypes && hasBillingStatuses) {
+        return;
+      }
+
+      try {
+        fetchConfigDataInProgressRef.current = true;
+        await dispatch(fetchAllConfigData()).unwrap();
+        logger.debug('Configuration data fetched successfully on app initialization');
+      } catch (error) {
+        logger.warn('Failed to fetch configuration data on app initialization:', error);
+      } finally {
+        fetchConfigDataInProgressRef.current = false;
+      }
+    };
+
+    fetchConfigData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated, accessToken]); // Run when auth state changes
 
   useEffect(() => {
     const handleResize = () => {

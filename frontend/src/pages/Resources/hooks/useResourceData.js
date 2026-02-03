@@ -4,7 +4,9 @@
  */
 
 import { useState, useEffect, useRef } from 'react';
-import { resourcesService, designationsService, tracksService, tagsService, tiersService } from '@api';
+import { useSelector } from 'react-redux';
+import { resourcesService, designationsService, tagsService } from '@api';
+import { selectTiers, selectTracks } from '@redux/slices/configSlice';
 import { showErrorToast } from '@utils/toast.utils';
 import logger from '@utils/logger';
 import dayjs from 'dayjs';
@@ -15,31 +17,46 @@ export const useResourceData = ({ filters, debouncedSearch, pagination, setPagin
   const [employees, setEmployees] = useState([]);
   const [fetchingEmployees, setFetchingEmployees] = useState(false);
   const [designations, setDesignations] = useState([]);
-  const [tracks, setTracks] = useState([]);
   const [tags, setTags] = useState([]);
-  const [tiers, setTiers] = useState([]);
   const dropdownDataFetched = useRef(false);
 
-  // Fetch designations, tracks, tags, and tiers on component mount
+  // Get tiers and tracks from Redux
+  const tiersData = useSelector(selectTiers);
+  const tracksData = useSelector(selectTracks);
+
+  // Transform Redux data for display (already has name from label)
+  const tiers = tiersData || [];
+  const tracks = tracksData || [];
+
+  // Fetch designations and tags on component mount (not in Redux yet)
   useEffect(() => {
     const fetchDropdownData = async () => {
       if (dropdownDataFetched.current) return;
       dropdownDataFetched.current = true;
 
       try {
-        const [designationsRes, tracksRes, tagsRes, tiersRes] = await Promise.all([
+        const [designationsRes, tagsRes] = await Promise.all([
           designationsService.getAll(),
-          tracksService.getAll(),
           tagsService.getAll(),
-          tiersService.getAll(),
         ]);
 
+        // Transform and set designations
         if (designationsRes && designationsRes.data) {
-          setDesignations(designationsRes.data);
+          let designationsData = [];
+          if (Array.isArray(designationsRes.data)) {
+            designationsData = designationsRes.data;
+          } else if (designationsRes.data && designationsRes.data.data && Array.isArray(designationsRes.data.data)) {
+            designationsData = designationsRes.data.data;
+          }
+          // Transform label to name for display
+          const transformedDesignations = designationsData.map(item => ({
+            ...item,
+            name: item.label || item.name,
+          }));
+          setDesignations(transformedDesignations);
         }
-        if (tracksRes && tracksRes.data) {
-          setTracks(tracksRes.data);
-        }
+
+        // Transform and set tags
         if (tagsRes && tagsRes.data) {
           let tagsData = [];
           if (Array.isArray(tagsRes.data)) {
@@ -47,16 +64,12 @@ export const useResourceData = ({ filters, debouncedSearch, pagination, setPagin
           } else if (tagsRes.data && tagsRes.data.data && Array.isArray(tagsRes.data.data)) {
             tagsData = tagsRes.data.data;
           }
-          setTags(tagsData);
-        }
-        if (tiersRes && tiersRes.data) {
-          let tiersData = [];
-          if (Array.isArray(tiersRes.data)) {
-            tiersData = tiersRes.data;
-          } else if (tiersRes.data && tiersRes.data.data && Array.isArray(tiersRes.data.data)) {
-            tiersData = tiersRes.data.data;
-          }
-          setTiers(tiersData);
+          // Transform label to name for display
+          const transformedTags = tagsData.map(item => ({
+            ...item,
+            name: item.label || item.name,
+          }));
+          setTags(transformedTags);
         }
       } catch (error) {
         logger.error('Failed to fetch dropdown data', error);
@@ -160,6 +173,7 @@ export const useResourceData = ({ filters, debouncedSearch, pagination, setPagin
           mobile: employee.phone_number || employee.mobile,
           phone_number: employee.phone_number,
           tier: tier,
+          tier_id: employee.tier_id,
           position: employee.designation_name || employee.position,
           designation_id: employee.designation_id,
           designation_name: employee.designation_name,

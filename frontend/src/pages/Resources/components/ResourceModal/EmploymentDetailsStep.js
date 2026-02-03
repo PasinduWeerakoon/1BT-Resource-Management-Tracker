@@ -92,7 +92,7 @@ const EmploymentDetailsStep = ({
       <Col xs={24} sm={12}>
         <Form.Item
           label="Tier"
-          name="tier"
+          name="tier_id"
           rules={[{ required: true, message: 'Tier is required' }]}
         >
           <Select
@@ -102,7 +102,7 @@ const EmploymentDetailsStep = ({
             loading={!tiers || tiers.length === 0}
           >
             {tiers?.map((tier) => (
-              <Option key={tier.id} value={tier.name}>
+              <Option key={tier.id} value={tier.id}>
                 {tier.name}
               </Option>
             ))}
@@ -152,7 +152,6 @@ const EmploymentDetailsStep = ({
         <Form.Item
           label="Join Date"
           name="joinDate"
-          rules={[{ required: true, message: 'Join date is required' }]}
         >
           <DatePicker style={{ width: '100%' }} placeholder="Select join date" />
         </Form.Item>

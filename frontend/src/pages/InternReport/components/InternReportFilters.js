@@ -20,7 +20,6 @@ const { Option } = Select;
  * @param {Array} props.techStacks - List of tech stacks
  * @param {boolean} props.loadingProjects - Loading state for projects
  * @param {boolean} props.loadingAccountManagers - Loading state for account managers
- * @param {boolean} props.loadingTracks - Loading state for tracks
  */
 const InternReportFilters = ({
   filters,
@@ -31,7 +30,6 @@ const InternReportFilters = ({
   techStacks = [],
   loadingProjects = false,
   loadingAccountManagers = false,
-  loadingTracks = false,
 }) => {
   return (
     <Row gutter={[16, 16]} className="filters-row">
@@ -88,7 +86,6 @@ const InternReportFilters = ({
             value={filters.track}
             onChange={(value) => setFilters({ ...filters, track: value })}
             style={{ width: '100%' }}
-            loading={loadingTracks}
             showSearch
             allowClear
             filterOption={(input, option) =>
@@ -139,7 +136,6 @@ InternReportFilters.propTypes = {
   techStacks: PropTypes.array,
   loadingProjects: PropTypes.bool,
   loadingAccountManagers: PropTypes.bool,
-  loadingTracks: PropTypes.bool,
 };
 
 export default InternReportFilters;

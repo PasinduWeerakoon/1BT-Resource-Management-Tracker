@@ -9,6 +9,7 @@ import { useNavigate } from 'react-router-dom';
 import { App } from 'antd';
 import { authService } from '@api';
 import { setCredentials } from '@redux/slices/authSlice';
+import { fetchAllConfigData } from '@redux/slices/configSlice';
 import { storeAuth } from '@utils/auth.utils';
 import { getUserFromToken } from '@utils/jwt.utils';
 import { showErrorToast } from '@utils/toast.utils';
@@ -101,6 +102,15 @@ export const useLogin = () => {
     } catch (meError) {
       // If /auth/me fails, continue with fallback user info from token
       logger.warn('Failed to fetch user info from /auth/me:', meError);
+    }
+
+    // Fetch configuration data after successful login
+    try {
+      await dispatch(fetchAllConfigData()).unwrap();
+      logger.debug('Configuration data fetched successfully');
+    } catch (configError) {
+      // Don't block login if config fetch fails, just log it
+      logger.warn('Failed to fetch configuration data on login:', configError);
     }
 
     message.success('Login successful!');

@@ -36,7 +36,6 @@ const PersonalInfoStep = ({ form, isEditMode }) => {
         <Form.Item
           label="Mobile"
           name="mobile"
-          rules={[{ required: true, message: 'Mobile number is required' }]}
         >
           <Input placeholder="Enter mobile number" />
         </Form.Item>
@@ -45,7 +44,6 @@ const PersonalInfoStep = ({ form, isEditMode }) => {
         <Form.Item
           label="Date of Birth"
           name="bod"
-          rules={[{ required: true, message: 'Date of birth is required' }]}
         >
           <DatePicker style={{ width: '100%' }} placeholder="Select date of birth" />
         </Form.Item>
@@ -54,7 +52,6 @@ const PersonalInfoStep = ({ form, isEditMode }) => {
         <Form.Item
           label="NIC or Passport"
           name="nicOrPassport"
-          rules={[{ required: true, message: 'NIC or Passport is required' }]}
         >
           <Input placeholder="Enter NIC or Passport number" />
         </Form.Item>
