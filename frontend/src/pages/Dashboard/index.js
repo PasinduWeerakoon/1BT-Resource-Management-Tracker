@@ -1,19 +1,17 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Row, Col, Card } from 'antd';
-import { UserOutlined, PercentageOutlined } from '@ant-design/icons';
-import { Doughnut, Bar } from 'react-chartjs-2';
+import React, { useState, useMemo } from 'react';
+import { Card } from 'antd';
 import { commonOptions, colors } from '@utils/chartConfig';
-import CustomTable from '@components/Table';
-import { reportsService } from '@api';
+import { reportsService, summaryService } from '@api';
 import { showErrorToast } from '@utils/toast.utils';
 import logger from '@utils/logger';
-import {
-  RESOURCE_COUNTS,
-  PERCENTAGES,
-  COLUMN_WIDTHS,
-  LABELS
-} from '@constants/dashboard';
-import { UI, COMMON, TABLE } from '@constants/app';
+import { COLUMN_WIDTHS, LABELS } from '@constants/dashboard';
+import { COMMON, UI } from '@constants/app';
+import { ReportHeader } from '@components/ReportLayout';
+import CustomTable from '@components/Table';
+import { useFetchData } from '@hooks';
+import BottomSection from './components/BottomSection';
+import ResourceCountsSection from './components/ResourceCountsSection';
+import PercentagesSection from './components/PercentagesSection';
 import '@styles/pages/Dashboard.scss';
 
 const Dashboard = () => {
@@ -24,50 +22,76 @@ const Dashboard = () => {
     },
     designations: { data: [] },
   });
-  const [loading, setLoading] = useState(false);
-  const fetchInProgressRef = useRef(false);
+  const [summaryData, setSummaryData] = useState({
+    resourceCounts: {},
+    percentages: {},
+    charts: {
+      accountsByTrack: [],
+      accountsByTechStack: [],
+    },
+  });
 
-  // Fetch account manager report data (with "All" filters to get all data)
-  useEffect(() => {
-    const fetchAccountManagerReport = async () => {
-      if (fetchInProgressRef.current) {
-        return;
-      }
-
-      try {
-        fetchInProgressRef.current = true;
-        setLoading(true);
-
-        // Fetch with no filters to get all data
-        const response = await reportsService.getAccountManager({});
-
-        if (response) {
-          const data = response.data || response;
-          setReportData({
-            charts: data.charts || {
-              employeesByTrack: {},
-              employeesByTechStack: {},
-            },
-            designations: data.designations || { data: [] },
-          });
-        }
-      } catch (error) {
+  const {
+    loading: reportLoading,
+  } = useFetchData(
+    () => reportsService.getAccountManager({}),
+    {
+      autoFetch: true,
+      onSuccess: (response) => {
+        if (!response) return;
+        const data = response.data || response;
+        setReportData({
+          charts: data.charts || {
+            employeesByTrack: {},
+            employeesByTechStack: {},
+          },
+          designations: data.designations || { data: [] },
+        });
+      },
+      onError: (error) => {
         logger.error('Failed to fetch account manager report', error);
         showErrorToast('Failed to load account manager report data');
-      } finally {
-        setLoading(false);
-        fetchInProgressRef.current = false;
-      }
-    };
+      },
+    }
+  );
 
-    fetchAccountManagerReport();
-  }, []);
+  const {
+    loading: summaryLoading,
+  } = useFetchData(
+    async () => {
+      const [resourceCountsRes, percentagesRes, chartsRes] = await Promise.all([
+        summaryService.getResourceCounts(),
+        summaryService.getPercentages(),
+        summaryService.getCharts(),
+      ]);
+
+      return {
+        resourceCounts: resourceCountsRes?.data || resourceCountsRes || {},
+        percentages: percentagesRes?.data || percentagesRes || {},
+        charts: chartsRes?.data || chartsRes || {
+          accountsByTrack: [],
+          accountsByTechStack: [],
+        },
+      };
+    },
+    {
+      autoFetch: true,
+      onSuccess: (data) => {
+        if (!data) return;
+        setSummaryData(data);
+      },
+      onError: (error) => {
+        logger.error('Failed to fetch dashboard summary data', error);
+        showErrorToast('Failed to load dashboard summary data');
+      },
+    }
+  );
 
   // Chart.js data for track donut chart
   const trackDonutData = useMemo(() => {
-    const employeesByTrack = reportData.charts.employeesByTrack || {};
-    const labels = Object.keys(employeesByTrack);
-    const data = Object.values(employeesByTrack);
+    const accountsByTrack = summaryData.charts.accountsByTrack || [];
+    const labels = accountsByTrack.map((item) => item.track);
+    const data = accountsByTrack.map((item) => item.count);
 
     const colorPalette = [
       colors.primary,
@@ -92,7 +116,7 @@ const Dashboard = () => {
         },
       ],
     };
-  }, [reportData.charts.employeesByTrack]);
+  }, [summaryData.charts.accountsByTrack]);
 
   const trackDonutOptions = {
     ...commonOptions,
@@ -119,9 +143,9 @@ const Dashboard = () => {
 
   // Chart.js data for tech stack bar chart
   const techStackBarData = useMemo(() => {
-    const employeesByTechStack = reportData.charts.employeesByTechStack || {};
-    const labels = Object.keys(employeesByTechStack);
-    const data = Object.values(employeesByTechStack);
+    const accountsByTechStack = summaryData.charts.accountsByTechStack || [];
+    const labels = accountsByTechStack.map((item) => item.techStack);
+    const data = accountsByTechStack.map((item) => item.count);
 
     return {
       labels: labels.length > 0 ? labels : [COMMON.NO_DATA_LABEL],
@@ -134,7 +158,7 @@ const Dashboard = () => {
         },
       ],
     };
-  }, [reportData.charts.employeesByTechStack]);
+  }, [summaryData.charts.accountsByTechStack]);
 
   const techStackBarOptions = {
     ...commonOptions,
@@ -223,158 +247,34 @@ const Dashboard = () => {
 
   return (
     <div className="dashboard-page">
-      <div className="dashboard-header">
-        <h1 className="dashboard-title">{LABELS.SUMMARY_VIEW}</h1>
-      </div>
+      <ReportHeader title={LABELS.SUMMARY_VIEW} className="dashboard-header" />
 
       <div className="dashboard-content">
-        {/* Resource Counts Section */}
-        <div className="dashboard-section">
-          <div className="section-header">
-            <h2>{LABELS.RESOURCE_COUNTS}</h2>
-          </div>
-          <div className="resource-cards-container">
-            <div className="resource-cards-grid">
-              <Card className="metric-card">
-                <div className="metric-icon-wrapper">
-                  <UserOutlined className="metric-icon" />
-                </div>
-                <div className="metric-value">{RESOURCE_COUNTS.BILLING_RESOURCE_COUNT}</div>
-                <div className="metric-label">{LABELS.BILLING_RESOURCE_COUNT}</div>
-              </Card>
-              <Card className="metric-card">
-                <div className="metric-icon-wrapper">
-                  <UserOutlined className="metric-icon" />
-                </div>
-                <div className="metric-value">{RESOURCE_COUNTS.ALLOCATED_RESOURCE_COUNT}</div>
-                <div className="metric-label">{LABELS.ALLOCATED_RESOURCE_COUNT}</div>
-              </Card>
-              <Card className="metric-card">
-                <div className="metric-icon-wrapper">
-                  <UserOutlined className="metric-icon" />
-                </div>
-                <div className="metric-value">{RESOURCE_COUNTS.BILLABLE_RESOURCE_COUNT}</div>
-                <div className="metric-label">{LABELS.BILLABLE_RESOURCE_COUNT}</div>
-              </Card>
-              <Card className="metric-card">
-                <div className="metric-icon-wrapper">
-                  <UserOutlined className="metric-icon" />
-                </div>
-                <div className="metric-value">{RESOURCE_COUNTS.SHADOW_COUNT}</div>
-                <div className="metric-label">{LABELS.SHADOW_COUNT}</div>
-              </Card>
-              <Card className="metric-card">
-                <div className="metric-icon-wrapper">
-                  <UserOutlined className="metric-icon" />
-                </div>
-                <div className="metric-value">{RESOURCE_COUNTS.EXTERNAL_CONSULTANT_COUNT}</div>
-                <div className="metric-label">{LABELS.EXTERNAL_CONSULTANT_COUNT}</div>
-              </Card>
-              <Card className="metric-card">
-                <div className="metric-icon-wrapper">
-                  <UserOutlined className="metric-icon" />
-                </div>
-                <div className="metric-value">{RESOURCE_COUNTS.BENCH_RESOURCE_COUNT}</div>
-                <div className="metric-label">{LABELS.BENCH_RESOURCE_COUNT}</div>
-              </Card>
-              <Card className="metric-card">
-                <div className="metric-icon-wrapper">
-                  <UserOutlined className="metric-icon" />
-                </div>
-                <div className="metric-value">{RESOURCE_COUNTS.TRAINING_RESOURCE_COUNT}</div>
-                <div className="metric-label">{LABELS.TRAINING_RESOURCE_COUNT}</div>
-              </Card>
-              <Card className="metric-card">
-                <div className="metric-icon-wrapper">
-                  <UserOutlined className="metric-icon" />
-                </div>
-                <div className="metric-value">{RESOURCE_COUNTS.INTERNS_COUNT}</div>
-                <div className="metric-label">{LABELS.INTERNS}</div>
-              </Card>
-              <Card className="metric-card">
-                <div className="metric-icon-wrapper">
-                  <UserOutlined className="metric-icon" />
-                </div>
-                <div className="metric-value">{RESOURCE_COUNTS.SYNERGY_COUNT}</div>
-                <div className="metric-label">{LABELS.SYNERGY}</div>
-              </Card>
-              <Card className="metric-card">
-                <div className="metric-icon-wrapper">
-                  <UserOutlined className="metric-icon" />
-                </div>
-                <div className="metric-value">{RESOURCE_COUNTS.SHARED_SERVICES_COUNT}</div>
-                <div className="metric-label">{LABELS.SHARED_SERVICES}</div>
-              </Card>
-            </div>
-          </div>
-        </div>
+        <ResourceCountsSection counts={summaryData.resourceCounts} labels={LABELS} />
 
-        {/* Percentages Section */}
-        <div className="dashboard-section">
-          <div className="section-header">
-            <h2>{LABELS.PERCENTAGES}</h2>
-          </div>
-          <Row gutter={[UI.GUTTER_MEDIUM, UI.GUTTER_MEDIUM]} className="percentage-cards">
-            <Col xs={24} sm={12} md={8}>
-              <Card className="metric-card percentage-card">
-                <div className="metric-icon-wrapper">
-                  <PercentageOutlined className="metric-icon" />
-                </div>
-                <div className="metric-value">{PERCENTAGES.ALLOCATION_PERCENTAGE}%</div>
-                <div className="metric-label">{LABELS.ALLOCATION_PERCENTAGE}</div>
-              </Card>
-            </Col>
-            <Col xs={24} sm={12} md={8}>
-              <Card className="metric-card percentage-card">
-                <div className="metric-icon-wrapper">
-                  <PercentageOutlined className="metric-icon" />
-                </div>
-                <div className="metric-value">{PERCENTAGES.BILLABLE_PERCENTAGE}%</div>
-                <div className="metric-label">{LABELS.BILLABLE_PERCENTAGE}</div>
-              </Card>
-            </Col>
-            <Col xs={24} sm={12} md={8}>
-              <Card className="metric-card percentage-card">
-                <div className="metric-icon-wrapper">
-                  <PercentageOutlined className="metric-icon" />
-                </div>
-                <div className="metric-value">{PERCENTAGES.SHADOW_PERCENTAGE}%</div>
-                <div className="metric-label">{LABELS.SHADOW_PERCENTAGE}</div>
-              </Card>
-            </Col>
-          </Row>
-        </div>
+        <PercentagesSection percentages={summaryData.percentages} labels={LABELS} />
 
-        {/* Bottom Section - Three Columns */}
+        <BottomSection
+          designationColumns={designationColumns}
+          designationData={designationData}
+          loading={reportLoading || summaryLoading}
+          trackDonutData={trackDonutData}
+          trackDonutOptions={trackDonutOptions}
+          techStackBarData={techStackBarData}
+          techStackBarOptions={techStackBarOptions}
+          labels={LABELS}
+        />
+
         <div className="dashboard-section">
-          <Row gutter={[UI.GUTTER_SMALL, UI.GUTTER_SMALL]} className="bottom-section">
-            <Col xs={24} lg={8}>
-              <Card className="table-card" title={LABELS.BY_DESIGNATION}>
-                <CustomTable
-                  columns={designationColumns}
-                  dataSource={designationData}
-                  pagination={false}
-                  size={TABLE.SIZE_SMALL}
-                  scroll={{ x: TABLE.DEFAULT_SCROLL_X }}
-                  loading={loading}
-                />
-              </Card>
-            </Col>
-            <Col xs={24} lg={8}>
-              <Card className="chart-card" title={LABELS.EMPLOYEES_BY_TRACK}>
-                <div className="chart-container">
-                  <Doughnut data={trackDonutData} options={trackDonutOptions} />
-                </div>
-              </Card>
-            </Col>
-            <Col xs={24} lg={8}>
-              <Card className="chart-card" title={LABELS.EMPLOYEES_BY_TECH_STACK}>
-                <div className="chart-container">
-                  <Bar data={techStackBarData} options={techStackBarOptions} />
-                </div>
-              </Card>
-            </Col>
-          </Row>
+          <Card className="table-card" title="By Future Allocation">
+            <CustomTable
+              emptyText="No data"
+              columns={[]}
+              dataSource={[]}
+              pagination={false}
+              size="small"
+            />
+          </Card>
         </div>
       </div>
     </div>
