@@ -304,10 +304,11 @@ export const projectSchemas = {
 };
 
 // Allocation Schemas - uses INTEGER IDs for all references
+// Note: Uses resource_id as API parameter name (maps to employee_id in DB)
 export const allocationSchemas = {
     list: Joi.object({
         ...paginationSchema,
-        employee_id: Joi.number().integer().min(1).optional(),
+        resource_id: Joi.number().integer().min(1).optional(),
         project_id: Joi.number().integer().min(1).optional(),
         start_date: Joi.date().iso().optional(),
         end_date: Joi.date().iso().optional(),
@@ -321,12 +322,14 @@ export const allocationSchemas = {
     }),
 
     create: Joi.object({
-        employee_id: Joi.number().integer().min(1).required(),
+        resource_id: Joi.number().integer().min(1).required(),
         project_id: Joi.number().integer().min(1).required(),
         allocation_percentage: Joi.number().min(0).max(100).required(),
         start_date: Joi.date().iso().required(),
         end_date: Joi.date().iso().optional(),
         billing_percentage: Joi.number().min(0).max(100).default(100),
+        billing_status_id: Joi.number().integer().min(1).required()
+            .messages({ 'any.required': 'billing_status_id is required when creating an allocation' }),
         notes: Joi.string().max(500).allow('').optional(),
         effective_date: Joi.date().iso().optional(),
         forceOverallocation: Joi.boolean().optional(),
@@ -337,6 +340,7 @@ export const allocationSchemas = {
         start_date: Joi.date().iso().optional(),
         end_date: Joi.date().iso().optional(),
         billing_percentage: Joi.number().min(0).max(100).optional(),
+        billing_status_id: Joi.number().integer().min(1).optional(),
         is_active: Joi.boolean().optional(),
         notes: Joi.string().max(500).allow('').optional(),
         effective_date: Joi.date().iso().optional(),

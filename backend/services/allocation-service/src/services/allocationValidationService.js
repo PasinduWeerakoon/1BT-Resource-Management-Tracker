@@ -63,7 +63,7 @@ export const validateAllocation = async (resourceId, newPercentage, excludeAlloc
     let query = `
         SELECT COALESCE(SUM(allocation_percentage), 0) as total
         FROM allocations
-        WHERE resource_id = $1
+        WHERE employee_id = $1
         AND project_id != $2
         AND is_active = true
         AND (deallocated_date IS NULL OR deallocated_date >= $3::date)
@@ -165,7 +165,7 @@ export const checkProjectCapacity = async (projectId, excludeResourceId = null) 
 
     // Count distinct resources currently allocated
     let query = `
-        SELECT COUNT(DISTINCT resource_id) as current_team_count
+        SELECT COUNT(DISTINCT employee_id) as current_team_count
         FROM allocations
         WHERE project_id = $1
         AND is_active = true
@@ -173,7 +173,7 @@ export const checkProjectCapacity = async (projectId, excludeResourceId = null) 
     const params = [projectId];
 
     if (excludeResourceId) {
-        query += ' AND resource_id != $2';
+        query += ' AND employee_id != $2';
         params.push(excludeResourceId);
     }
 
@@ -236,7 +236,7 @@ export const checkOverlappingAllocation = async (resourceId, projectId, allocate
     let query = `
         SELECT id, allocated_date, deallocated_date, allocation_percentage
         FROM allocations
-        WHERE resource_id = $1
+        WHERE employee_id = $1
         AND project_id = $2
         AND is_active = true
         AND (allocated_date <= COALESCE($4::date, '9999-12-31'))

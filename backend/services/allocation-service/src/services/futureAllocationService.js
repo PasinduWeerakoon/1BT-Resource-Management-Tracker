@@ -38,6 +38,7 @@ export const createFutureAllocation = async (data) => {
     const project_id = data.project_id || data.projectId;
     const allocation_percentage = data.allocation_percentage || data.newAllocationPercentage;
     const billing_percentage = data.billing_percentage ?? data.newBillingPercentage ?? 100;
+    const billing_status_id = data.billing_status_id || data.billingStatusId || null;
     const effective_date = data.effective_date || data.effectiveDate;
     const change_type = data.change_type || data.changeType;
     const target_allocation_id = data.target_allocation_id || data.targetAllocationId;
@@ -52,17 +53,19 @@ export const createFutureAllocation = async (data) => {
         resource_id,
         project_id,
         effective_date,
-        change_type
+        change_type,
+        billing_status_id
     });
 
     const query = `
         INSERT INTO future_allocations (
-            resource_id, project_id, allocation_percentage, billing_percentage,
+            employee_id, project_id, allocation_percentage, billing_percentage, billing_status_id,
             effective_date, allocated_date, deallocated_date,
             change_type, status, target_allocation_id, notes, created_by
         )
-        VALUES ($1, $2, $3, $4, $5::date, $6::date, $7::date, $8, 'scheduled', $9, $10, $11)
-        RETURNING *
+        VALUES ($1, $2, $3, $4, $5, $6::date, $7::date, $8::date, $9, 'scheduled', $10, $11, $12)
+        RETURNING *, 
+            (SELECT name FROM billing_statuses WHERE id = billing_status_id) as billing_status_name
     `;
 
     const params = [
@@ -70,6 +73,7 @@ export const createFutureAllocation = async (data) => {
         project_id,
         allocation_percentage,
         billing_percentage,
+        billing_status_id,
         effective_date,
         allocated_date,
         deallocated_date || null,
@@ -97,11 +101,11 @@ export const createLinkedFutureAllocation = async (mainFutureAllocation, linkedD
 
     const query = `
         INSERT INTO future_allocations (
-            resource_id, project_id, allocation_percentage, billing_percentage,
+            employee_id, project_id, allocation_percentage, billing_percentage, billing_status_id,
             effective_date, allocated_date, deallocated_date,
             change_type, status, linked_future_id, notes, created_by
         )
-        VALUES ($1, $2, $3, $4, $5::date, $6::date, $7::date, $8, 'scheduled', $9, $10, $11)
+        VALUES ($1, $2, $3, $4, 3, $5::date, $6::date, $7::date, $8, 'scheduled', $9, $10, $11)
         RETURNING *
     `;
 
@@ -342,7 +346,7 @@ export const markAsActivated = async (id) => {
 export const checkConflictingFuture = async (resourceId, projectId, effectiveDate, excludeId = null) => {
     let query = `
         SELECT * FROM future_allocations
-        WHERE resource_id = $1
+        WHERE employee_id = $1
         AND project_id = $2
         AND effective_date = $3::date
         AND status = 'scheduled'
@@ -374,7 +378,7 @@ export const calculateFutureCapacity = async (resourceId, futureDate, benchProje
     const activeQuery = `
         SELECT COALESCE(SUM(allocation_percentage), 0) as total
         FROM allocations
-        WHERE resource_id = $1
+        WHERE employee_id = $1
         AND project_id != $2
         AND is_active = true
         AND allocated_date <= $3::date
@@ -392,7 +396,7 @@ export const calculateFutureCapacity = async (resourceId, futureDate, benchProje
     const futureQuery = `
         SELECT COALESCE(SUM(allocation_percentage), 0) as total
         FROM future_allocations
-        WHERE resource_id = $1
+        WHERE employee_id = $1
         AND project_id != $2
         AND status = 'scheduled'
         AND effective_date <= $3::date
