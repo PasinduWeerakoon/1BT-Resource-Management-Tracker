@@ -73,21 +73,27 @@ const getUserIdFromCognitoSub = async (event) => {
 
 /**
  * Log allocation changes to history
+ * Gracefully handles missing allocation_change_history table
  */
 const logAllocationHistory = async (allocation, changeType, userId) => {
-    const query = `
-        INSERT INTO allocation_change_history (
-            allocation_id, change_type, changed_by, changed_fields, new_values
-        )
-        VALUES ($1, $2, $3, $4, $5)
-    `;
-    await db.query(query, [
-        allocation.id,
-        changeType,
-        userId || 1,
-        JSON.stringify(['allocation_percentage', 'allocated_date', 'deallocated_date']),
-        JSON.stringify(allocation)
-    ]);
+    try {
+        const query = `
+            INSERT INTO allocation_change_history (
+                allocation_id, change_type, changed_by, changed_fields, new_values
+            )
+            VALUES ($1, $2, $3, $4, $5)
+        `;
+        await db.query(query, [
+            allocation.id,
+            changeType,
+            userId || 1,
+            JSON.stringify(['allocation_percentage', 'allocated_date', 'deallocated_date']),
+            JSON.stringify(allocation)
+        ]);
+    } catch (err) {
+        // Log error but don't fail the operation - history logging is non-critical
+        console.warn('Failed to log allocation history (table may not exist):', err.message);
+    }
 };
 
 /**
@@ -624,7 +630,7 @@ export const update = async (event) => {
         const isBenchAllocation = existing.project_id === benchProjectId;
 
         // Enhancement 3.6: Check resource status before updating allocation
-        const resourceResult = await db.query('SELECT status FROM employees WHERE id = $1', [existing.resource_id]);
+        const resourceResult = await db.query('SELECT status FROM employees WHERE id = $1', [existing.employee_id]);
         if (resourceResult.rows.length === 0) {
             return notFound('Resource not found');
         }
@@ -636,7 +642,7 @@ export const update = async (event) => {
             if (validated.allocation_percentage > existing.allocation_percentage) {
                 log.warn('Blocked allocation increase - resource is serving notice period', {
                     allocationId: id,
-                    resourceId: existing.resource_id,
+                    resourceId: existing.employee_id,
                     resourceStatus,
                     currentPercentage: existing.allocation_percentage,
                     requestedPercentage: validated.allocation_percentage
@@ -653,7 +659,7 @@ export const update = async (event) => {
         if (resourceStatus === 'Inactive') {
             log.warn('Blocked allocation update - resource is inactive', {
                 allocationId: id,
-                resourceId: existing.resource_id,
+                resourceId: existing.employee_id,
                 resourceStatus
             });
             return badRequest('Cannot update allocations for inactive resources.', {
@@ -669,7 +675,7 @@ export const update = async (event) => {
         // Enhancement 3.5: Check for overlapping date conflicts when dates are being changed
         if (!isBenchAllocation && (validated.start_date || validated.end_date)) {
             const overlappingAllocation = await checkOverlappingAllocation(
-                existing.resource_id,
+                existing.employee_id,
                 existing.project_id,
                 validated.start_date || existing.allocated_date,
                 validated.end_date !== undefined ? validated.end_date : existing.deallocated_date,
@@ -679,7 +685,7 @@ export const update = async (event) => {
             if (overlappingAllocation) {
                 log.warn('Overlapping allocation detected on update', {
                     allocationId: id,
-                    resourceId: existing.resource_id,
+                    resourceId: existing.employee_id,
                     projectId: existing.project_id,
                     existingAllocationId: overlappingAllocation.id
                 });
@@ -701,7 +707,7 @@ export const update = async (event) => {
         let validationResult = null;
         if (validated.allocation_percentage !== undefined && !isBenchAllocation) {
             validationResult = await validateAllocation(
-                existing.resource_id,
+                existing.employee_id,
                 validated.allocation_percentage,
                 id,
                 validated.start_date || existing.allocated_date,
@@ -712,7 +718,7 @@ export const update = async (event) => {
             if (validationResult.requiresForce && !validated.forceOverallocation) {
                 log.warn('CRITICAL overallocation blocked on update - force flag required', {
                     allocationId: id,
-                    resourceId: existing.resource_id,
+                    resourceId: existing.employee_id,
                     totalAllocation: validationResult.newTotal,
                     severity: validationResult.overallocationSeverity
                 });
@@ -728,7 +734,7 @@ export const update = async (event) => {
             if (validationResult.requiresNotes && (!validated.notes || validated.notes.trim().length === 0) && (!existing.notes || existing.notes.trim().length === 0)) {
                 log.warn('HIGH overallocation requires notes on update', {
                     allocationId: id,
-                    resourceId: existing.resource_id,
+                    resourceId: existing.employee_id,
                     totalAllocation: validationResult.newTotal,
                     severity: validationResult.overallocationSeverity
                 });
@@ -744,7 +750,7 @@ export const update = async (event) => {
             if (!minValidation.valid) {
                 log.warn('Allocation update below minimum threshold', {
                     allocationId: id,
-                    resourceId: existing.resource_id,
+                    resourceId: existing.employee_id,
                     projectId: existing.project_id,
                     percentage: validated.allocation_percentage,
                     error: minValidation.error
@@ -760,7 +766,7 @@ export const update = async (event) => {
         let capacityCheck = { capacityWarning: null };
         if (!isBenchAllocation && (validated.project_id || validated.allocation_percentage !== undefined)) {
             const projectId = validated.project_id || existing.project_id;
-            capacityCheck = await checkProjectCapacity(projectId, existing.resource_id);
+            capacityCheck = await checkProjectCapacity(projectId, existing.employee_id);
         }
 
         // Enhancement 3.9: Validate duration (warnings only, if dates changed)
@@ -826,7 +832,7 @@ export const update = async (event) => {
         // Auto-adjust bench allocation if this is not a bench allocation
         let benchAdjustment = null;
         if (!isBenchAllocation && validated.allocation_percentage !== undefined) {
-            const newBenchPercentage = await adjustBenchAllocation(existing.resource_id, userId, log);
+            const newBenchPercentage = await adjustBenchAllocation(existing.employee_id, userId, log);
             benchAdjustment = {
                 benchPercentage: newBenchPercentage,
                 message: `Bench allocation adjusted to ${newBenchPercentage}%`
@@ -834,10 +840,10 @@ export const update = async (event) => {
 
             // Enhancement 3.4: After update, check for gaps and fill with bench
             try {
-                await detectAndFillGaps(existing.resource_id, userId, log);
+                await detectAndFillGaps(existing.employee_id, userId, log);
             } catch (gapErr) {
                 log.warn('Failed to detect/fill gaps after update', {
-                    resourceId: existing.resource_id,
+                    resourceId: existing.employee_id,
                     error: gapErr.message
                 });
             }
@@ -858,7 +864,7 @@ export const update = async (event) => {
         log.info('Allocation updated', { id, warning: validationResult?.warning });
 
         // Update resource total_allocation and total_billing
-        await updateResourceTotals(existing.resource_id, log);
+        await updateResourceTotals(existing.employee_id, log);
 
         // Build response with optional warning and severity information
         const response = {
@@ -934,7 +940,7 @@ export const remove = async (event) => {
         // Auto-adjust bench allocation if this was not a bench allocation
         let benchAdjustment = null;
         if (!isBenchAllocation) {
-            const newBenchPercentage = await adjustBenchAllocation(existing.resource_id, userId, log);
+            const newBenchPercentage = await adjustBenchAllocation(existing.employee_id, userId, log);
             benchAdjustment = {
                 benchPercentage: newBenchPercentage,
                 message: `Bench allocation adjusted to ${newBenchPercentage}%`
@@ -942,10 +948,10 @@ export const remove = async (event) => {
 
             // Enhancement 3.4: After deletion, check for gaps and fill with bench
             try {
-                await detectAndFillGaps(existing.resource_id, userId, log);
+                await detectAndFillGaps(existing.employee_id, userId, log);
             } catch (gapErr) {
                 log.warn('Failed to detect/fill gaps after deletion', {
-                    resourceId: existing.resource_id,
+                    resourceId: existing.employee_id,
                     error: gapErr.message
                 });
             }
@@ -956,7 +962,7 @@ export const remove = async (event) => {
             event,
             'allocation',
             id,
-            `${existing.resource_id} -> ${existing.project_id}`,
+            `${existing.employee_id} -> ${existing.project_id}`,
             existing,
             SERVICE_NAME,
             { benchAdjustment }
@@ -965,7 +971,7 @@ export const remove = async (event) => {
         log.info('Allocation deleted', { id, benchAdjustment });
 
         // Update resource total_allocation and total_billing
-        await updateResourceTotals(existing.resource_id, log);
+        await updateResourceTotals(existing.employee_id, log);
 
         return success({
             message: 'Allocation deleted successfully',
