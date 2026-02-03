@@ -1,3 +1,4 @@
+﻿// Version: 2026-02-03 14:44:29
 /**
  * Drizzle ORM Schema
  * Type-safe database schema definitions for 1BT Resource Management
@@ -141,10 +142,14 @@ export const employees = pgTable('employees', {
     universityId: integer('university_id').references(() => universities.id, { onDelete: 'set null' }),
     // Dates
     joinedDate: date('joined_date'),
+    dateOfBirth: date('date_of_birth'),
     lastIncrementDate: date('last_increment_date'),
     lastPromotionDate: date('last_promotion_date'),
     internshipCompletionTargetDate: date('internship_completion_target_date'),
     noticePeriodEndDate: date('notice_period_end_date'),
+    // Personal info
+    nicPassport: varchar('nic_passport', { length: 50 }),
+    isExternal: boolean('is_external').notNull().default(false),
     // Status and allocation
     status: employeeStatusEnum('status').notNull().default('Active'),
     totalAllocation: decimal('total_allocation', { precision: 5, scale: 2 }).notNull().default('0'),
@@ -607,3 +612,4 @@ export const schema = {
 };
 
 export default schema;
+

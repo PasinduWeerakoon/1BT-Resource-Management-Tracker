@@ -113,10 +113,13 @@ CREATE TABLE IF NOT EXISTS employees (
     employee_type_id INTEGER REFERENCES employee_types(id) ON DELETE SET NULL,
     university_id INTEGER REFERENCES universities(id) ON DELETE SET NULL,
     joined_date DATE,
+    date_of_birth DATE,
     last_increment_date DATE,
     last_promotion_date DATE,
     internship_completion_target_date DATE,
     notice_period_end_date DATE,
+    nic_passport VARCHAR(50),
+    is_external BOOLEAN NOT NULL DEFAULT false,
     status employee_status NOT NULL DEFAULT 'Active',
     total_allocation DECIMAL(5,2) NOT NULL DEFAULT 0,
     total_resource_billing DECIMAL(5,2) NOT NULL DEFAULT 0,
@@ -442,7 +445,18 @@ CREATE INDEX IF NOT EXISTS idx_dashboard_stats_date ON dashboard_stats(stats_dat
 CREATE INDEX IF NOT EXISTS idx_dashboard_stats_latest ON dashboard_stats(stats_type, stats_date DESC);
 
 -- Cleanup: Keep only last 365 days of data (can be adjusted)
-COMMENT ON TABLE dashboard_stats IS 'Daily dashboard statistics snapshots. Calculated at midnight UTC. Retention: 365 days.';`
+COMMENT ON TABLE dashboard_stats IS 'Daily dashboard statistics snapshots. Calculated at midnight UTC. Retention: 365 days.';`,
+
+    '009_add_employee_personal_fields': `-- Migration: 009_add_employee_personal_fields
+-- Add date_of_birth, nic_passport, and is_external columns to employees table
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS date_of_birth DATE;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS nic_passport VARCHAR(50);
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS is_external BOOLEAN NOT NULL DEFAULT false;
+
+-- Add comment for documentation
+COMMENT ON COLUMN employees.date_of_birth IS 'Employee date of birth';
+COMMENT ON COLUMN employees.nic_passport IS 'NIC or Passport number';
+COMMENT ON COLUMN employees.is_external IS 'Whether the employee is external (contractor/vendor)';`
 };
 
 // ============================================================================

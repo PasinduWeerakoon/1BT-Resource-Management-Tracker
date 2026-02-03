@@ -328,13 +328,13 @@ export const list = async (event) => {
             LEFT JOIN tags tg ON rt.tag_id = tg.id
             GROUP BY fr.id, fr.epf_no, fr.emp_no, fr.global_employee_id, fr.name, fr.phone_number, 
                      fr.email, fr.designation_id, fr.track_id, fr.tech_stack_id, fr.tier_id,
-                     fr.skills, fr.joined_date, fr.status, fr.notice_period_end_date, 
+                     fr.skills, fr.joined_date, fr.date_of_birth, fr.status, fr.notice_period_end_date, 
                      fr.deleted_at, fr.version, fr.created_at, fr.updated_at, fr.created_by, 
                      fr.updated_by, fr.is_account_manager, fr.photo_url, fr.total_allocation, 
                      fr.total_resource_billing, fr.employee_type_id, fr.university_id,
                      fr.last_increment_date, fr.last_promotion_date, fr.internship_completion_target_date,
-                     fr.helper_id, fr.helper_is_external, fr.designation_name, fr.designation_level, 
-                     fr.total_count
+                     fr.helper_id, fr.helper_is_external, fr.nic_passport, fr.is_external,
+                     fr.designation_name, fr.designation_level, fr.total_count
             ORDER BY fr.name ASC
         `;
         params.push(limit, offset);
@@ -561,7 +561,7 @@ export const create = async (event) => {
                 tier_id: validated.tier_id,
                 designation_id: validated.designation_id,
                 employee_type_id: validated.employee_type_id,
-                is_internal: validated.is_internal
+                is_external: validated.is_external
             });
 
             // Insert resource using Drizzle (use camelCase properties from schema)
@@ -586,9 +586,13 @@ export const create = async (event) => {
                     universityId: validated.university_id || null,
                     // Dates
                     joinedDate: validated.joined_date || null,
+                    dateOfBirth: validated.date_of_birth || null,
                     lastIncrementDate: validated.last_increment_date || null,
                     lastPromotionDate: validated.last_promotion_date || null,
                     internshipCompletionTargetDate: validated.internship_completion_target_date || null,
+                    // Personal info
+                    nicPassport: validated.nic_passport || null,
+                    isExternal: validated.is_external || false,
                     // Other fields
                     skills: validated.skills || [],
                     photoUrl: validated.photo_url || null,
@@ -749,6 +753,7 @@ export const update = async (event) => {
             date_of_birth: 'dateOfBirth',
             nic_passport: 'nicPassport',
             is_intern: 'isIntern',
+            is_external: 'isExternal',
             employee_type: 'employeeType',
             photo_url: 'photoUrl',
             // Direct mappings (same name)
