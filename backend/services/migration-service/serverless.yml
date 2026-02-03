@@ -40,7 +40,7 @@ provider:
           Resource: !ImportValue onebt-${self:provider.stage}-AuditQueueArn
 
   layers:
-        - arn:aws:lambda:ap-southeast-1:550586832874:layer:onebt-shared-libs-dev:55
+    - arn:aws:lambda:ap-southeast-1:550586832874:layer:onebt-shared-libs-dev:73
 
 plugins:
   - serverless-offline
@@ -53,23 +53,28 @@ package:
     - "!*.md"
     - "!tests/**"
     - "src/**"
-    - "migrations/**"
+    - "drizzle/**"
 
 functions:
-  # Run pending migrations
+  # Run pending migrations and seeders
   runMigrations:
     handler: src/handlers/migrations.up
-    description: Run pending database migrations
+    description: Run pending database migrations and seeders
     events:
       # Can be triggered manually via AWS Console or CLI
       # aws lambda invoke --function-name onebt-migration-service-dev-runMigrations out.json
-
-  # Rollback last migration
-  rollbackMigration:
-    handler: src/handlers/migrations.down
-    description: Rollback the last migration
 
   # Get migration status
   getMigrationStatus:
     handler: src/handlers/migrations.status
     description: Get current migration status
+
+  # Reset database (DEV ONLY - will destroy all data)
+  resetDatabase:
+    handler: src/handlers/migrations.reset
+    description: Reset database schema (DEV ONLY - destroys all data)
+
+  # Run only seeders (useful for refreshing seed data)
+  runSeeders:
+    handler: src/handlers/migrations.seed
+    description: Run seeders to populate default data

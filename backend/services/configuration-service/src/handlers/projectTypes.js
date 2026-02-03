@@ -11,6 +11,19 @@ import audit from '/opt/nodejs/lib/audit/index.js';
 const SERVICE_NAME = 'resource-service';
 
 /**
+ * Transform database row to config format
+ */
+const transformRow = (row) => ({
+    id: row.id,
+    value: row.id,
+    label: row.name,
+    description: row.description || row.name,
+    isActive: row.is_active,
+    displayOrder: row.display_order || row.id,
+    ...(row.is_default !== undefined && { isDefault: row.is_default }),
+});
+
+/**
  * List all project types
  */
 export const list = async (event) => {
@@ -19,11 +32,11 @@ export const list = async (event) => {
     try {
         log.info('Listing project types');
 
-        const query = 'SELECT * FROM project_types ORDER BY name ASC';
+        const query = 'SELECT * FROM project_types ORDER BY display_order ASC, name ASC';
         const result = await db.query(query);
 
         return success({
-            data: result.rows,
+            data: result.rows.map(transformRow),
             total: result.rows.length
         });
 
@@ -66,7 +79,7 @@ export const create = async (event) => {
 
     try {
         const body = JSON.parse(event.body || '{}');
-        
+
         // Basic validation
         if (!body.name || typeof body.name !== 'string' || body.name.trim().length === 0) {
             return validationError([{ field: 'name', message: 'Name is required' }]);

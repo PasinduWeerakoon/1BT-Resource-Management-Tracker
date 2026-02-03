@@ -4,11 +4,26 @@
  * Handlers for allocation-related reports:
  * - getAllocationReport: General allocation report with filters
  * - getMonthlyAllocationReport: Monthly allocation breakdown
+ * 
+ * Config ID Resolution:
+ * - track_id -> TRACKS config
+ * - tier_id -> TIERS config
+ * - tech_stack_id -> TECH_STACKS config
  */
 
 import * as db from '/opt/nodejs/database/index.js';
 import logger from '/opt/nodejs/logger/index.js';
 import { success, error } from '/opt/nodejs/utils/response.js';
+import { TRACKS, TIERS, TECH_STACKS, getConfigById } from '/opt/nodejs/configs/index.js';
+
+/**
+ * Helper function to resolve config IDs to labels
+ */
+const resolveConfigLabel = (configArray, id) => {
+    if (!id) return null;
+    const config = getConfigById(configArray, id);
+    return config ? config.label : null;
+};
 
 /**
  * Get allocation report with filters
@@ -18,7 +33,7 @@ export const getAllocationReport = async (event) => {
 
     try {
         const queryParams = event.queryStringParameters || {};
-        const { start_date, end_date, project_type, client_id } = queryParams;
+        const { start_date, end_date, project_type_id, client_id } = queryParams;
 
         log.info('Getting allocation report', { filters: queryParams });
 
@@ -26,9 +41,9 @@ export const getAllocationReport = async (event) => {
         const params = [];
         let paramIndex = 1;
 
-        if (project_type) {
-            whereClause += ` AND p.project_type = $${paramIndex}`;
-            params.push(project_type);
+        if (project_type_id) {
+            whereClause += ` AND p.project_type_id = $${paramIndex}`;
+            params.push(project_type_id);
             paramIndex++;
         }
 
@@ -53,31 +68,41 @@ export const getAllocationReport = async (event) => {
         const query = `
             SELECT 
                 p.project_name,
-                p.project_type,
+                pt.name as project_type,
                 c.client_name,
                 r.name as resource_name,
                 r.email as resource_email,
                 d.name as designation_name,
-                t.name as track_name,
+                r.track_id,
+                r.tier_id,
+                r.tech_stack_id,
                 a.allocation_percentage,
                 a.allocated_date,
                 a.deallocated_date,
-                a.status
+                a.is_active
             FROM allocations a
             JOIN projects p ON a.project_id = p.id
-            JOIN resources r ON a.resource_id = r.id
+            JOIN employees r ON a.employee_id = r.id
             LEFT JOIN clients c ON p.client_id = c.id
             LEFT JOIN designations d ON r.designation_id = d.id
-            LEFT JOIN tracks t ON r.track_id = t.id
+            LEFT JOIN project_types pt ON p.project_type_id = pt.id
             ${whereClause}
             ORDER BY p.project_name, r.name
         `;
 
         const result = await db.query(query, params);
 
+        // Transform results with config resolution
+        const data = result.rows.map(row => ({
+            ...row,
+            track: resolveConfigLabel(TRACKS, row.track_id),
+            tier: resolveConfigLabel(TIERS, row.tier_id),
+            tech_stack: resolveConfigLabel(TECH_STACKS, row.tech_stack_id)
+        }));
+
         return success({
-            data: result.rows,
-            total: result.rows.length,
+            data,
+            total: data.length,
             filters: queryParams,
             generatedAt: new Date().toISOString()
         });
@@ -111,18 +136,19 @@ export const getMonthlyAllocationReport = async (event) => {
                 r.name as resource_name,
                 r.email,
                 d.name as designation,
-                t.name as track,
+                r.track_id,
+                r.tier_id,
+                r.tech_stack_id,
                 p.project_name,
                 c.client_name,
                 a.allocation_percentage,
                 a.allocated_date,
                 a.deallocated_date
             FROM allocations a
-            JOIN resources r ON a.resource_id = r.id
+            JOIN employees r ON a.employee_id = r.id
             JOIN projects p ON a.project_id = p.id
             LEFT JOIN clients c ON p.client_id = c.id
             LEFT JOIN designations d ON r.designation_id = d.id
-            LEFT JOIN tracks t ON r.track_id = t.id
             WHERE a.allocated_date <= $2
             AND (a.deallocated_date IS NULL OR a.deallocated_date >= $1)
             AND r.deleted_at IS NULL
@@ -131,9 +157,17 @@ export const getMonthlyAllocationReport = async (event) => {
 
         const result = await db.query(query, [startDate, endDate]);
 
+        // Transform results with config resolution
+        const data = result.rows.map(row => ({
+            ...row,
+            track: resolveConfigLabel(TRACKS, row.track_id),
+            tier: resolveConfigLabel(TIERS, row.tier_id),
+            tech_stack: resolveConfigLabel(TECH_STACKS, row.tech_stack_id)
+        }));
+
         return success({
-            data: result.rows,
-            total: result.rows.length,
+            data,
+            total: data.length,
             period: {
                 year: targetYear,
                 month: targetMonth,

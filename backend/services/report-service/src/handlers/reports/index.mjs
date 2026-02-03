@@ -9,7 +9,12 @@
  */
 
 // Dashboard
-export { getDashboard } from './dashboard.mjs';
+export {
+    getDashboard,
+    getDashboardResourceCounts,
+    getDashboardPercentages,
+    getDashboardCharts
+} from './dashboard.mjs';
 
 // Allocation Reports
 export { getAllocationReport, getMonthlyAllocationReport } from './allocation.mjs';

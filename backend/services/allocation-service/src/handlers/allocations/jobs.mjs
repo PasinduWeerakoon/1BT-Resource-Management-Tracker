@@ -25,7 +25,7 @@ export const gapDetectionJob = async (event) => {
 
         // Get all active resources
         const resourcesResult = await db.query(
-            "SELECT id, name FROM resources WHERE status = 'Active' AND deleted_at IS NULL"
+            "SELECT id, name FROM employees WHERE status = 'Active' AND deleted_at IS NULL"
         );
 
         const results = {
@@ -83,7 +83,7 @@ export const billingStatusTransitionJob = async (event) => {
 
         // Find allocations that started today with Bench billing status
         const query = `
-            SELECT a.id, a.resource_id, a.project_id, p.billing_status as project_billing_status
+            SELECT a.id, a.employee_id, a.project_id, p.billing_status as project_billing_status
             FROM allocations a
             JOIN projects p ON a.project_id = p.id
             WHERE a.allocated_date = CURRENT_DATE
@@ -161,7 +161,7 @@ export const utilizationSnapshotJob = async (event) => {
         // Get all active resources
         const resourcesQuery = `
             SELECT id, employee_id, name 
-            FROM resources 
+            FROM employees 
             WHERE status = 'Active' 
             AND deleted_at IS NULL
         `;
@@ -222,7 +222,7 @@ export const utilizationSnapshotJob = async (event) => {
                         
                     FROM allocations a
                     JOIN projects p ON a.project_id = p.id
-                    WHERE a.resource_id = $1
+                    WHERE a.employee_id = $1
                     AND a.is_active = true
                     AND a.deleted_at IS NULL
                     AND a.allocated_date <= $2
@@ -314,3 +314,4 @@ export const utilizationSnapshotJob = async (event) => {
         return error('Utilization snapshot job failed', err);
     }
 };
+

@@ -12,6 +12,22 @@ import audit from '/opt/nodejs/lib/audit/index.js';
 const SERVICE_NAME = 'resource-service';
 
 /**
+ * Transform database row to config format
+ */
+const transformRow = (row) => ({
+    id: row.id,
+    value: row.id,
+    label: row.name,
+    description: row.description || row.name,
+    isActive: row.is_active,
+    displayOrder: row.display_order || row.level || row.id,
+    ...(row.level !== undefined && { level: row.level }),
+    ...(row.is_intern_role !== undefined && { isInternRole: row.is_intern_role }),
+    ...(row.category && { category: row.category }),
+    ...(row.is_default !== undefined && { isDefault: row.is_default }),
+});
+
+/**
  * List all designations
  */
 export const list = async (event) => {
@@ -20,11 +36,11 @@ export const list = async (event) => {
     try {
         log.info('Listing designations');
 
-        const query = 'SELECT * FROM designations ORDER BY level ASC, name ASC';
+        const query = 'SELECT * FROM designations ORDER BY display_order ASC, level ASC, name ASC';
         const result = await db.query(query);
 
         return success({
-            data: result.rows,
+            data: result.rows.map(transformRow),
             total: result.rows.length
         });
 

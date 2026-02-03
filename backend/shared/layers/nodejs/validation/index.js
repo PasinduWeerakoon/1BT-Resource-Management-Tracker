@@ -40,64 +40,93 @@ const paginationSchema = {
 };
 
 // Resource Schemas
+// Note: track_id, tier_id, tech_stack_id are INTEGER IDs mapping to configs in /opt/nodejs/configs/index.js
+// Note: designation_id, employee_type_id, university_id are INTEGER IDs referencing lookup tables
 export const resourceSchemas = {
     list: Joi.object({
         ...paginationSchema,
         search: Joi.string().allow('').optional(),
-        track_id: Joi.string().pattern(uuidPattern).optional(),
-        designation_id: Joi.string().pattern(uuidPattern).optional(),
-        status: Joi.string().valid('Active', 'Inactive', 'Serving Notice Period', 'On Leave').optional(),
-        tier: Joi.string().optional(),
+        track_id: Joi.number().integer().min(1).optional(),
+        designation_id: Joi.number().integer().min(1).optional(),
+        status: Joi.string().valid('Active', 'Inactive', 'Serving Notice Period', 'On Leave', 'Terminated').optional(),
+        tier_id: Joi.number().integer().min(1).optional(),
         employee_number: Joi.string().optional(),
         name: Joi.string().optional(),
     }),
 
     create: Joi.object({
-        employee_id: Joi.string().max(20).required(),
-        employee_number: Joi.string().max(20).required(),
+        // Required fields
+        epf_no: Joi.string().max(20).required(),          // EPF Number (maps to epf_no column)
+        emp_no: Joi.string().max(20).required(),          // Employee Number (maps to emp_no column)
         name: Joi.string().max(100).required(),
-        phone_number: Joi.string().max(100).required(),
-        email: Joi.string().pattern(emailPattern).optional(),
-        address: Joi.string().max(500).optional(),
-        track_id: Joi.string().pattern(uuidPattern).required(),
-        designation_id: Joi.string().pattern(uuidPattern).required(),
-        date_of_joining: Joi.date().iso().optional(),
-        date_of_birth: Joi.date().iso().optional(),
-        nic_passport: Joi.string().max(50).optional(),
+        email: Joi.string().email().required(),
+        // Required INTEGER IDs (config-based)
+        track_id: Joi.number().integer().min(1).required(),     // Maps to TRACKS config
+        tier_id: Joi.number().integer().min(1).required(),      // Maps to TIERS config
+        // Required INTEGER IDs (database lookup tables)
+        designation_id: Joi.number().integer().min(1).required(),
+        employee_type_id: Joi.number().integer().min(1).required(),
+        // Optional fields
+        global_employee_id: Joi.string().max(50).allow(null, '').optional(),
+        phone_number: Joi.string().max(20).allow(null, '').optional(),
+        tech_stack_id: Joi.number().integer().min(1).allow(null).optional(),  // Maps to TECH_STACKS config
+        university_id: Joi.number().integer().min(1).allow(null).optional(),
+        joined_date: Joi.date().iso().allow(null).optional(),
+        date_of_birth: Joi.date().iso().allow(null).optional(),
+        last_increment_date: Joi.date().iso().allow(null).optional(),
+        last_promotion_date: Joi.date().iso().allow(null).optional(),
+        internship_completion_target_date: Joi.date().iso().allow(null).optional(),
+        nic_passport: Joi.string().max(50).allow(null, '').optional(),
         is_intern: Joi.boolean().default(false),
-        employee_type: Joi.string().valid('Internal', 'External').default('Internal'),
-        tier: Joi.string().valid('Synergy', 'Tier - 1', 'Tier - 2', 'Tier - 3', 'Tier - 4', 'Intern').optional(),
-        tech_stack: Joi.string().max(50).optional(),
-        photo_url: Joi.string().max(500).optional(),
-        intern_classification: Joi.string().max(20).optional(),
+        is_external: Joi.boolean().default(false),  // External employee flag
+        photo_url: Joi.string().max(500).allow(null, '').optional(),
         skills: Joi.array().items(Joi.string()).optional(),
-        status: Joi.string().valid('Active', 'Inactive', 'Serving Notice Period', 'On Leave').default('Active'),
-        tag_ids: Joi.array().items(Joi.string().pattern(uuidPattern)).optional(),
+        status: Joi.string().valid('Active', 'Inactive', 'Serving Notice Period', 'On Leave', 'Terminated').default('Active'),
+        tag_ids: Joi.array().items(Joi.number().integer().min(1)).optional(),
+        // Billing tab fields
+        total_allocation: Joi.number().min(0).max(100).default(0),
+        total_resource_billing: Joi.number().min(0).max(100).default(0),
+        // Additional fields
+        helper_id: Joi.number().integer().min(1).allow(null).optional(),
+        helper_is_external: Joi.boolean().default(false),
     }),
 
     update: Joi.object({
         version: Joi.number().integer().min(1).optional(),
-        employee_number: Joi.string().max(20).optional(),
+        emp_no: Joi.string().max(20).optional(),
         name: Joi.string().max(100).optional(),
-        phone_number: Joi.string().max(100).optional(),
-        email: Joi.string().pattern(emailPattern).optional(),
-        address: Joi.string().max(500).optional(),
-        track_id: Joi.string().pattern(uuidPattern).optional(),
-        designation_id: Joi.string().pattern(uuidPattern).optional(),
-        date_of_joining: Joi.date().iso().optional(),
-        date_of_birth: Joi.date().iso().optional(),
-        nic_passport: Joi.string().max(50).optional(),
+        email: Joi.string().email().allow(null, '').optional(),
+        phone_number: Joi.string().max(20).allow(null, '').optional(),
+        global_employee_id: Joi.string().max(50).allow(null, '').optional(),
+        // INTEGER IDs (config-based)
+        track_id: Joi.number().integer().min(1).allow(null).optional(),
+        tier_id: Joi.number().integer().min(1).allow(null).optional(),
+        tech_stack_id: Joi.number().integer().min(1).allow(null).optional(),
+        // INTEGER IDs (database lookup tables)
+        designation_id: Joi.number().integer().min(1).allow(null).optional(),
+        employee_type_id: Joi.number().integer().min(1).allow(null).optional(),
+        university_id: Joi.number().integer().min(1).allow(null).optional(),
+        // Dates
+        joined_date: Joi.date().iso().allow(null).optional(),
+        date_of_birth: Joi.date().iso().allow(null).optional(),
+        last_increment_date: Joi.date().iso().allow(null).optional(),
+        last_promotion_date: Joi.date().iso().allow(null).optional(),
+        internship_completion_target_date: Joi.date().iso().allow(null).optional(),
+        notice_period_end_date: Joi.date().iso().allow(null).optional(),
+        // Personal info
+        nic_passport: Joi.string().max(50).allow(null, '').optional(),
+        // Other fields
         is_intern: Joi.boolean().optional(),
-        employee_type: Joi.string().valid('Internal', 'External').optional(),
-        tier: Joi.string().valid('Synergy', 'Tier - 1', 'Tier - 2', 'Tier - 3', 'Tier - 4', 'Intern').allow(null).optional(),
-        tech_stack: Joi.string().max(50).allow(null).optional(),
-        photo_url: Joi.string().max(500).allow(null).optional(),
-        intern_classification: Joi.string().max(20).optional(),
+        is_external: Joi.boolean().optional(),
+        photo_url: Joi.string().max(500).allow(null, '').optional(),
         skills: Joi.array().items(Joi.string()).optional(),
-        status: Joi.string().valid('Active', 'Inactive', 'Serving Notice Period', 'On Leave').optional(),
-        notice_period_end_date: Joi.date().iso().optional(),
+        status: Joi.string().valid('Active', 'Inactive', 'Serving Notice Period', 'On Leave', 'Terminated').optional(),
         is_account_manager: Joi.boolean().optional(),
-        tag_ids: Joi.array().items(Joi.string().pattern(uuidPattern)).optional(),
+        tag_ids: Joi.array().items(Joi.number().integer().min(1)).optional(),
+        total_allocation: Joi.number().min(0).max(999).optional(),
+        total_resource_billing: Joi.number().min(0).max(999).optional(),
+        helper_id: Joi.number().integer().min(1).allow(null).optional(),
+        helper_is_external: Joi.boolean().optional(),
     }),
 };
 
@@ -191,29 +220,29 @@ export const clientSchemas = {
     }),
 };
 
-// Project Schemas - matches handler and DB (project_name, project_type, is_billable)
+// Project Schemas - uses INTEGER IDs for all references
 export const projectSchemas = {
     list: Joi.object({
         ...paginationSchema,
         search: Joi.string().allow('').optional(),
-        client_id: Joi.string().pattern(uuidPattern).optional(),
-        status: Joi.string().valid('Active', 'Completed', 'On Hold', 'Cancelled', 'ACTIVE', 'COMPLETED', 'ON_HOLD', 'CANCELLED').optional(),
-        project_type: Joi.string().valid('Client', 'Internal', 'Pre-Sales', 'Bench').optional(),
+        client_id: Joi.number().integer().min(1).optional(),
+        status: Joi.string().valid('Active', 'Completed', 'On Hold', 'Cancelled').optional(),
+        project_type_id: Joi.number().integer().min(1).optional(),
+        billing_status_id: Joi.number().integer().min(1).optional(),
     }),
 
     create: Joi.object({
         project_name: Joi.string().max(200).required(),
         project_code: Joi.string().max(50).optional(),
-        project_type: Joi.string().valid('Client', 'Bench', 'Training', 'POC', 'Presale', 'Research').default('Client'),
+        project_type_id: Joi.number().integer().min(1).optional(), // References project_types table
         account_type: Joi.string().valid('Internal', 'External').default('Internal'),
-        client_id: Joi.string().pattern(uuidPattern).optional(),
-        start_date: Joi.date().iso().optional(),
-        end_date: Joi.date().iso().optional(),
-        status: Joi.string().valid('Active', 'Completed', 'On Hold', 'Cancelled', 'ACTIVE').default('Active'),
-        is_billable: Joi.boolean().default(true),
-        billing_type: Joi.string().valid('Billing', 'Non-Billing').default('Billing'),
+        client_id: Joi.number().integer().min(1).optional(), // References clients table
+        project_start_date: Joi.date().iso().optional(),
+        project_end_date: Joi.date().iso().optional(),
+        status: Joi.string().valid('Active', 'Completed', 'On Hold', 'Cancelled').default('Active'),
+        billing_status_id: Joi.number().integer().min(1).optional(), // References billing_statuses table
         team_size: Joi.number().integer().min(1).default(1),
-        account_manager_id: Joi.string().pattern(uuidPattern).required(),
+        account_manager_id: Joi.number().integer().min(1).optional(), // References employees table
         account_reg_sales_owner: Joi.string().max(100).optional(),
         budget: Joi.number().min(0).optional(),
         description: Joi.string().max(1000).optional(),
@@ -222,49 +251,49 @@ export const projectSchemas = {
     update: Joi.object({
         project_name: Joi.string().max(200).optional(),
         project_code: Joi.string().max(50).optional(),
-        project_type: Joi.string().valid('Client', 'Bench', 'Training', 'POC', 'Presale', 'Research').optional(),
+        project_type_id: Joi.number().integer().min(1).allow(null).optional(),
         account_type: Joi.string().valid('Internal', 'External').optional(),
-        client_id: Joi.string().pattern(uuidPattern).allow(null).optional(),
-        start_date: Joi.date().iso().optional(),
-        end_date: Joi.date().iso().optional(),
-        status: Joi.string().valid('Active', 'Completed', 'On Hold', 'Cancelled', 'ACTIVE').optional(),
-        is_billable: Joi.boolean().optional(),
-        billing_type: Joi.string().valid('Billing', 'Non-Billing').optional(),
+        client_id: Joi.number().integer().min(1).allow(null).optional(),
+        project_start_date: Joi.date().iso().optional(),
+        project_end_date: Joi.date().iso().optional(),
+        status: Joi.string().valid('Active', 'Completed', 'On Hold', 'Cancelled').optional(),
+        billing_status_id: Joi.number().integer().min(1).allow(null).optional(),
         team_size: Joi.number().integer().min(1).optional(),
-        account_manager_id: Joi.string().pattern(uuidPattern).optional(),
+        account_manager_id: Joi.number().integer().min(1).allow(null).optional(),
         account_reg_sales_owner: Joi.string().max(100).optional(),
         budget: Joi.number().min(0).allow(null).optional(),
         description: Joi.string().max(1000).optional(),
+        version: Joi.number().integer().min(1).optional(), // For optimistic locking
     }),
 };
 
-// Allocation Schemas
+// Allocation Schemas - uses INTEGER IDs for all references
 export const allocationSchemas = {
     list: Joi.object({
         ...paginationSchema,
-        resource_id: Joi.string().pattern(uuidPattern).optional(),
-        project_id: Joi.string().pattern(uuidPattern).optional(),
+        employee_id: Joi.number().integer().min(1).optional(),
+        project_id: Joi.number().integer().min(1).optional(),
         start_date: Joi.date().iso().optional(),
         end_date: Joi.date().iso().optional(),
-        status: Joi.string().valid('active', 'completed', 'planned').optional(),
+        is_active: Joi.boolean().optional(),
     }),
 
     monthly: Joi.object({
         year: Joi.number().integer().min(2020).max(2100).required(),
         month: Joi.number().integer().min(1).max(12).required(),
-        track_id: Joi.string().pattern(uuidPattern).optional(),
+        track_id: Joi.number().integer().min(1).optional(),
     }),
 
     create: Joi.object({
-        resource_id: Joi.string().pattern(uuidPattern).required(),
-        project_id: Joi.string().pattern(uuidPattern).required(),
+        employee_id: Joi.number().integer().min(1).required(),
+        project_id: Joi.number().integer().min(1).required(),
         allocation_percentage: Joi.number().min(0).max(100).required(),
         start_date: Joi.date().iso().required(),
         end_date: Joi.date().iso().optional(),
         billing_percentage: Joi.number().min(0).max(100).default(100),
         notes: Joi.string().max(500).allow('').optional(),
-        effective_date: Joi.date().iso().optional(), // 3-table architecture: overrides start_date for routing
-        forceOverallocation: Joi.boolean().optional(), // Allow force flag for CRITICAL overallocations
+        effective_date: Joi.date().iso().optional(),
+        forceOverallocation: Joi.boolean().optional(),
     }),
 
     update: Joi.object({
@@ -274,8 +303,9 @@ export const allocationSchemas = {
         billing_percentage: Joi.number().min(0).max(100).optional(),
         is_active: Joi.boolean().optional(),
         notes: Joi.string().max(500).allow('').optional(),
-        effective_date: Joi.date().iso().optional(), // 3-table architecture: overrides start_date for routing
-        forceOverallocation: Joi.boolean().optional(), // Allow force flag for CRITICAL overallocations
+        effective_date: Joi.date().iso().optional(),
+        forceOverallocation: Joi.boolean().optional(),
+        version: Joi.number().integer().min(1).optional(),
     }),
 };
 

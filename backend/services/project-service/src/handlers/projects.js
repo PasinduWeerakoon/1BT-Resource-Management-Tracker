@@ -24,7 +24,7 @@ const autoAdjustAllocationEndDates = async (projectId, newEndDate, userId, log) 
 
         // Find all active allocations that need adjustment
         const query = `
-            SELECT id, resource_id, end_date 
+            SELECT id, employee_id, end_date 
             FROM allocations 
             WHERE project_id = $1 
             AND is_active = true
@@ -49,7 +49,7 @@ const autoAdjustAllocationEndDates = async (projectId, newEndDate, userId, log) 
 
         let adjusted = 0;
         for (const allocation of allocationsToAdjust) {
-            await db.query(updateQuery, [endDateStr, userId || '00000000-0000-0000-0000-000000000000', allocation.id]);
+            await db.query(updateQuery, [endDateStr, userId || 1, allocation.id]);
 
             // Log the auto-adjustment to allocation change history
             await db.query(`
@@ -60,7 +60,7 @@ const autoAdjustAllocationEndDates = async (projectId, newEndDate, userId, log) 
             `, [
                 allocation.id,
                 'UPDATED',
-                userId || '00000000-0000-0000-0000-000000000000',
+                userId || 1,
                 JSON.stringify(['end_date']),
                 JSON.stringify({ end_date: allocation.end_date }),
                 JSON.stringify({ end_date: endDateStr }),
@@ -95,7 +95,7 @@ export const list = async (event) => {
 
     try {
         const queryParams = event.queryStringParameters || {};
-        const { page = 1, limit = 20, search, client_id, status, project_type, is_billable } = queryParams;
+        const { page = 1, limit = 20, search, client_id, status, project_type_id, billing_status_id } = queryParams;
         const offset = (parseInt(page) - 1) * parseInt(limit);
 
         log.info('Listing projects', { page, limit, filters: { search, client_id, status } });
@@ -113,7 +113,7 @@ export const list = async (event) => {
 
         if (client_id) {
             whereClause += ` AND p.client_id = $${paramIndex}`;
-            params.push(client_id);
+            params.push(parseInt(client_id));
             paramIndex++;
         }
 
@@ -123,15 +123,15 @@ export const list = async (event) => {
             paramIndex++;
         }
 
-        if (project_type) {
-            whereClause += ` AND p.project_type = $${paramIndex}`;
-            params.push(project_type);
+        if (project_type_id) {
+            whereClause += ` AND p.project_type_id = $${paramIndex}`;
+            params.push(parseInt(project_type_id));
             paramIndex++;
         }
 
-        if (is_billable !== undefined) {
-            whereClause += ` AND p.is_billable = $${paramIndex}`;
-            params.push(is_billable === 'true');
+        if (billing_status_id) {
+            whereClause += ` AND p.billing_status_id = $${paramIndex}`;
+            params.push(parseInt(billing_status_id));
             paramIndex++;
         }
 
@@ -140,11 +140,15 @@ export const list = async (event) => {
             SELECT 
                 p.*,
                 c.client_name,
-                r.name as account_manager_name,
+                e.name as account_manager_name,
+                pt.name as project_type_name,
+                bs.name as billing_status_name,
                 COUNT(*) OVER() as total_count
             FROM projects p
             LEFT JOIN clients c ON p.client_id = c.id
-            LEFT JOIN resources r ON p.account_manager_id = r.id AND r.deleted_at IS NULL
+            LEFT JOIN employees e ON p.account_manager_id = e.id AND e.deleted_at IS NULL
+            LEFT JOIN project_types pt ON p.project_type_id = pt.id
+            LEFT JOIN billing_statuses bs ON p.billing_status_id = bs.id
             ${whereClause}
             ORDER BY p.project_name ASC
             LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
@@ -189,10 +193,14 @@ export const getById = async (event) => {
             SELECT 
                 p.*,
                 c.client_name,
-                r.name as account_manager_name
+                e.name as account_manager_name,
+                pt.name as project_type_name,
+                bs.name as billing_status_name
             FROM projects p
             LEFT JOIN clients c ON p.client_id = c.id
-            LEFT JOIN resources r ON p.account_manager_id = r.id AND r.deleted_at IS NULL
+            LEFT JOIN employees e ON p.account_manager_id = e.id AND e.deleted_at IS NULL
+            LEFT JOIN project_types pt ON p.project_type_id = pt.id
+            LEFT JOIN billing_statuses bs ON p.billing_status_id = bs.id
             WHERE p.id = $1 AND p.deleted_at IS NULL
         `;
 
@@ -219,7 +227,7 @@ export const create = async (event) => {
     try {
         const body = JSON.parse(event.body || '{}');
         const validated = validate(body, projectSchemas.create);
-        const userId = event.requestContext?.authorizer?.jwt?.claims?.sub;
+        const userId = event.requestContext?.authorizer?.jwt?.claims?.sub || 1;
 
         log.info('Creating project', { name: validated.project_name, userId });
 
@@ -230,31 +238,36 @@ export const create = async (event) => {
             return validationError([{ field: 'client_id', message: 'client_id is required for External projects' }]);
         }
 
-        // Map billing_type to billing_status enum
-        const billingStatus = validated.billing_type === 'Non-Billing' ? 'Non-Billing' : 'Billing';
-        const isBillable = billingStatus === 'Billing';
-
-        // Fetch account manager name if ID is provided
-        let accountManagerName = null;
+        // Validate account_manager_id if provided
         if (validated.account_manager_id) {
             const amResult = await db.query(
-                'SELECT name FROM resources WHERE id = $1 AND deleted_at IS NULL',
+                'SELECT name FROM employees WHERE id = $1 AND deleted_at IS NULL',
                 [validated.account_manager_id]
             );
             if (amResult.rows.length === 0) {
                 return validationError([{ field: 'account_manager_id', message: 'Account manager not found' }]);
             }
-            accountManagerName = amResult.rows[0].name;
+        }
+
+        // Validate client_id if provided
+        if (validated.client_id) {
+            const clientResult = await db.query(
+                'SELECT id FROM clients WHERE id = $1',
+                [validated.client_id]
+            );
+            if (clientResult.rows.length === 0) {
+                return validationError([{ field: 'client_id', message: 'Client not found' }]);
+            }
         }
 
         const query = `
             INSERT INTO projects (
-                project_name, project_code, client_id, project_type, account_type,
-                billing_status, is_billable, status, team_size, account_manager_id,
-                account_manager, account_reg_sales_owner, budget, start_date, end_date,
+                project_name, project_code, client_id, project_type_id, account_type,
+                billing_status_id, status, team_size, account_manager_id,
+                account_reg_sales_owner, budget, project_start_date, project_end_date,
                 description, created_by
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
             RETURNING *
         `;
 
@@ -262,18 +275,16 @@ export const create = async (event) => {
             validated.project_name,
             validated.project_code || null,
             validated.client_id || null,
-            validated.project_type || 'Client',
+            validated.project_type_id || null,
             accountType,
-            billingStatus,
-            isBillable,
+            validated.billing_status_id || null,
             validated.status || 'Active',
             validated.team_size || 1,
             validated.account_manager_id || null,
-            accountManagerName,
             validated.account_reg_sales_owner || null,
             validated.budget || null,
-            validated.start_date || null,
-            validated.end_date || null,
+            validated.project_start_date || null,
+            validated.project_end_date || null,
             validated.description || null,
             userId
         ];
@@ -303,6 +314,16 @@ export const create = async (event) => {
             return validationError(err.details);
         }
 
+        // Handle unique constraint violations
+        if (err.code === '23505') {
+            if (err.constraint === 'projects_name_unique') {
+                return conflict('A project with this name already exists');
+            }
+            if (err.constraint === 'projects_code_unique') {
+                return conflict('A project with this code already exists');
+            }
+        }
+
         return error('Failed to create project', err);
     }
 };
@@ -317,7 +338,7 @@ export const update = async (event) => {
     try {
         const body = JSON.parse(event.body || '{}');
         const validated = validate(body, projectSchemas.update);
-        const userId = event.requestContext?.authorizer?.jwt?.claims?.sub;
+        const userId = event.requestContext?.authorizer?.jwt?.claims?.sub || 1;
 
         log.info('Updating project', { id, userId });
 
@@ -338,44 +359,55 @@ export const update = async (event) => {
             return conflict('Project has been modified by another user. Please refresh and try again.');
         }
 
-        // Fetch account manager name if ID is being updated
-        if (updateData.account_manager_id !== undefined) {
-            if (updateData.account_manager_id) {
-                const amResult = await db.query(
-                    'SELECT name FROM resources WHERE id = $1 AND deleted_at IS NULL',
-                    [updateData.account_manager_id]
-                );
-                if (amResult.rows.length === 0) {
-                    return validationError([{ field: 'account_manager_id', message: 'Account manager not found' }]);
-                }
-                updateData.account_manager = amResult.rows[0].name;
-            } else {
-                updateData.account_manager = null;
+        // Validate account_manager_id if provided
+        if (validated.account_manager_id !== undefined && validated.account_manager_id !== null) {
+            const amResult = await db.query(
+                'SELECT name FROM employees WHERE id = $1 AND deleted_at IS NULL',
+                [validated.account_manager_id]
+            );
+            if (amResult.rows.length === 0) {
+                return validationError([{ field: 'account_manager_id', message: 'Account manager not found' }]);
             }
         }
 
-        // Build dynamic update query
-        const { version, ...updateDataFiltered } = validated;
+        // Validate client_id if provided
+        if (validated.client_id !== undefined && validated.client_id !== null) {
+            const clientResult = await db.query(
+                'SELECT id FROM clients WHERE id = $1',
+                [validated.client_id]
+            );
+            if (clientResult.rows.length === 0) {
+                return validationError([{ field: 'client_id', message: 'Client not found' }]);
+            }
+        }
+
+        // Build dynamic update query - map camelCase to snake_case
+        const fieldMap = {
+            project_name: 'project_name',
+            project_code: 'project_code',
+            client_id: 'client_id',
+            project_type_id: 'project_type_id',
+            account_type: 'account_type',
+            billing_status_id: 'billing_status_id',
+            status: 'status',
+            team_size: 'team_size',
+            account_manager_id: 'account_manager_id',
+            account_reg_sales_owner: 'account_reg_sales_owner',
+            budget: 'budget',
+            project_start_date: 'project_start_date',
+            project_end_date: 'project_end_date',
+            description: 'description',
+        };
+
         const updates = [];
         const params = [id];
         let paramIndex = 2;
 
-        // Process updateData (which may include account_manager from above)
-        for (const [key, value] of Object.entries(updateData)) {
-            if (value !== undefined) {
-                // Handle billing_type -> also update is_billable
-                if (key === 'billing_type') {
-                    updates.push(`billing_status = $${paramIndex}`);
-                    params.push(value === 'Non-Billing' ? 'Non-Billing' : 'Billing');
-                    paramIndex++;
-                    updates.push(`is_billable = $${paramIndex}`);
-                    params.push(value !== 'Non-Billing');
-                    paramIndex++;
-                } else {
-                    updates.push(`${key} = $${paramIndex}`);
-                    params.push(value);
-                    paramIndex++;
-                }
+        for (const [key, column] of Object.entries(fieldMap)) {
+            if (validated[key] !== undefined) {
+                updates.push(`${column} = $${paramIndex}`);
+                params.push(validated[key]);
+                paramIndex++;
             }
         }
 
@@ -399,10 +431,10 @@ export const update = async (event) => {
         const result = await db.query(query, params);
         const updatedProject = result.rows[0];
 
-        // Enhancement 3.3: Auto-adjust allocation end dates if project end_date was changed
+        // Enhancement 3.3: Auto-adjust allocation end dates if project_end_date was changed
         let allocationAdjustment = null;
-        if (validated.end_date !== undefined && validated.end_date !== existing.end_date) {
-            allocationAdjustment = await autoAdjustAllocationEndDates(id, validated.end_date, userId, log);
+        if (validated.project_end_date !== undefined && validated.project_end_date !== existing.project_end_date) {
+            allocationAdjustment = await autoAdjustAllocationEndDates(id, validated.project_end_date, userId, log);
         }
 
         // Send audit event for project update
@@ -432,6 +464,16 @@ export const update = async (event) => {
 
         if (err.name === 'ValidationError') {
             return validationError(err.details);
+        }
+
+        // Handle unique constraint violations
+        if (err.code === '23505') {
+            if (err.constraint === 'projects_name_unique') {
+                return conflict('A project with this name already exists');
+            }
+            if (err.constraint === 'projects_code_unique') {
+                return conflict('A project with this code already exists');
+            }
         }
 
         return error('Failed to update project', err);
@@ -515,7 +557,7 @@ export const getAllocations = async (event) => {
                 r.email as resource_email,
                 d.name as designation_name
             FROM allocations a
-            LEFT JOIN resources r ON a.resource_id = r.id
+            LEFT JOIN employees r ON a.employee_id = r.id
             LEFT JOIN designations d ON r.designation_id = d.id
             WHERE a.project_id = $1
             ORDER BY a.start_date DESC
