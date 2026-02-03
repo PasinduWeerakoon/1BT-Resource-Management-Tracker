@@ -23,10 +23,46 @@ export const validate = (data, schema) => {
         const validationError = new Error(messages);
         validationError.statusCode = 400;
         validationError.isValidationError = true;
+        validationError.name = 'ValidationError';
+        validationError.details = error.details;
         throw validationError;
     }
 
     return value;
+};
+
+/**
+ * Validate request using named schemas
+ * @param {string} schemaType - Type of schema (e.g., 'resource', 'project', 'accountType')
+ * @param {string} operation - Operation name (e.g., 'create', 'update', 'list')
+ * @param {Object} data - Data to validate
+ * @returns {Object} Validated data
+ */
+export const validateRequest = (schemaType, operation, data) => {
+    const schemas = {
+        resource: resourceSchemas,
+        designation: designationSchemas,
+        track: trackSchemas,
+        tier: tierSchemas,
+        client: clientSchemas,
+        project: projectSchemas,
+        allocation: allocationSchemas,
+        user: userSchemas,
+        accountType: accountTypeSchemas,
+        projectStatus: projectStatusSchemas,
+    };
+
+    const schemaGroup = schemas[schemaType];
+    if (!schemaGroup) {
+        throw new Error(`Unknown schema type: ${schemaType}`);
+    }
+
+    const schema = schemaGroup[operation];
+    if (!schema) {
+        throw new Error(`Unknown operation: ${operation} for schema type: ${schemaType}`);
+    }
+
+    return validate(data, schema);
 };
 
 // Common validation patterns
@@ -331,6 +367,36 @@ export const userSchemas = {
     }),
 };
 
+// Account Type Schemas
+export const accountTypeSchemas = {
+    create: Joi.object({
+        name: Joi.string().max(100).required(),
+        description: Joi.string().max(500).allow('', null).optional(),
+        is_active: Joi.boolean().optional().default(true),
+    }),
+
+    update: Joi.object({
+        name: Joi.string().max(100).optional(),
+        description: Joi.string().max(500).allow('', null).optional(),
+        is_active: Joi.boolean().optional(),
+    }),
+};
+
+// Project Status Schemas
+export const projectStatusSchemas = {
+    create: Joi.object({
+        name: Joi.string().max(100).required(),
+        description: Joi.string().max(500).allow('', null).optional(),
+        is_active: Joi.boolean().optional().default(true),
+    }),
+
+    update: Joi.object({
+        name: Joi.string().max(100).optional(),
+        description: Joi.string().max(500).allow('', null).optional(),
+        is_active: Joi.boolean().optional(),
+    }),
+};
+
 export default {
     validate,
     resourceSchemas,
@@ -341,4 +407,6 @@ export default {
     projectSchemas,
     allocationSchemas,
     userSchemas,
+    accountTypeSchemas,
+    projectStatusSchemas,
 };

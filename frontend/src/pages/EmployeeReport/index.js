@@ -1,72 +1,34 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Row, Col, Card, Select, Badge, Button, App, Table } from 'antd';
-import { FilterOutlined, UpOutlined, DownOutlined, ReloadOutlined } from '@ant-design/icons';
+import React, { useState, useEffect } from 'react';
+import { Card, Badge } from 'antd';
+import { useSelector } from 'react-redux';
 import CustomTable from '@components/Table';
-import { reportsService, tracksService, resourcesService } from '@api';
-import { showErrorToast } from '@utils/toast.utils';
+import { reportsService, resourcesService } from '@api';
+import { selectTracks } from '@redux/slices/configSlice';
+import { useReportFilters, useReportData } from '@hooks/reports';
+import { FilterSection, ReportHeader } from '@components/ReportLayout';
+import EmployeeReportFilters from './components/EmployeeReportFilters';
+import logger from '@utils/logger';
 import '@styles/pages/EmployeeReport.scss';
 
-const { Option } = Select;
-
 const EmployeeReport = () => {
-  const { message } = App.useApp();
-  const [filtersExpanded, setFiltersExpanded] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [reportData, setReportData] = useState([]);
-  const [tracksList, setTracksList] = useState([]);
-  const [resourcesList, setResourcesList] = useState([]);
-  const [filters, setFilters] = useState({
-    resource_id: undefined,
-    track_id: undefined,
-  });
-  const fetchInProgressRef = useRef(false);
-
-  // Default filter values for comparison
   const defaultFilters = {
     resource_id: undefined,
     track_id: undefined,
   };
 
-  // Count active filters
-  const activeFiltersCount = useMemo(() => {
-    let count = 0;
-    Object.keys(filters).forEach((key) => {
-      if (filters[key] !== defaultFilters[key] && filters[key] !== '' && filters[key] !== null && filters[key] !== undefined) {
-        count++;
-      }
-    });
-    return count;
-  }, [filters]);
+  // Use shared hooks
+  const {
+    filters,
+    setFilters,
+    activeFiltersCount,
+    handleResetFilters,
+    filtersExpanded,
+    toggleFiltersExpanded,
+  } = useReportFilters(defaultFilters);
 
-  // Reset filters to default values
-  const handleResetFilters = (e) => {
-    e.stopPropagation();
-    setFilters({ ...defaultFilters });
-  };
-
-  // Fetch tracks for filter dropdown
-  useEffect(() => {
-    const fetchTracks = async () => {
-      try {
-        const response = await tracksService.getAll({ limit: 100 });
-        let tracksData = [];
-        
-        if (response) {
-          if (Array.isArray(response.data)) {
-            tracksData = response.data;
-          } else if (response.data && response.data.data && Array.isArray(response.data.data)) {
-            tracksData = response.data.data;
-          }
-        }
-        
-        setTracksList(tracksData);
-      } catch (error) {
-        console.error('Failed to fetch tracks:', error);
-      }
-    };
-    
-    fetchTracks();
-  }, []);
+  // Get tracks from Redux (cached on login)
+  const tracksList = useSelector(selectTracks);
+  const [resourcesList, setResourcesList] = useState([]);
 
   // Fetch resources for filter dropdown
   useEffect(() => {
@@ -85,83 +47,49 @@ const EmployeeReport = () => {
         
         setResourcesList(resourcesData);
       } catch (error) {
-        console.error('Failed to fetch resources:', error);
+        logger.error('Failed to fetch resources', error);
       }
     };
     
     fetchResources();
   }, []);
 
-  // Fetch employee report data
-  const fetchEmployeeReport = async () => {
-    // Prevent duplicate calls
-    if (fetchInProgressRef.current) {
-      return;
-    }
+  // Transform function for report data
+  const transformReportData = (item, index) => {
+    const totalAllocation = parseFloat(item.total_allocation || 0);
+    const currentProjects = item.current_projects ? item.current_projects.split(',').map(p => p.trim()) : [];
     
-    try {
-      fetchInProgressRef.current = true;
-      setLoading(true);
-      const queryParams = {};
-      
-      // Add filters if selected
-      if (filters.resource_id) {
-        queryParams.resource_id = filters.resource_id;
-      }
-      if (filters.track_id) {
-        queryParams.track_id = filters.track_id;
-      }
-      
-      const response = await reportsService.getEmployee(queryParams);
-      
-      // Handle response structure - API returns { data: [...], total: number, generatedAt: string }
-      let reportDataArray = [];
-      if (response) {
-        if (response.data && Array.isArray(response.data)) {
-          reportDataArray = response.data;
-        } else if (Array.isArray(response)) {
-          reportDataArray = response;
-        }
-      }
-      
-      // Transform API data to table format
-      const transformedData = reportDataArray.map((item, index) => {
-        const totalAllocation = parseFloat(item.total_allocation || 0);
-        const currentProjects = item.current_projects ? item.current_projects.split(',').map(p => p.trim()) : [];
-        
-        return {
-          key: item.id || `employee-${index}`,
-          id: item.id,
-          employeeId: item.employee_id || 'N/A',
-          employeeName: item.name || 'N/A',
-          email: item.email || 'N/A',
-          designation: item.designation || 'N/A',
-          track: item.track || 'N/A',
-          status: item.status || 'N/A',
-          dateOfJoining: item.date_of_joining ? new Date(item.date_of_joining).toLocaleDateString() : 'N/A',
-          totalAllocation: totalAllocation,
-          totalAllocationFormatted: `${totalAllocation.toFixed(2)}%`,
-          currentProjects: currentProjects,
-          currentProjectsString: item.current_projects || 'N/A',
-        };
-      });
-      
-      setReportData(transformedData);
-    } catch (error) {
-      console.error('Failed to fetch employee report:', error);
-      showErrorToast('Failed to load employee report');
-      setReportData([]);
-    } finally {
-      setLoading(false);
-      fetchInProgressRef.current = false;
-    }
+    return {
+      key: item.id || `employee-${index}`,
+      id: item.id,
+      employeeId: item.employee_id || 'N/A',
+      employeeName: item.name || 'N/A',
+      email: item.email || 'N/A',
+      designation: item.designation || 'N/A',
+      track: item.track || 'N/A',
+      status: item.status || 'N/A',
+      dateOfJoining: item.date_of_joining ? new Date(item.date_of_joining).toLocaleDateString() : 'N/A',
+      totalAllocation: totalAllocation,
+      totalAllocationFormatted: `${totalAllocation.toFixed(2)}%`,
+      currentProjects: currentProjects,
+      currentProjectsString: item.current_projects || 'N/A',
+    };
   };
 
-  // Fetch data when filters change
-  useEffect(() => {
-    fetchEmployeeReport();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters.resource_id, filters.track_id]);
+  // Fetch report data
+  const { data: reportData, loading } = useReportData(
+    async () => {
+      const queryParams = {};
+      if (filters.resource_id) queryParams.resource_id = filters.resource_id;
+      if (filters.track_id) queryParams.track_id = filters.track_id;
+      return await reportsService.getEmployee(queryParams);
+    },
+    transformReportData,
+    {
+      autoFetch: true,
+      dependencies: [filters.resource_id, filters.track_id],
+    }
+  );
 
 
   // Table columns
@@ -262,92 +190,21 @@ const EmployeeReport = () => {
 
   return (
     <div className="employee-report-page">
-      {/* Header Section */}
-      <div className="report-header">
-        <h1 className="report-title">EMPLOYEE REPORT</h1>
-      </div>
+      <ReportHeader title="EMPLOYEE REPORT" />
 
-      {/* Filters Section */}
-      <Card className="filters-card">
-        <div
-          className="filters-header"
-          onClick={() => setFiltersExpanded(!filtersExpanded)}
-          style={{ cursor: 'pointer' }}
-        >
-          <div className="filters-header-left">
-            <FilterOutlined className="filter-icon" />
-            <span className="filters-title">Filters</span>
-            {activeFiltersCount > 0 && (
-              <>
-                <Badge count={activeFiltersCount} showZero={false} className="active-filters-badge">
-                  <span></span>
-                </Badge>
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<ReloadOutlined />}
-                  onClick={handleResetFilters}
-                  className="reset-filters-btn"
-                >
-                  Reset
-                </Button>
-              </>
-            )}
-          </div>
-          {filtersExpanded ? (
-            <UpOutlined className="collapse-icon" />
-          ) : (
-            <DownOutlined className="collapse-icon" />
-          )}
-        </div>
-        {filtersExpanded && (
-          <div className="filters-content">
-            <Row gutter={[16, 16]} className="filters-row">
-              <Col xs={24} sm={12} md={8} lg={6}>
-                <div className="filter-item">
-                  <label>Employee</label>
-                  <Select
-                    value={filters.resource_id}
-                    onChange={(value) => setFilters({ ...filters, resource_id: value || undefined })}
-                    style={{ width: '100%' }}
-                    allowClear
-                    showSearch
-                    placeholder="All Employees"
-                    optionFilterProp="children"
-                    filterOption={(input, option) =>
-                      (option?.children ?? '').toLowerCase().includes(input.toLowerCase())
-                    }
-                  >
-                    {resourcesList.map((resource) => (
-                      <Option key={resource.id} value={resource.id}>
-                        {resource.name}
-                      </Option>
-                    ))}
-                  </Select>
-                </div>
-              </Col>
-              <Col xs={24} sm={12} md={8} lg={6}>
-                <div className="filter-item">
-                  <label>Track</label>
-                  <Select
-                    value={filters.track_id}
-                    onChange={(value) => setFilters({ ...filters, track_id: value || undefined })}
-                    style={{ width: '100%' }}
-                    allowClear
-                    placeholder="All Tracks"
-                  >
-                    {tracksList.map((track) => (
-                      <Option key={track.id} value={track.id}>
-                        {track.name}
-                      </Option>
-                    ))}
-                  </Select>
-                </div>
-              </Col>
-            </Row>
-          </div>
-        )}
-      </Card>
+      <FilterSection
+        expanded={filtersExpanded}
+        onToggle={toggleFiltersExpanded}
+        activeFiltersCount={activeFiltersCount}
+        onReset={handleResetFilters}
+      >
+        <EmployeeReportFilters
+          filters={filters}
+          setFilters={setFilters}
+          tracksList={tracksList}
+          resourcesList={resourcesList}
+        />
+      </FilterSection>
 
       {/* Table Section */}
       <Card className="table-card" title="Employee Report">

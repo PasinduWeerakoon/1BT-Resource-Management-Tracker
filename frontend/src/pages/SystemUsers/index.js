@@ -5,6 +5,7 @@ import CustomModal from '@components/Modal';
 import CustomTable from '@components/Table';
 import { authService, resourcesService } from '@api';
 import { showErrorToast, showSuccessToast } from '@utils/toast.utils';
+import logger from '@utils/logger';
 import '@styles/pages/SystemUsers.scss';
 
 const { Option } = Select;
@@ -62,7 +63,7 @@ const SystemUsers = () => {
       const resourcesWithEmail = resourcesData.filter(resource => resource.email);
       setResourcesList(resourcesWithEmail);
     } catch (error) {
-      console.error('Failed to fetch resources:', error);
+      logger.error('Failed to fetch resources:', error);
       showErrorToast('Failed to load resources');
     } finally {
       setLoadingResources(false);
@@ -123,7 +124,7 @@ const SystemUsers = () => {
 
       setSystemUsers(mappedUsers);
     } catch (error) {
-      console.error('Failed to fetch system users:', error);
+      logger.error('Failed to fetch system users:', error);
       showErrorToast(error?.response?.data?.message || error?.message || 'Failed to load system users');
     } finally {
       setLoadingSystemUsers(false);
@@ -193,7 +194,7 @@ const SystemUsers = () => {
       const selectedResource = resourcesList.find(r => r.id === resourceId);
 
       if (!selectedResource) {
-        console.error('Resource not found:', { resourceId, resourcesListLength: resourcesList.length });
+        logger.error('Resource not found:', { resourceId, resourcesListLength: resourcesList.length });
         showErrorToast('Selected user not found. Please try selecting again.');
         return;
       }
@@ -250,7 +251,7 @@ const SystemUsers = () => {
       // Refresh system users list after successful invite
       await fetchSystemUsers();
     } catch (error) {
-      console.error('Failed to invite user:', error);
+      logger.error('Failed to invite user:', error);
       showErrorToast(error?.response?.data?.message || error?.message || 'Failed to send invitation');
     } finally {
       setIsSubmittingInvite(false);
@@ -292,7 +293,7 @@ const SystemUsers = () => {
       changeRoleForm.resetFields();
       setSelectedUser(null);
     } catch (error) {
-      console.error('Validation failed:', error);
+      logger.error('Validation failed:', error);
     }
   };
 

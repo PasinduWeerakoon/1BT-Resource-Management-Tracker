@@ -1,6 +1,7 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import { storeAuth, clearAuth, getStoredAuth } from '@utils/auth.utils';
 import { getUserFromToken } from '@utils/jwt.utils';
+import logger from '@utils/logger';
 
 const initialState = {
   user: null,
@@ -30,7 +31,7 @@ export const logoutUser = createAsyncThunk(
           await authService.logout(accessToken);
         } catch (error) {
           // Even if API call fails, we still want to logout locally
-          console.error('Logout API call failed:', error);
+          logger.error('Logout API call failed', error);
           // Don't throw - we'll still logout locally
         }
       }

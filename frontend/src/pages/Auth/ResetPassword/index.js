@@ -4,6 +4,7 @@ import { Form, Input, Button, Card, Typography, App } from 'antd';
 import { LockOutlined, MailOutlined } from '@ant-design/icons';
 import { authService } from '@api';
 import { showErrorToast, showSuccessToast } from '@utils/toast.utils';
+import logger from '@utils/logger';
 import '@styles/pages/Auth/Login.scss';
 
 const { Title, Text } = Typography;
@@ -33,7 +34,7 @@ const ResetPassword = () => {
 
         // If email or code is missing, show warning (but allow manual entry)
         if (!emailParam || !codeParam) {
-            console.warn('Reset password link missing email or code parameter');
+            logger.warn('Reset password link missing email or code parameter');
         }
     }, [searchParams, form]);
 
@@ -67,7 +68,7 @@ const ResetPassword = () => {
                 showErrorToast(response?.message || 'Failed to reset password');
             }
         } catch (error) {
-            console.error('Reset password error:', error);
+            logger.error('Reset password error:', error);
             showErrorToast(error?.response?.data?.message || error?.message || 'Failed to reset password. Please try again.');
         } finally {
             setLoading(false);

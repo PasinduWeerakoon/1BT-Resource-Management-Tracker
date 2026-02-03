@@ -1,76 +1,34 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Row,
   Col,
   Card,
-  Select,
-  DatePicker,
-  Input,
-  Button,
-  Modal,
   Badge,
-  Space,
   Descriptions,
-  Tag,
   Tabs,
-  App,
-  Tooltip,
 } from 'antd';
 import {
-  FilterOutlined,
-  UpOutlined,
-  DownOutlined,
-  ReloadOutlined,
-  EyeOutlined,
   HistoryOutlined,
   BarChartOutlined,
   WarningOutlined,
-  CheckCircleOutlined,
-  CloseCircleOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import CustomTable from '@components/Table';
-import { auditLogsService } from '@api';
-import { showErrorToast, showSuccessToast } from '@utils/toast.utils';
+import { useReportFilters } from '@hooks/reports';
+import { FilterSection, ReportHeader, SummaryCards } from '@components/ReportLayout';
+import ActivityLogFilters from './components/ActivityLogFilters';
+import LogsTable from './components/LogsTable';
+import LogDetailModal from './components/LogDetailModal';
+import useAuditLogs from './hooks/useAuditLogs';
+import useLogStats from './hooks/useLogStats';
 import '@styles/pages/ActivityLog.scss';
 
-const { Option } = Select;
-const { RangePicker } = DatePicker;
-const { TextArea } = Input;
-
 const ActivityLog = () => {
-  const { message } = App.useApp();
-  const [filtersExpanded, setFiltersExpanded] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [auditLogs, setAuditLogs] = useState([]);
-  const [stats, setStats] = useState(null);
-  const [dlqData, setDlqData] = useState([]);
-  const [loadingStats, setLoadingStats] = useState(false);
-  const [loadingDLQ, setLoadingDLQ] = useState(false);
   const [detailModalVisible, setDetailModalVisible] = useState(false);
   const [selectedLog, setSelectedLog] = useState(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [activeTab, setActiveTab] = useState('logs');
-  const fetchInProgressRef = useRef(false);
-  const fetchStatsInProgressRef = useRef(false);
-  const fetchDLQInProgressRef = useRef(false);
 
-  const [filters, setFilters] = useState({
-    action: undefined,
-    entityType: undefined,
-    entityId: undefined,
-    userId: undefined,
-    startDate: undefined,
-    endDate: undefined,
-  });
-
-  const [pagination, setPagination] = useState({
-    current: 1,
-    pageSize: 10,
-    total: 0,
-  });
-
-  // Default filter values
   const defaultFilters = {
     action: undefined,
     entityType: undefined,
@@ -80,199 +38,57 @@ const ActivityLog = () => {
     endDate: undefined,
   };
 
-  // Count active filters
-  const activeFiltersCount = useMemo(() => {
-    let count = 0;
-    Object.keys(filters).forEach((key) => {
-      if (filters[key] !== defaultFilters[key] && filters[key] !== '' && filters[key] !== null && filters[key] !== undefined) {
-        count++;
-      }
-    });
-    return count;
-  }, [filters]);
+  // Use shared hooks
+  const {
+    filters,
+    setFilters,
+    activeFiltersCount,
+    handleResetFilters,
+    filtersExpanded,
+    toggleFiltersExpanded,
+  } = useReportFilters(defaultFilters);
 
-  // Reset filters
-  const handleResetFilters = (e) => {
-    e.stopPropagation();
-    setFilters({ ...defaultFilters });
+  const [pagination, setPagination] = useState({
+    current: 1,
+    pageSize: 10,
+    total: 0,
+  });
+
+  // Use custom hooks
+  const {
+    auditLogs,
+    loading,
+    fetchAuditLogs,
+    fetchLogDetail: fetchLogDetailFromHook,
+  } = useAuditLogs(filters, pagination);
+
+  const {
+    stats,
+    dlqData,
+    loadingStats,
+    loadingDLQ,
+    fetchStats,
+    fetchDLQ,
+    handleReprocessDLQ,
+  } = useLogStats();
+
+  // Enhanced reset filters to also reset pagination
+  const handleResetFiltersWithPagination = (e) => {
+    handleResetFilters(e);
     setPagination({ ...pagination, current: 1 });
   };
 
-  // Fetch audit logs
-  const fetchAuditLogs = async (page = 1, limit = 10) => {
-    if (fetchInProgressRef.current) {
-      return;
-    }
-
+  // Handle view detail
+  const handleViewDetail = async (record) => {
+    setDetailModalVisible(true);
+    setLoadingDetail(true);
     try {
-      fetchInProgressRef.current = true;
-      setLoading(true);
-
-      const params = {
-        page: page || pagination.current,
-        limit: limit || pagination.pageSize,
-      };
-
-      // Add filters
-      if (filters.action) params.action = filters.action;
-      if (filters.entityType) params.entityType = filters.entityType;
-      if (filters.entityId) params.entityId = filters.entityId;
-      if (filters.userId) params.userId = filters.userId;
-      if (filters.startDate) params.startDate = filters.startDate.format('YYYY-MM-DD');
-      if (filters.endDate) params.endDate = filters.endDate.format('YYYY-MM-DD');
-
-      const response = await auditLogsService.getAll(params);
-
-      let logsData = [];
-      let paginationData = {};
-
-      if (response) {
-        if (Array.isArray(response.data)) {
-          logsData = response.data;
-          paginationData = response.pagination || {};
-        } else if (response.data && response.data.data && Array.isArray(response.data.data)) {
-          logsData = response.data.data;
-          paginationData = response.data.pagination || {};
-        } else if (response.data && typeof response.data === 'object' && !Array.isArray(response.data)) {
-          logsData = response.data.items || [];
-          paginationData = response.data.pagination || {};
-        }
-      }
-
-      const transformedData = logsData.map((log, index) => ({
-        key: log.id || `log-${index}`,
-        id: log.id,
-        timestamp: log.timestamp,
-        action: log.action,
-        entityType: log.entityType,
-        entityId: log.entityId,
-        userName: log.userName || log.userEmail || 'Unknown',
-        userEmail: log.userEmail,
-        entityName: log.entityName || log.entityId,
-        changedFields: log.changedFields || [],
-        ipAddress: log.ipAddress,
-        userAgent: log.userAgent,
-      }));
-
-      setAuditLogs(transformedData);
-      setPagination({
-        current: paginationData.page || page || 1,
-        pageSize: paginationData.limit || limit || 10,
-        total: paginationData.total || 0,
-      });
-    } catch (error) {
-      console.error('Failed to fetch audit logs:', error);
-      showErrorToast('Failed to load audit logs');
-      setAuditLogs([]);
-    } finally {
-      setLoading(false);
-      fetchInProgressRef.current = false;
-    }
-  };
-
-  // Fetch statistics
-  const fetchStats = async () => {
-    if (fetchStatsInProgressRef.current) {
-      return;
-    }
-
-    try {
-      fetchStatsInProgressRef.current = true;
-      setLoadingStats(true);
-
-      const response = await auditLogsService.getStats({ days: 7 });
-
-      let statsData = null;
-      if (response) {
-        if (response.data) {
-          statsData = response.data;
-        } else if (typeof response === 'object' && !Array.isArray(response)) {
-          statsData = response;
-        }
-      }
-
-      setStats(statsData);
-    } catch (error) {
-      console.error('Failed to fetch statistics:', error);
-      showErrorToast('Failed to load statistics');
-    } finally {
-      setLoadingStats(false);
-      fetchStatsInProgressRef.current = false;
-    }
-  };
-
-  // Fetch DLQ data (Admin only)
-  const fetchDLQ = async () => {
-    if (fetchDLQInProgressRef.current) {
-      return;
-    }
-
-    try {
-      fetchDLQInProgressRef.current = true;
-      setLoadingDLQ(true);
-
-      const response = await auditLogsService.getDLQ();
-
-      let dlqArray = [];
-      if (response) {
-        if (Array.isArray(response.data)) {
-          dlqArray = response.data;
-        } else if (response.data && Array.isArray(response.data)) {
-          dlqArray = response.data;
-        }
-      }
-
-      setDlqData(dlqArray);
-    } catch (error) {
-      console.error('Failed to fetch DLQ:', error);
-      showErrorToast('Failed to load failed messages');
-      setDlqData([]);
-    } finally {
-      setLoadingDLQ(false);
-      fetchDLQInProgressRef.current = false;
-    }
-  };
-
-  // Fetch audit log detail
-  const fetchLogDetail = async (logId) => {
-    try {
-      setLoadingDetail(true);
-      const response = await auditLogsService.getById(logId);
-
-      let logData = null;
-      if (response) {
-        if (response.data) {
-          logData = response.data;
-        } else if (typeof response === 'object' && !Array.isArray(response)) {
-          logData = response;
-        }
-      }
-
+      const logData = await fetchLogDetailFromHook(record.id);
       setSelectedLog(logData);
     } catch (error) {
-      console.error('Failed to fetch log detail:', error);
-      showErrorToast('Failed to load log details');
       setSelectedLog(null);
     } finally {
       setLoadingDetail(false);
-    }
-  };
-
-  // Handle view detail
-  const handleViewDetail = (record) => {
-    setDetailModalVisible(true);
-    fetchLogDetail(record.id);
-  };
-
-  // Handle reprocess DLQ message
-  const handleReprocessDLQ = async (messageId) => {
-    try {
-      await auditLogsService.reprocessDLQ(messageId);
-      showSuccessToast('Message requeued for processing');
-      fetchDLQ(); // Refresh DLQ list
-    } catch (error) {
-      console.error('Failed to reprocess message:', error);
-      showErrorToast('Failed to reprocess message');
     }
   };
 
@@ -294,9 +110,20 @@ const ActivityLog = () => {
   };
 
   // Handle pagination change
-  const handleTableChange = (newPagination) => {
+  const handleTableChange = async (newPagination) => {
     setPagination(newPagination);
-    fetchAuditLogs(newPagination.current, newPagination.pageSize);
+    try {
+      const result = await fetchAuditLogs(newPagination.current, newPagination.pageSize);
+      if (result && result.pagination) {
+        setPagination({
+          current: result.pagination.page || newPagination.current,
+          pageSize: result.pagination.limit || newPagination.pageSize,
+          total: result.pagination.total || 0,
+        });
+      }
+    } catch (error) {
+      // Error already handled in hook
+    }
   };
 
   // Fetch data on mount and filter changes
@@ -323,27 +150,7 @@ const ActivityLog = () => {
     }
   }, [activeTab]);
 
-  // Get action badge
-  const getActionBadge = (action) => {
-    const actionConfig = {
-      CREATE: { color: 'success', icon: <CheckCircleOutlined /> },
-      UPDATE: { color: 'processing', icon: <BarChartOutlined /> },
-      DELETE: { color: 'error', icon: <CloseCircleOutlined /> },
-    };
-
-    const config = actionConfig[action] || { color: 'default', icon: null };
-    return (
-      <Badge
-        status={config.color}
-        text={action}
-        style={{ display: 'flex', alignItems: 'center', gap: 4 }}
-      >
-        {config.icon}
-      </Badge>
-    );
-  };
-
-  // Table columns
+  // Table columns (custom for ActivityLog)
   const columns = [
     {
       title: 'Timestamp',
@@ -358,7 +165,6 @@ const ActivityLog = () => {
       dataIndex: 'action',
       key: 'action',
       width: 120,
-      render: (action) => getActionBadge(action),
     },
     {
       title: 'Entity Type',
@@ -389,26 +195,9 @@ const ActivityLog = () => {
       render: (fields) => {
         if (!fields || fields.length === 0) return 'N/A';
         return (
-          <Tooltip title={fields.join(', ')}>
             <span>{fields.length} field{fields.length > 1 ? 's' : ''}</span>
-          </Tooltip>
         );
       },
-    },
-    {
-      title: 'Actions',
-      key: 'actions',
-      width: 100,
-      fixed: 'right',
-      render: (_, record) => (
-        <Button
-          type="link"
-          icon={<EyeOutlined />}
-          onClick={() => handleViewDetail(record)}
-        >
-          View
-        </Button>
-      ),
     },
   ];
 
@@ -457,12 +246,17 @@ const ActivityLog = () => {
   const updatedCount = stats?.byAction?.UPDATE || 0;
   const deletedCount = stats?.byAction?.DELETE || 0;
 
+  // Summary cards data
+  const summaryCards = [
+    { value: totalEvents, label: 'TOTAL EVENTS' },
+    { value: createdCount, label: 'CREATED' },
+    { value: updatedCount, label: 'UPDATED' },
+    { value: deletedCount, label: 'DELETED' },
+  ];
+
   return (
     <div className="activity-log-page">
-      {/* Header Section */}
-      <div className="report-header">
-        <h1 className="report-title">ACTIVITY LOG</h1>
-      </div>
+      <ReportHeader title="ACTIVITY LOG" />
 
       {/* Tabs */}
       <Tabs
@@ -479,162 +273,30 @@ const ActivityLog = () => {
             ),
             children: (
               <>
-                {/* Filters Section */}
-                <Card className="filters-card">
-                  <div
-                    className="filters-header"
-                    onClick={() => setFiltersExpanded(!filtersExpanded)}
-                    style={{ cursor: 'pointer' }}
-                  >
-                    <div className="filters-header-left">
-                      <FilterOutlined className="filter-icon" />
-                      <span className="filters-title">Filters</span>
-                      {activeFiltersCount > 0 && (
-                        <>
-                          <Badge count={activeFiltersCount} showZero={false} className="active-filters-badge">
-                            <span></span>
-                          </Badge>
-                          <Button
-                            type="text"
-                            size="small"
-                            icon={<ReloadOutlined />}
-                            onClick={handleResetFilters}
-                            className="reset-filters-btn"
-                          >
-                            Reset
-                          </Button>
-                        </>
-                      )}
-                    </div>
-                    {filtersExpanded ? (
-                      <UpOutlined className="collapse-icon" />
-                    ) : (
-                      <DownOutlined className="collapse-icon" />
-                    )}
-                  </div>
-                  {filtersExpanded && (
-                    <div className="filters-content">
-                      <Row gutter={[16, 16]} className="filters-row">
-                        <Col xs={24} sm={12} md={8} lg={6}>
-                          <div className="filter-item">
-                            <label>Action</label>
-                            <Select
-                              placeholder="Select Action"
-                              allowClear
-                              style={{ width: '100%' }}
-                              value={filters.action}
-                              onChange={(value) => setFilters({ ...filters, action: value })}
-                            >
-                              <Option value="CREATE">CREATE</Option>
-                              <Option value="UPDATE">UPDATE</Option>
-                              <Option value="DELETE">DELETE</Option>
-                            </Select>
-                          </div>
-                        </Col>
-                        <Col xs={24} sm={12} md={8} lg={6}>
-                          <div className="filter-item">
-                            <label>Entity Type</label>
-                            <Select
-                              placeholder="Select Entity Type"
-                              allowClear
-                              style={{ width: '100%' }}
-                              value={filters.entityType}
-                              onChange={(value) => setFilters({ ...filters, entityType: value })}
-                            >
-                              <Option value="resource">Resource</Option>
-                              <Option value="project">Project</Option>
-                              <Option value="allocation">Allocation</Option>
-                              <Option value="client">Client</Option>
-                              <Option value="track">Track</Option>
-                              <Option value="designation">Designation</Option>
-                            </Select>
-                          </div>
-                        </Col>
-                        <Col xs={24} sm={12} md={8} lg={6}>
-                          <div className="filter-item">
-                            <label>Entity ID</label>
-                            <Input
-                              placeholder="Enter Entity ID"
-                              value={filters.entityId}
-                              onChange={(e) => setFilters({ ...filters, entityId: e.target.value || undefined })}
-                              allowClear
-                            />
-                          </div>
-                        </Col>
-                        <Col xs={24} sm={12} md={8} lg={6}>
-                          <div className="filter-item">
-                            <label>User ID</label>
-                            <Input
-                              placeholder="Enter User ID"
-                              value={filters.userId}
-                              onChange={(e) => setFilters({ ...filters, userId: e.target.value || undefined })}
-                              allowClear
-                            />
-                          </div>
-                        </Col>
-                        <Col xs={24} sm={12} md={8} lg={12}>
-                          <div className="filter-item">
-                            <label>Date Range</label>
-                            <RangePicker
-                              style={{ width: '100%' }}
-                              value={filters.startDate && filters.endDate ? [filters.startDate, filters.endDate] : null}
-                              onChange={handleDateRangeChange}
-                              format="DD/MM/YYYY"
-                            />
-                          </div>
-                        </Col>
-                      </Row>
-                    </div>
-                  )}
-                </Card>
+                <FilterSection
+                  expanded={filtersExpanded}
+                  onToggle={toggleFiltersExpanded}
+                  activeFiltersCount={activeFiltersCount}
+                  onReset={handleResetFiltersWithPagination}
+                >
+                  <ActivityLogFilters
+                    filters={filters}
+                    setFilters={setFilters}
+                    handleDateRangeChange={handleDateRangeChange}
+                  />
+                </FilterSection>
 
-                {/* KPI Cards Section */}
-                <Row gutter={[16, 16]} className="kpi-section">
-                  <Col xs={24} sm={12} md={8} lg={6}>
-                    <Card className="kpi-card">
-                      <div className="kpi-value">{totalEvents}</div>
-                      <div className="kpi-label">TOTAL EVENTS</div>
-                    </Card>
-                  </Col>
-                  <Col xs={24} sm={12} md={8} lg={6}>
-                    <Card className="kpi-card">
-                      <div className="kpi-value" style={{ color: '#52c41a' }}>{createdCount}</div>
-                      <div className="kpi-label">CREATED</div>
-                    </Card>
-                  </Col>
-                  <Col xs={24} sm={12} md={8} lg={6}>
-                    <Card className="kpi-card">
-                      <div className="kpi-value" style={{ color: '#1890ff' }}>{updatedCount}</div>
-                      <div className="kpi-label">UPDATED</div>
-                    </Card>
-                  </Col>
-                  <Col xs={24} sm={12} md={8} lg={6}>
-                    <Card className="kpi-card">
-                      <div className="kpi-value" style={{ color: '#ff4d4f' }}>{deletedCount}</div>
-                      <div className="kpi-label">DELETED</div>
-                    </Card>
-                  </Col>
-                </Row>
+                <SummaryCards cards={summaryCards} />
 
                 {/* Table Section */}
-                <Card className="table-card" title="Audit Logs">
-                  <CustomTable
+                <LogsTable
+                  auditLogs={auditLogs}
                     columns={columns}
-                    dataSource={auditLogs}
-                    pagination={{
-                      current: pagination.current,
-                      pageSize: pagination.pageSize,
-                      total: pagination.total,
-                      showSizeChanger: true,
-                      showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} items`,
-                      pageSizeOptions: ['10', '20', '50', '100'],
-                    }}
-                    onChange={handleTableChange}
-                    scroll={{ x: 1200 }}
-                    size="small"
+                  pagination={pagination}
+                  onPaginationChange={handleTableChange}
                     loading={loading}
+                  onViewDetail={handleViewDetail}
                   />
-                </Card>
               </>
             ),
           },
@@ -725,97 +387,15 @@ const ActivityLog = () => {
       />
 
       {/* Detail Modal */}
-      <Modal
-        title="Audit Log Details"
-        open={detailModalVisible}
-        onCancel={() => {
+      <LogDetailModal
+        visible={detailModalVisible}
+        selectedLog={selectedLog}
+        loading={loadingDetail}
+        onClose={() => {
           setDetailModalVisible(false);
           setSelectedLog(null);
         }}
-        footer={[
-          <Button key="close" onClick={() => {
-            setDetailModalVisible(false);
-            setSelectedLog(null);
-          }}>
-            Close
-          </Button>,
-        ]}
-        width={800}
-      >
-        {loadingDetail ? (
-          <div style={{ textAlign: 'center', padding: '40px' }}>Loading...</div>
-        ) : selectedLog ? (
-          <Descriptions column={1} bordered>
-            <Descriptions.Item label="ID">{selectedLog.id}</Descriptions.Item>
-            <Descriptions.Item label="Timestamp">
-              {selectedLog.timestamp
-                ? dayjs(selectedLog.timestamp).format('DD MMM YYYY HH:mm:ss')
-                : 'N/A'}
-            </Descriptions.Item>
-            <Descriptions.Item label="Action">
-              {getActionBadge(selectedLog.action)}
-            </Descriptions.Item>
-            <Descriptions.Item label="Entity Type">
-              <Tag>{selectedLog.entityType || 'N/A'}</Tag>
-            </Descriptions.Item>
-            <Descriptions.Item label="Entity ID">{selectedLog.entityId || 'N/A'}</Descriptions.Item>
-            <Descriptions.Item label="User ID">{selectedLog.userId || 'N/A'}</Descriptions.Item>
-            <Descriptions.Item label="User Email">{selectedLog.userEmail || 'N/A'}</Descriptions.Item>
-            <Descriptions.Item label="IP Address">{selectedLog.ipAddress || 'N/A'}</Descriptions.Item>
-            <Descriptions.Item label="User Agent">
-              <TextArea
-                value={selectedLog.userAgent || 'N/A'}
-                autoSize
-                readOnly
-                style={{ fontFamily: 'monospace', fontSize: '12px' }}
-              />
-            </Descriptions.Item>
-            <Descriptions.Item label="Service Name">{selectedLog.serviceName || 'N/A'}</Descriptions.Item>
-            <Descriptions.Item label="API Endpoint">{selectedLog.apiEndpoint || 'N/A'}</Descriptions.Item>
-            {selectedLog.changedFields && selectedLog.changedFields.length > 0 && (
-              <Descriptions.Item label="Changed Fields">
-                <Space wrap>
-                  {selectedLog.changedFields.map((field) => (
-                    <Tag key={field}>{field}</Tag>
-                  ))}
-                </Space>
-              </Descriptions.Item>
-            )}
-            {selectedLog.oldValues && Object.keys(selectedLog.oldValues).length > 0 && (
-              <Descriptions.Item label="Old Values">
-                <TextArea
-                  value={JSON.stringify(selectedLog.oldValues, null, 2)}
-                  autoSize={{ minRows: 3, maxRows: 10 }}
-                  readOnly
-                  style={{ fontFamily: 'monospace', fontSize: '12px' }}
-                />
-              </Descriptions.Item>
-            )}
-            {selectedLog.newValues && Object.keys(selectedLog.newValues).length > 0 && (
-              <Descriptions.Item label="New Values">
-                <TextArea
-                  value={JSON.stringify(selectedLog.newValues, null, 2)}
-                  autoSize={{ minRows: 3, maxRows: 10 }}
-                  readOnly
-                  style={{ fontFamily: 'monospace', fontSize: '12px' }}
-                />
-              </Descriptions.Item>
-            )}
-            {selectedLog.metadata && Object.keys(selectedLog.metadata).length > 0 && (
-              <Descriptions.Item label="Metadata">
-                <TextArea
-                  value={JSON.stringify(selectedLog.metadata, null, 2)}
-                  autoSize={{ minRows: 2, maxRows: 6 }}
-                  readOnly
-                  style={{ fontFamily: 'monospace', fontSize: '12px' }}
-                />
-              </Descriptions.Item>
-            )}
-          </Descriptions>
-        ) : (
-          <div style={{ textAlign: 'center', padding: '40px' }}>No data available</div>
-        )}
-      </Modal>
+      />
     </div>
   );
 };

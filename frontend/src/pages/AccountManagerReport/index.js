@@ -6,11 +6,9 @@ import {
     TeamOutlined,
     DollarOutlined,
     PercentageOutlined,
-    FilterOutlined,
     UpOutlined,
     DownOutlined,
     PlusOutlined,
-    ReloadOutlined,
     EditOutlined,
     UserAddOutlined,
     DeleteOutlined,
@@ -23,8 +21,17 @@ import { Doughnut, Bar } from 'react-chartjs-2';
 import { commonOptions, colors } from '@utils/chartConfig';
 import CustomTable from '@components/Table';
 import CustomModal from '@components/Modal';
+import { FilterSection, ReportHeader, SummaryCards } from '@components/ReportLayout';
+import AccountManagerFilters from './components/AccountManagerFilters';
+import ChartsSection from './components/ChartsSection';
+import ProjectsTable from './components/ProjectsTable';
+import ProjectModal from './components/ProjectModal';
+import { useReportFilters } from '@hooks/reports';
+import { useSelector } from 'react-redux';
 import { projectsService, clientsService, allocationsService, resourcesService, accountManagersService, reportsService } from '@api';
+import { selectProjectTypes, selectBillingStatuses, selectTiers, selectTracks } from '@redux/slices/configSlice';
 import { showErrorToast, showSuccessToast, showWarningToast } from '@utils/toast.utils';
+import logger from '@utils/logger';
 import '@styles/pages/AccountManagerReport.scss';
 
 const { Option } = Select;
@@ -34,7 +41,6 @@ const AccountManagerReport = () => {
     const [form] = Form.useForm();
     const [billingType, setBillingType] = useState(null);
     const [accountType, setAccountType] = useState('External');
-    const [filtersExpanded, setFiltersExpanded] = useState(false);
     const [billingStatusExpanded, setBillingStatusExpanded] = useState(true);
     const [employeesByTierExpanded, setEmployeesByTierExpanded] = useState(true);
     const [projectOverviewExpanded, setProjectOverviewExpanded] = useState(true);
@@ -84,6 +90,25 @@ const AccountManagerReport = () => {
     const [loadingAccountManagers, setLoadingAccountManagers] = useState(false);
     const [projectsForFilter, setProjectsForFilter] = useState([]);
     const [loadingProjectsForFilter, setLoadingProjectsForFilter] = useState(false);
+
+    // Get configuration data from Redux (cached on login)
+    const projectTypesList = useSelector(selectProjectTypes);
+    const billingStatusesList = useSelector(selectBillingStatuses);
+    const tiersList = useSelector(selectTiers);
+    const tracksList = useSelector(selectTracks);
+
+    // Hardcoded values for Account Types and Project Statuses (no longer fetched from API)
+    const accountTypesList = [
+        { id: 'External', name: 'External' },
+        { id: 'Internal', name: 'Internal' },
+    ];
+    const projectStatusesList = [
+        { id: 'Active', name: 'Active' },
+        { id: 'On Hold', name: 'On Hold' },
+        { id: 'Completed', name: 'Completed' },
+        { id: 'Cancelled', name: 'Cancelled' },
+    ];
+
     const [reportData, setReportData] = useState({
         summary: {
             billableResources: 0,
@@ -113,35 +138,23 @@ const AccountManagerReport = () => {
     const fetchProjectsForFilterInProgressRef = useRef(false);
     const fetchReportInProgressRef = useRef(false);
 
-    const [filters, setFilters] = useState({
-        accountManager: 'All',
-        projectName: 'All',
-        projectStatus: 'Active',
-        allocationStatus: 'Active',
-        clientName: 'All',
-        billingStatus: 'All',
-    });
-
-    // Default filter values for comparison
     const defaultFilters = {
         accountManager: 'All',
         projectName: 'All',
-        projectStatus: 'Active',
-        allocationStatus: 'Active',
+        projectStatus: 'All',
         clientName: 'All',
         billingStatus: 'All',
     };
 
-    // Count active filters (filters that differ from defaults)
-    const activeFiltersCount = useMemo(() => {
-        let count = 0;
-        Object.keys(filters).forEach((key) => {
-            if (filters[key] !== defaultFilters[key] && filters[key] !== '' && filters[key] !== null && filters[key] !== undefined) {
-                count++;
-            }
-        });
-        return count;
-    }, [filters]);
+    // Use shared hooks
+    const {
+        filters,
+        setFilters,
+        activeFiltersCount,
+        handleResetFilters,
+        filtersExpanded,
+        toggleFiltersExpanded,
+    } = useReportFilters(defaultFilters);
 
     // Get selected Account Manager name for display
     const selectedAccountManagerName = useMemo(() => {
@@ -185,7 +198,7 @@ const AccountManagerReport = () => {
 
                 setClientsList(clientsData);
             } catch (error) {
-                console.error('Failed to fetch clients:', error);
+                logger.error('Failed to fetch clients:', error);
             } finally {
                 fetchClientsInProgressRef.current = false;
             }
@@ -237,7 +250,7 @@ const AccountManagerReport = () => {
 
                 setAccountManagersList(accountManagers);
             } catch (error) {
-                console.error('Failed to fetch account managers:', error);
+                logger.error('Failed to fetch account managers:', error);
                 showErrorToast('Failed to load account managers');
             } finally {
                 setLoadingAccountManagers(false);
@@ -247,6 +260,9 @@ const AccountManagerReport = () => {
 
         fetchAccountManagers();
     }, []);
+
+    // Configuration data is now loaded from Redux (fetched on login)
+    // No need to fetch here - it's already cached
 
     // Fetch projects for filter dropdown
     useEffect(() => {
@@ -285,7 +301,7 @@ const AccountManagerReport = () => {
 
                 setProjectsForFilter(projectsList);
             } catch (error) {
-                console.error('Failed to fetch projects for filter:', error);
+                logger.error('Failed to fetch projects for filter:', error);
                 showErrorToast('Failed to load projects');
             } finally {
                 setLoadingProjectsForFilter(false);
@@ -312,45 +328,31 @@ const AccountManagerReport = () => {
             // Build query parameters from filters
             const queryParams = {};
 
-            // Account Manager ID
+            // Account Manager ID (filter value is already an ID)
             if (filters.accountManager && filters.accountManager !== 'All') {
-                const selectedAM = accountManagersList.find(am => am.name === filters.accountManager);
-                if (selectedAM) {
-                    queryParams.account_manager_id = selectedAM.id;
-                }
+                queryParams.account_manager_id = filters.accountManager;
             }
 
-            // Project ID (from filter or selected project)
+            // Project ID (from filter or selected project) - filter value is already an ID
             if (selectedProjectId) {
                 queryParams.project_id = selectedProjectId;
             } else if (filters.projectName && filters.projectName !== 'All') {
-                const selectedProject = projectsForFilter.find(p => p.name === filters.projectName);
-                if (selectedProject) {
-                    queryParams.project_id = selectedProject.id;
-                }
+                queryParams.project_id = filters.projectName;
             }
 
-            // Project Status
+            // Project Status ID (filter value is already an ID)
             if (filters.projectStatus && filters.projectStatus !== 'All') {
-                queryParams.project_status = filters.projectStatus;
+                queryParams.project_status_id = filters.projectStatus;
             }
 
-            // Allocation Status
-            if (filters.allocationStatus && filters.allocationStatus !== 'All') {
-                queryParams.allocation_status = filters.allocationStatus;
-            }
-
-            // Client ID
+            // Client ID (filter value is already an ID)
             if (filters.clientName && filters.clientName !== 'All') {
-                const selectedClient = clientsList.find(c => c.client_name === filters.clientName);
-                if (selectedClient) {
-                    queryParams.client_id = selectedClient.id;
-                }
+                queryParams.client_id = filters.clientName;
             }
 
-            // Billing Status
+            // Billing Status ID (filter value is already an ID)
             if (filters.billingStatus && filters.billingStatus !== 'All') {
-                queryParams.billing_status = filters.billingStatus;
+                queryParams.billing_status_id = filters.billingStatus;
             }
 
             // Pagination (use allocation pagination if project is selected, otherwise project pagination)
@@ -488,7 +490,7 @@ const AccountManagerReport = () => {
                 }
             }
         } catch (error) {
-            console.error('Failed to fetch account manager report:', error);
+            logger.error('Failed to fetch account manager report:', error);
             showErrorToast('Failed to load account manager report');
         } finally {
             setLoadingReport(false);
@@ -616,7 +618,7 @@ const AccountManagerReport = () => {
                 fetchProjectAllocations(firstProject.id, 1, allocationPagination.pageSize);
             }
         } catch (error) {
-            console.error('Failed to fetch projects:', error);
+            logger.error('Failed to fetch projects:', error);
             showErrorToast('Failed to load projects');
         } finally {
             setLoadingProjects(false);
@@ -625,12 +627,6 @@ const AccountManagerReport = () => {
     };
 
     // Note: Projects are now fetched via fetchAccountManagerReport which is called when filters change
-
-    // Reset filters to default values
-    const handleResetFilters = (e) => {
-        e.stopPropagation(); // Prevent collapsing/expanding when clicking reset
-        setFilters({ ...defaultFilters });
-    };
 
     // Fetch clients list for client lookup
     useEffect(() => {
@@ -651,7 +647,7 @@ const AccountManagerReport = () => {
 
                 setClientsList(clientsData);
             } catch (error) {
-                console.error('Failed to fetch clients:', error);
+                logger.error('Failed to fetch clients:', error);
             }
         };
 
@@ -744,7 +740,7 @@ const AccountManagerReport = () => {
                 limit: 100, // Get all allocations for this project
             });
 
-            console.log('Allocations API response for project:', response);
+            logger.debug('Allocations API response for project:', response);
 
             // Handle response structure after interceptor transformation
             let allocationsData = [];
@@ -768,7 +764,7 @@ const AccountManagerReport = () => {
                 }
             }
 
-            console.log('Parsed allocations data:', allocationsData);
+            logger.debug('Parsed allocations data:', allocationsData);
 
             // Transform allocations data to match modal format
             // First, fetch resource names if missing
@@ -830,7 +826,7 @@ const AccountManagerReport = () => {
                                 resourceName = resourceResponse.data.name || 'N/A';
                             }
                         } catch (error) {
-                            console.error('Failed to fetch resource:', error);
+                            logger.error('Failed to fetch resource:', error);
                         }
                     }
                 }
@@ -861,7 +857,7 @@ const AccountManagerReport = () => {
                 showWarningToast('No allocations found for this project');
             }
         } catch (error) {
-            console.error('Failed to fetch project allocations:', error);
+            logger.error('Failed to fetch project allocations:', error);
             showErrorToast(error?.response?.data?.message || error?.message || 'Failed to load project allocations');
             setTeamMembersList([]);
         }
@@ -878,7 +874,7 @@ const AccountManagerReport = () => {
         // Check if team size limit is reached
         if (teamMembersList.length >= (selectedProjectForTeam?.teamSize || 0)) {
             // TODO: Show warning message
-            console.warn('Team size limit reached');
+            logger.warn('Team size limit reached');
             return;
         }
 
@@ -960,7 +956,7 @@ const AccountManagerReport = () => {
             });
 
             if (errors.length > 0) {
-                console.error('Validation errors:', errors);
+                logger.error('Validation errors:', errors);
                 // TODO: Show error message to user
                 return;
             }
@@ -974,7 +970,7 @@ const AccountManagerReport = () => {
                 };
             });
 
-            console.log('Saving team members:', membersToSave);
+            logger.debug('Saving team members:', membersToSave);
             // TODO: Add API call to save team members
             // await saveTeamMembers(selectedProjectForTeam.key, membersToSave);
 
@@ -985,7 +981,7 @@ const AccountManagerReport = () => {
 
             // TODO: Show success message and refresh data
         } catch (error) {
-            console.error('Validation failed:', error);
+            logger.error('Validation failed:', error);
         }
     };
 
@@ -1014,7 +1010,7 @@ const AccountManagerReport = () => {
                 try {
                     teamMembersForm.setFieldsValue(formValues);
                 } catch (error) {
-                    console.error('Error setting team members form values:', error);
+                    logger.error('Error setting team members form values:', error);
                 }
             }, 300);
 
@@ -1025,11 +1021,11 @@ const AccountManagerReport = () => {
     // Handle user allocation modal
     const handleRowClick = (record) => {
         // When clicking on a row in BY ALLOCATION table, show resource allocations from API
-        console.log('Row clicked:', record);
+        logger.debug('Row clicked:', record);
         if (record.resource_id) {
             handleViewResourceAllocations(record);
         } else {
-            console.warn('Resource ID not found in record:', record);
+            logger.warn('Resource ID not found in record:', record);
             showWarningToast('Resource ID not found for this allocation');
         }
     };
@@ -1091,7 +1087,7 @@ const AccountManagerReport = () => {
             });
 
             if (errors.length > 0) {
-                console.error('Validation errors:', errors);
+                logger.error('Validation errors:', errors);
                 return;
             }
 
@@ -1105,7 +1101,7 @@ const AccountManagerReport = () => {
                 };
             });
 
-            console.log('Saving user allocations:', allocationsToSave);
+            logger.debug('Saving user allocations:', allocationsToSave);
             // TODO: Add API call to save user allocations
             // await saveUserAllocations(selectedEmployee, allocationsToSave);
 
@@ -1116,7 +1112,7 @@ const AccountManagerReport = () => {
 
             // TODO: Show success message and refresh data
         } catch (error) {
-            console.error('Validation failed:', error);
+            logger.error('Validation failed:', error);
         }
     };
 
@@ -1139,7 +1135,9 @@ const AccountManagerReport = () => {
 
             // Handle client_id - required only for External projects
             let client_id = null;
-            if (values.accountType === 'External') {
+            // Find the account type to check if it's External
+            const selectedAccountType = accountTypesList.find(t => t.id === values.accountType);
+            if (selectedAccountType?.name === 'External') {
                 if (values.clientName) {
                     // clientName is now the client ID from the dropdown
                     client_id = values.clientName;
@@ -1158,42 +1156,23 @@ const AccountManagerReport = () => {
                 }
             }
 
-            // Map project type - API expects: Client|Bench|Training|POC|Presale|Research
-            const projectTypeMap = {
-                'Client': 'Client',
-                'Bench': 'Bench',
-                'Training': 'Training',
-                'POC': 'POC',
-                'Presale': 'Presale',
-            };
-
-            const project_type = projectTypeMap[values.projectType] || 'Client';
-
-            // Map status - API expects: Active|On Hold|Completed|Cancelled
-            const statusMap = {
-                'Active': 'Active',
-                'Inactive': 'On Hold',
-                'On Hold': 'On Hold',
-                'Completed': 'Completed',
-                'Cancelled': 'Cancelled',
-            };
-            const status = statusMap[values.status] || 'Active';
-
-            // Prepare API payload according to API specification
+            // Prepare API payload
+            // Account Type and Status are now hardcoded strings, not IDs
+            // Project Type and Billing Status use IDs from Redux data
             const projectPayload = {
                 project_name: values.projectName,
                 project_code: values.projectCode || '', // Optional
                 client_id: client_id, // Required only for External projects
-                project_type: project_type, // Client|Bench|Training|POC|Presale|Research
-                account_type: values.accountType || 'External', // Internal|External
+                project_type_id: values.projectType, // ID from Redux (projectTypesList)
+                account_type: values.accountType, // String value: 'External' or 'Internal'
                 account_manager: values.accountManager, // Required string
                 account_reg_sales_owner: values.accountRegSalesOwner || '', // Optional string
                 team_size: values.teamSize || 1, // Number, default 1
-                billing_type: values.billingType || 'Billing', // Billing|Non-Billing
+                billing_status_id: values.billingType, // ID from Redux (billingStatusesList)
                 budget: values.budget || 0, // Number, default 0
-                status: status, // Active|On Hold|Completed|Cancelled
-                start_date: values.projectStartDate ? values.projectStartDate.format('YYYY-MM-DD') : null,
-                end_date: values.projectEndDate ? values.projectEndDate.format('YYYY-MM-DD') : null,
+                status: values.status, // String value: 'Active', 'On Hold', 'Completed', 'Cancelled'
+                project_start_date: values.projectStartDate ? values.projectStartDate.format('YYYY-MM-DD') : null,
+                project_end_date: values.projectEndDate ? values.projectEndDate.format('YYYY-MM-DD') : null,
                 description: values.description || '',
             };
 
@@ -1214,15 +1193,15 @@ const AccountManagerReport = () => {
             }
 
             // Remove null dates
-            if (!cleanedPayload.start_date) {
-                delete cleanedPayload.start_date;
+            if (!cleanedPayload.project_start_date) {
+                delete cleanedPayload.project_start_date;
             }
-            if (!cleanedPayload.end_date) {
-                delete cleanedPayload.end_date;
+            if (!cleanedPayload.project_end_date) {
+                delete cleanedPayload.project_end_date;
             }
 
             // Remove client_id if Internal project
-            if (cleanedPayload.account_type === 'Internal') {
+            if (selectedAccountType?.name === 'Internal') {
                 delete cleanedPayload.client_id;
             }
 
@@ -1274,21 +1253,12 @@ const AccountManagerReport = () => {
                 }
             }
         } catch (error) {
-            console.error('Error creating/updating project:', error);
+            logger.error('Error creating/updating project:', error);
             showErrorToast(error?.response?.data?.message || error?.message || 'Failed to save project');
         } finally {
             setIsSubmittingProject(false);
         }
     };
-
-    // KPI Data from API
-    const kpiData = useMemo(() => ({
-        billableResources: reportData.summary.billableResources || 0,
-        allocatedCount: reportData.summary.allocatedCount || 0,
-        billableCount: reportData.summary.billableCount || 0,
-        avgProjectAllocation: reportData.summary.averageProjectAllocation || 0,
-        avgBillingPercentage: reportData.summary.averageBillingPercentage || 0,
-    }), [reportData.summary]);
 
     // Chart.js data for billing status donut chart from API
     const billingStatusDonutData = useMemo(() => {
@@ -1423,7 +1393,7 @@ const AccountManagerReport = () => {
 
                 setResourcesList(formattedResources);
             } catch (error) {
-                console.error('Failed to fetch resources:', error);
+                logger.error('Failed to fetch resources:', error);
                 showErrorToast('Failed to load resources');
             }
         };
@@ -1509,7 +1479,7 @@ const AccountManagerReport = () => {
                         });
                     }
                 } catch (error) {
-                    console.error('Failed to delete allocation:', error);
+                    logger.error('Failed to delete allocation:', error);
                     showErrorToast(error?.response?.data?.message || error?.message || 'Failed to delete allocation');
                     modal.update({
                         okButtonProps: {
@@ -1583,7 +1553,7 @@ const AccountManagerReport = () => {
                 }
             }
         } catch (error) {
-            console.error('Allocation submit error:', error);
+            logger.error('Allocation submit error:', error);
             if (error.errorFields) {
                 // Form validation errors
                 return;
@@ -1596,9 +1566,9 @@ const AccountManagerReport = () => {
 
     // Handle view resource allocations
     const handleViewResourceAllocations = async (record) => {
-        console.log('handleViewResourceAllocations called with record:', record);
+        logger.debug('handleViewResourceAllocations called with record:', record);
         if (!record.resource_id) {
-            console.error('Resource ID not found in record:', record);
+            logger.error('Resource ID not found in record:', record);
             showWarningToast('Resource ID not found');
             return;
         }
@@ -1611,9 +1581,9 @@ const AccountManagerReport = () => {
 
         try {
             setLoadingResourceAllocations(true);
-            console.log('Fetching allocations for resource_id:', record.resource_id);
+            logger.debug('Fetching allocations for resource_id:', record.resource_id);
             const response = await resourcesService.getAllocations(record.resource_id);
-            console.log('Resource allocations API response:', response);
+            logger.debug('Resource allocations API response:', response);
 
             // Handle response structure after interceptor transformation
             // API returns: {success: true, data: {resource_id: "...", allocations: [...], total: 1}}
@@ -1623,51 +1593,51 @@ const AccountManagerReport = () => {
             let allocationsData = [];
 
             if (response) {
-                console.log('Full response object:', response);
+                logger.debug('Full response object:', response);
 
                 // Check if response has allocations array directly (after service returns response.data)
                 if (response.allocations && Array.isArray(response.allocations)) {
                     allocationsData = response.allocations;
-                    console.log('Found allocations in response.allocations:', allocationsData.length);
+                    logger.debug('Found allocations in response.allocations:', allocationsData.length);
                 }
                 // Check if response.data has allocations array (if service returns full response object)
                 else if (response.data && response.data.allocations && Array.isArray(response.data.allocations)) {
                     allocationsData = response.data.allocations;
-                    console.log('Found allocations in response.data.allocations:', allocationsData.length);
+                    logger.debug('Found allocations in response.data.allocations:', allocationsData.length);
                 }
                 // Check if response.data is directly an array (after interceptor transformation)
                 else if (Array.isArray(response.data)) {
                     allocationsData = response.data;
-                    console.log('Found allocations as direct array:', allocationsData.length);
+                    logger.debug('Found allocations as direct array:', allocationsData.length);
                 }
                 // Check if response is an array directly
                 else if (Array.isArray(response)) {
                     allocationsData = response;
-                    console.log('Found allocations as root array:', allocationsData.length);
+                    logger.debug('Found allocations as root array:', allocationsData.length);
                 }
                 // Check if response.data is a single object with allocations property (nested)
                 else if (response.data && typeof response.data === 'object' && !Array.isArray(response.data)) {
                     // If it has allocations property, use it
                     if (response.data.allocations && Array.isArray(response.data.allocations)) {
                         allocationsData = response.data.allocations;
-                        console.log('Found allocations in nested object:', allocationsData.length);
+                        logger.debug('Found allocations in nested object:', allocationsData.length);
                     }
                     // Otherwise, if it has id (single allocation), wrap it in array
                     else if (response.data.id) {
                         allocationsData = [response.data];
-                        console.log('Found single allocation, wrapped in array');
+                        logger.debug('Found single allocation, wrapped in array');
                     } else {
-                        console.warn('Unexpected response.data structure:', response.data);
+                        logger.warn('Unexpected response.data structure:', response.data);
                     }
                 } else {
-                    console.warn('Could not parse response structure:', response);
+                    logger.warn('Could not parse response structure:', response);
                 }
             } else {
-                console.warn('Response is null or undefined');
+                logger.warn('Response is null or undefined');
             }
 
-            console.log('Final parsed allocations data:', allocationsData);
-            console.log('Allocations count:', allocationsData.length);
+            logger.debug('Final parsed allocations data:', allocationsData);
+            logger.debug('Allocations count:', allocationsData.length);
 
             // Separate active and future allocations
             const activeAllocations = allocationsData.filter(a => a.allocation_status !== 'future');
@@ -1782,15 +1752,15 @@ const AccountManagerReport = () => {
             // Don't show warning if there was a parsing error (that's handled in catch)
             if (transformedAllocations.length === 0 && allocationsData.length === 0) {
                 // This means the response structure wasn't recognized
-                console.warn('No allocations found - response structure may be unexpected');
+                logger.warn('No allocations found - response structure may be unexpected');
                 showWarningToast('No allocations found for this resource');
             } else if (transformedAllocations.length === 0 && allocationsData.length > 0) {
                 // This means parsing worked but transformation failed
-                console.warn('Allocations parsed but transformation failed');
+                logger.warn('Allocations parsed but transformation failed');
                 showWarningToast('Failed to process allocation data');
             }
         } catch (error) {
-            console.error('Failed to fetch resource allocations:', error);
+            logger.error('Failed to fetch resource allocations:', error);
             showErrorToast(error?.response?.data?.message || error?.message || 'Failed to load resource allocations');
             setResourceAllocationsData([]);
         } finally {
@@ -1923,7 +1893,7 @@ const AccountManagerReport = () => {
                 limit: limit || allocationPagination.pageSize,
             });
 
-            console.log('Allocations API response:', response);
+            logger.debug('Allocations API response:', response);
 
             // Handle response structure after interceptor transformation
             let allocationsData = [];
@@ -1960,8 +1930,8 @@ const AccountManagerReport = () => {
                 }
             }
 
-            console.log('Parsed allocations data:', allocationsData);
-            console.log('Pagination data:', paginationData);
+            logger.debug('Parsed allocations data:', allocationsData);
+            logger.debug('Pagination data:', paginationData);
 
             // Transform allocations data to match table format
             const transformedAllocations = await Promise.all(allocationsData.map(async (allocation, index) => {
@@ -1987,7 +1957,7 @@ const AccountManagerReport = () => {
                                 resourceName = resourceResponse.data.name || 'N/A';
                             }
                         } catch (error) {
-                            console.error('Failed to fetch resource:', error);
+                            logger.error('Failed to fetch resource:', error);
                         }
                     }
                 }
@@ -2006,7 +1976,7 @@ const AccountManagerReport = () => {
                                 projectName = projectResponse.data.project_name || 'N/A';
                             }
                         } catch (error) {
-                            console.error('Failed to fetch project:', error);
+                            logger.error('Failed to fetch project:', error);
                         }
                     }
                 }
@@ -2057,7 +2027,7 @@ const AccountManagerReport = () => {
                 total: paginationData.total || 0,
             });
         } catch (error) {
-            console.error('Failed to fetch project allocations:', error);
+            logger.error('Failed to fetch project allocations:', error);
             showErrorToast('Failed to load allocations');
             setAllocationData([]);
         } finally {
@@ -2167,317 +2137,82 @@ const AccountManagerReport = () => {
     ];
 
 
+    // Calculate KPI data
+    const kpiData = useMemo(() => ({
+        billableResources: reportData.summary.billableResources || 0,
+        allocatedCount: reportData.summary.allocatedCount || 0,
+        billableCount: reportData.summary.billableCount || 0,
+        avgProjectAllocation: reportData.summary.averageProjectAllocation?.toFixed(1) || 0,
+        avgBillingPercentage: reportData.summary.averageBillingPercentage?.toFixed(1) || 0,
+    }), [reportData]);
+
+    // Summary cards data
+    const summaryCards = [
+        { value: kpiData.billableResources, label: 'BILLABLE RESOURCES' },
+        { value: kpiData.allocatedCount, label: 'ALLOCATED COUNT' },
+        { value: kpiData.billableCount, label: 'BILLABLE COUNT' },
+        { value: `${kpiData.avgProjectAllocation}%`, label: 'Average Project Allocation' },
+        { value: `${kpiData.avgBillingPercentage}%`, label: 'Average Billing Percentage' },
+    ];
+
     return (
         <div className="account-manager-report-page">
-            {/* Header Section */}
-            <div className="report-header">
-                <h1 className="report-title">ACCOUNT MANAGER REPORT</h1>
-            </div>
+            <ReportHeader title="ACCOUNT MANAGER REPORT" />
 
-            {/* Filters Section */}
-            <Card className="filters-card">
-                <div
-                    className="filters-header"
-                    onClick={() => setFiltersExpanded(!filtersExpanded)}
-                    style={{ cursor: 'pointer' }}
-                >
-                    <div className="filters-header-left">
-                        <FilterOutlined className="filter-icon" />
-                        <span className="filters-title">Filters</span>
-                        {activeFiltersCount > 0 && (
-                            <>
-                                <Badge count={activeFiltersCount} showZero={false} className="active-filters-badge">
-                                    <span></span>
-                                </Badge>
-                                <Button
-                                    type="text"
-                                    size="small"
-                                    icon={<ReloadOutlined />}
-                                    onClick={handleResetFilters}
-                                    className="reset-filters-btn"
-                                >
-                                    Reset
-                                </Button>
-                            </>
-                        )}
-                    </div>
-                    {filtersExpanded ? (
-                        <UpOutlined className="collapse-icon" />
-                    ) : (
-                        <DownOutlined className="collapse-icon" />
-                    )}
-                </div>
-                {filtersExpanded && (
-                    <div className="filters-content">
-                        <Row gutter={[16, 16]} className="filters-row">
-                            <Col xs={24} sm={12} md={8} lg={6}>
-                                <div className="filter-item">
-                                    <label>Account Manager</label>
-                                    <Select
-                                        value={filters.accountManager}
-                                        onChange={(value) => setFilters({ ...filters, accountManager: value })}
-                                        style={{ width: '100%' }}
-                                        loading={loadingAccountManagers}
-                                        showSearch
-                                        filterOption={(input, option) =>
-                                            (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
-                                        }
-                                        placeholder="Select Account Manager"
-                                    >
-                                        <Option value="All">All</Option>
-                                        {accountManagersList.map((am) => (
-                                            <Option key={am.id} value={am.name} label={am.name}>
-                                                {am.name}
-                                            </Option>
-                                        ))}
-                                    </Select>
-                                </div>
-                            </Col>
-                            <Col xs={24} sm={12} md={8} lg={6}>
-                                <div className="filter-item">
-                                    <label>Project Name</label>
-                                    <Select
-                                        value={filters.projectName}
-                                        onChange={(value) => setFilters({ ...filters, projectName: value })}
-                                        style={{ width: '100%' }}
-                                        loading={loadingProjectsForFilter}
-                                        showSearch
-                                        filterOption={(input, option) =>
-                                            (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
-                                        }
-                                        placeholder="Select Project"
-                                    >
-                                        <Option value="All">All</Option>
-                                        {projectsForFilter.map((project) => (
-                                            <Option key={project.id} value={project.name} label={project.name}>
-                                                {project.name}
-                                            </Option>
-                                        ))}
-                                    </Select>
-                                </div>
-                            </Col>
-                            <Col xs={24} sm={12} md={8} lg={6}>
-                                <div className="filter-item">
-                                    <label>Project Status</label>
-                                    <Select
-                                        value={filters.projectStatus}
-                                        onChange={(value) => setFilters({ ...filters, projectStatus: value })}
-                                        style={{ width: '100%' }}
-                                    >
-                                        <Option value="Active">Active</Option>
-                                        <Option value="Inactive">Inactive</Option>
-                                    </Select>
-                                </div>
-                            </Col>
-                            <Col xs={24} sm={12} md={8} lg={6}>
-                                <div className="filter-item">
-                                    <label>Allocation Status</label>
-                                    <Select
-                                        value={filters.allocationStatus}
-                                        onChange={(value) => setFilters({ ...filters, allocationStatus: value })}
-                                        style={{ width: '100%' }}
-                                    >
-                                        <Option value="Active">Active</Option>
-                                        <Option value="Inactive">Inactive</Option>
-                                    </Select>
-                                </div>
-                            </Col>
-                            <Col xs={24} sm={12} md={8} lg={6}>
-                                <div className="filter-item">
-                                    <label>Client Name</label>
-                                    <Select
-                                        value={filters.clientName}
-                                        onChange={(value) => setFilters({ ...filters, clientName: value })}
-                                        style={{ width: '100%' }}
-                                        showSearch
-                                        filterOption={(input, option) =>
-                                            (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
-                                        }
-                                        placeholder="Select Client"
-                                    >
-                                        <Option value="All">All</Option>
-                                        {clientsList.map((client) => (
-                                            <Option key={client.id} value={client.client_name} label={client.client_name}>
-                                                {client.client_name}
-                                            </Option>
-                                        ))}
-                                    </Select>
-                                </div>
-                            </Col>
-                            <Col xs={24} sm={12} md={8} lg={6}>
-                                <div className="filter-item">
-                                    <label>Billing Status</label>
-                                    <Select
-                                        value={filters.billingStatus}
-                                        onChange={(value) => setFilters({ ...filters, billingStatus: value })}
-                                        style={{ width: '100%' }}
-                                    >
-                                        <Option value="All">All</Option>
-                                        <Option value="Billing">Billing</Option>
-                                        <Option value="Non-Billing">Non-Billing</Option>
-                                        <Option value="Bench">Bench</Option>
-                                        <Option value="Training">Training</Option>
-                                        <Option value="Presale">Presale</Option>
-                                    </Select>
-                                </div>
-                            </Col>
-                        </Row>
-                    </div>
-                )}
-            </Card>
+            <FilterSection
+                expanded={filtersExpanded}
+                onToggle={toggleFiltersExpanded}
+                activeFiltersCount={activeFiltersCount}
+                onReset={handleResetFilters}
+            >
+                <AccountManagerFilters
+                    filters={filters}
+                    setFilters={setFilters}
+                    accountManagersList={accountManagersList}
+                    projectsForFilter={projectsForFilter}
+                    clientsList={clientsList}
+                    loadingAccountManagers={loadingAccountManagers}
+                    loadingProjectsForFilter={loadingProjectsForFilter}
+                />
+            </FilterSection>
 
-            {/* KPI Cards */}
-            <div className="kpi-section">
-                <div className="kpi-grid">
-                    <Card className="kpi-card">
-                        <div className="kpi-value">{kpiData.billableResources}</div>
-                        <div className="kpi-label">BILLABLE RESOURCES</div>
-                    </Card>
-                    <Card className="kpi-card">
-                        <div className="kpi-value">{kpiData.allocatedCount}</div>
-                        <div className="kpi-label">ALLOCATED COUNT</div>
-                    </Card>
-                    <Card className="kpi-card">
-                        <div className="kpi-value">{kpiData.billableCount}</div>
-                        <div className="kpi-label">BILLABLE COUNT</div>
-                    </Card>
-                    <Card className="kpi-card">
-                        <div className="kpi-value">{kpiData.avgProjectAllocation}%</div>
-                        <div className="kpi-label">Average Project Allocation</div>
-                    </Card>
-                    <Card className="kpi-card">
-                        <div className="kpi-value">{kpiData.avgBillingPercentage}%</div>
-                        <div className="kpi-label">Average Billing Percentage</div>
-                    </Card>
-                </div>
-            </div>
+            <SummaryCards cards={summaryCards} />
 
-            {/* Charts and Tables Section */}
-            <Row gutter={[16, 16]} className="charts-tables-section">
-                {/* Left Column - Charts */}
-                <Col xs={24} lg={12}>
-                    <Card
-                        className="chart-card"
-                        title={
-                            <div
-                                className="collapsible-header"
-                                onClick={() => setBillingStatusExpanded(!billingStatusExpanded)}
-                            >
-                                <span>No. of Allocations by Billing Status</span>
-                                {billingStatusExpanded ? <UpOutlined /> : <DownOutlined />}
-                            </div>
-                        }
-                    >
-                        {billingStatusExpanded && (
-                            <div className="chart-container">
-                                <Doughnut data={billingStatusDonutData} options={billingStatusDonutOptions} />
-                            </div>
-                        )}
-                    </Card>
-                </Col>
-
-                {/* Right Column - Bar Chart */}
-                <Col xs={24} lg={12}>
-                    <Card
-                        className="chart-card"
-                        title={
-                            <div
-                                className="collapsible-header"
-                                onClick={() => setEmployeesByTierExpanded(!employeesByTierExpanded)}
-                            >
-                                <span>No. of Employees by Tier</span>
-                                {employeesByTierExpanded ? <UpOutlined /> : <DownOutlined />}
-                            </div>
-                        }
-                    >
-                        {employeesByTierExpanded && (
-                            <div className="chart-container">
-                                <Bar data={employeesByTierBarData} options={employeesByTierBarOptions} />
-                            </div>
-                        )}
-                    </Card>
-                </Col>
-            </Row>
+            {/* Charts Section */}
+            <ChartsSection
+                billingStatusExpanded={billingStatusExpanded}
+                employeesByTierExpanded={employeesByTierExpanded}
+                onToggleBillingStatus={() => setBillingStatusExpanded(!billingStatusExpanded)}
+                onToggleEmployeesByTier={() => setEmployeesByTierExpanded(!employeesByTierExpanded)}
+                billingStatusDonutData={billingStatusDonutData}
+                billingStatusDonutOptions={billingStatusDonutOptions}
+                employeesByTierBarData={employeesByTierBarData}
+                employeesByTierBarOptions={employeesByTierBarOptions}
+            />
 
             {/* Project Table */}
-            <Card
-                className="table-card"
-                title={
-                    <div className="project-overview-header">
-                        <span className="project-overview-title">
-                            Project Overview
-                            {selectedAccountManagerName && (
-                                <span style={{ marginLeft: '8px', color: '#1890ff', fontWeight: 'normal' }}>
-                                    - {selectedAccountManagerName}
-                                </span>
-                            )}
-                        </span>
-                        <div className="project-overview-actions">
-                            {projectOverviewExpanded && (
-                                <Button
-                                    type="primary"
-                                    icon={<PlusOutlined />}
-                                    onClick={handleCreateProject}
-                                    className="create-project-btn"
-                                >
-                                    Create New Project
-                                </Button>
-                            )}
-                            <div
-                                className="collapsible-icon"
-                                onClick={() => setProjectOverviewExpanded(!projectOverviewExpanded)}
-                            >
-                                {projectOverviewExpanded ? <UpOutlined /> : <DownOutlined />}
-                            </div>
-                        </div>
-                    </div>
-                }
-            >
-                {projectOverviewExpanded && (
-                    <CustomTable
-                        columns={projectColumns}
-                        dataSource={projectData}
-                        pagination={{
-                            current: projectPagination.current,
-                            pageSize: projectPagination.pageSize,
-                            total: projectPagination.total,
-                            showSizeChanger: true,
-                            showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} projects`,
-                            onChange: (page, pageSize) => {
-                                setProjectPagination(prev => ({ ...prev, current: page, pageSize }));
-                                // Report will be refetched via useEffect when pagination changes
-                            },
-                            onShowSizeChange: (current, size) => {
-                                setProjectPagination(prev => ({ ...prev, current: 1, pageSize: size }));
-                                // Report will be refetched via useEffect when pagination changes
-                            },
-                        }}
-                        size="small"
-                        scroll={{ x: 800 }}
-                        loading={loadingProjects}
-                        onRow={(record) => ({
-                            onClick: () => handleProjectClick(record),
-                            style: {
-                                cursor: 'pointer',
-                                backgroundColor: selectedProjectId === record.id ? '#e6f7ff' : 'transparent',
-                            },
-                        })}
-                        rowClassName={(record) => selectedProjectId === record.id ? 'selected-project-row' : ''}
-                    />
-                )}
-            </Card>
+            <ProjectsTable
+                projectData={projectData}
+                projectColumns={projectColumns}
+                projectPagination={projectPagination}
+                onPaginationChange={(newPagination) => {
+                    setProjectPagination(prev => ({ ...prev, ...newPagination }));
+                }}
+                loadingProjects={loadingProjects}
+                selectedProjectId={selectedProjectId}
+                onProjectClick={handleProjectClick}
+                onCreateProject={handleCreateProject}
+                projectOverviewExpanded={projectOverviewExpanded}
+                onToggleExpanded={() => setProjectOverviewExpanded(!projectOverviewExpanded)}
+                selectedAccountManagerName={selectedAccountManagerName}
+            />
 
             {/* BY ALLOCATION Table */}
             <Card
                 className="table-card"
                 title={
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-                        <div
-                            className="collapsible-header"
-                            onClick={() => setByAllocationExpanded(!byAllocationExpanded)}
-                            style={{ flex: 1 }}
-                        >
-                            <span>
+                    <div className="project-overview-header">
+                        <span className="project-overview-title">
                                 BY ALLOCATION
                                 {displayProjectName && (
                                     <span style={{ marginLeft: '8px', color: '#1890ff', fontWeight: 'normal' }}>
@@ -2485,19 +2220,24 @@ const AccountManagerReport = () => {
                                     </span>
                                 )}
                             </span>
-                            {byAllocationExpanded ? <UpOutlined /> : <DownOutlined />}
-                        </div>
+                        <div className="project-overview-actions">
                         {byAllocationExpanded && (
                             <Button
                                 type="primary"
                                 icon={<PlusOutlined />}
                                 onClick={handleAddAllocation}
-                                size="small"
-                                style={{ marginLeft: 16 }}
+                                    className="create-project-btn"
                             >
                                 Add Allocation
                             </Button>
                         )}
+                            <div
+                                className="collapsible-icon"
+                                onClick={() => setByAllocationExpanded(!byAllocationExpanded)}
+                            >
+                                {byAllocationExpanded ? <UpOutlined /> : <DownOutlined />}
+                            </div>
+                        </div>
                     </div>
                 }
             >
@@ -2538,277 +2278,25 @@ const AccountManagerReport = () => {
             </Card>
 
             {/* Create/Edit Project Modal */}
-            <CustomModal
-                title={isEditMode ? "Edit Project Details" : "Create New Project"}
-                open={isCreateProjectModalVisible}
-                onClose={handleCreateProjectCancel}
-                width={800}
-                buttons={[
-                    {
-                        text: 'Cancel',
-                        type: 'default',
-                        onClick: handleCreateProjectCancel,
-                    },
-                    {
-                        text: isEditMode ? 'Update Details' : 'Create Project',
-                        type: 'primary',
-                        htmlType: 'submit',
-                        onClick: () => {
-                            form.submit();
-                        },
-                        loading: isSubmittingProject,
-                    },
-                ]}
-            >
-                <Form
+            <ProjectModal
+                visible={isCreateProjectModalVisible}
+                isEditMode={isEditMode}
                     form={form}
-                    layout="vertical"
-                    onFinish={handleCreateProjectSubmit}
-                    initialValues={{
-                        accountManager: filters.accountManager && filters.accountManager !== 'All'
-                            ? filters.accountManager
-                            : undefined,
-                        status: 'Active',
-                        billingType: undefined,
-                        accountType: 'External',
-                    }}
-                >
-                    <Row gutter={16}>
-                        <Col xs={24} sm={12}>
-                            <Form.Item
-                                label="Project Name"
-                                name="projectName"
-                                rules={[
-                                    { required: true, message: 'Project name is required' },
-                                    { min: 3, message: 'Project name must be at least 3 characters' },
-                                    { max: 200, message: 'Project name must not exceed 200 characters' },
-                                ]}
-                            >
-                                <Input placeholder="Enter project name" />
-                            </Form.Item>
-                        </Col>
-                        <Col xs={24} sm={12}>
-                            <Form.Item
-                                label="Status"
-                                name="status"
-                                rules={[{ required: true, message: 'Status is required' }]}
-                            >
-                                <Select placeholder="Select status">
-                                    <Option value="Active">Active</Option>
-                                    <Option value="On Hold">On Hold</Option>
-                                    <Option value="Completed">Completed</Option>
-                                    <Option value="Cancelled">Cancelled</Option>
-                                </Select>
-                            </Form.Item>
-                        </Col>
-                    </Row>
-
-                    <Row gutter={16}>
-                        <Col xs={24} sm={12}>
-                            <Form.Item
-                                label="Project Type"
-                                name="projectType"
-                                rules={[{ required: true, message: 'Project type is required' }]}
-                            >
-                                <Select placeholder="Select project type">
-                                    <Option value="Client">Client</Option>
-                                    <Option value="Bench">Bench</Option>
-                                    <Option value="Training">Training</Option>
-                                    <Option value="POC">POC</Option>
-                                    <Option value="Presale">Presale</Option>
-                                    <Option value="Research">Research</Option>
-                                </Select>
-                            </Form.Item>
-                        </Col>
-                        <Col xs={24} sm={12}>
-                            <Form.Item
-                                label="Account Type"
-                                name="accountType"
-                                rules={[{ required: true, message: 'Account type is required' }]}
-                            >
-                                <Select
-                                    placeholder="Select account type"
-                                    onChange={(value) => setAccountType(value)}
-                                >
-                                    <Option value="Internal">Internal</Option>
-                                    <Option value="External">External</Option>
-                                </Select>
-                            </Form.Item>
-                        </Col>
-                    </Row>
-
-                    <Row gutter={16}>
-                        <Col xs={24} sm={12}>
-                            <Form.Item
-                                label="Project Code"
-                                name="projectCode"
-                            >
-                                <Input placeholder="Enter project code (optional)" />
-                            </Form.Item>
-                        </Col>
-                        <Col xs={24} sm={12}>
-                            <Form.Item
-                                label="Client Name"
-                                name="clientName"
-                                rules={[
-                                    ({ getFieldValue }) => ({
-                                        validator(_, value) {
-                                            const accountType = getFieldValue('accountType');
-                                            if (accountType === 'External' && !value) {
-                                                return Promise.reject(new Error('Client is required for External projects'));
-                                            }
-                                            return Promise.resolve();
-                                        },
-                                    }),
-                                ]}
-                            >
-                                <Select
-                                    placeholder="Select client"
-                                    showSearch
-                                    allowClear
-                                    disabled={accountType === 'Internal'}
-                                    filterOption={(input, option) =>
-                                        (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
-                                    }
-                                >
-                                    {clientsList.map((client) => (
-                                        <Option key={client.id} value={client.id} label={client.client_name}>
-                                            {client.client_name}
-                                        </Option>
-                                    ))}
-                                </Select>
-                            </Form.Item>
-                        </Col>
-                    </Row>
-
-                    <Row gutter={16}>
-                        <Col xs={24} sm={12}>
-                            <Form.Item
-                                label="Project Start Date"
-                                name="projectStartDate"
-                            >
-                                <DatePicker style={{ width: '100%' }} placeholder="Select start date" />
-                            </Form.Item>
-                        </Col>
-                        <Col xs={24} sm={12}>
-                            <Form.Item
-                                label="Project End Date"
-                                name="projectEndDate"
-                                dependencies={['projectStartDate']}
-                                rules={[
-                                    ({ getFieldValue }) => ({
-                                        validator(_, value) {
-                                            const startDate = getFieldValue('projectStartDate');
-                                            if (!value || !startDate || value >= startDate) {
-                                                return Promise.resolve();
-                                            }
-                                            return Promise.reject(new Error('End date must be greater than or equal to start date'));
-                                        },
-                                    }),
-                                ]}
-                            >
-                                <DatePicker style={{ width: '100%' }} placeholder="Select end date" />
-                            </Form.Item>
-                        </Col>
-                    </Row>
-
-                    <Row gutter={16}>
-                        <Col xs={24} sm={12}>
-                            <Form.Item
-                                label="Billing"
-                                name="billingType"
-                                rules={[{ required: true, message: 'Billing type is required' }]}
-                            >
-                                <Select
-                                    placeholder="Select billing type"
-                                    onChange={(value) => setBillingType(value)}
-                                >
-                                    <Option value="Billing">Billing</Option>
-                                    <Option value="Non-Billing">Non-Billing</Option>
-                                </Select>
-                            </Form.Item>
-                        </Col>
-                        <Col xs={24} sm={12}>
-                            <Form.Item
-                                label="Account Manager"
-                                name="accountManager"
-                                rules={[{ required: true, message: 'Account manager is required' }]}
-                            >
-                                <Select
-                                    placeholder="Select account manager"
-                                    showSearch
-                                    allowClear
-                                    loading={loadingAccountManagers}
-                                    filterOption={(input, option) =>
-                                        (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
-                                    }
-                                >
-                                    {accountManagersList.map((am) => (
-                                        <Option key={am.id} value={am.name} label={am.name}>
-                                            {am.name}
-                                        </Option>
-                                    ))}
-                                </Select>
-                            </Form.Item>
-                        </Col>
-                    </Row>
-
-                    <Row gutter={16}>
-                        <Col xs={24} sm={12}>
-                            <Form.Item
-                                label="Team Size"
-                                name="teamSize"
-                                rules={[
-                                    { required: true, message: 'Team size is required' },
-                                    { type: 'number', min: 1, message: 'Team size must be at least 1' },
-                                ]}
-                            >
-                                <InputNumber
-                                    style={{ width: '100%' }}
-                                    placeholder="Enter team size"
-                                    min={1}
-                                />
-                            </Form.Item>
-                        </Col>
-                        <Col xs={24} sm={12}>
-                            <Form.Item
-                                label="Budget"
-                                name="budget"
-                                rules={[
-                                    { type: 'number', min: 0, message: 'Budget must be 0 or greater' },
-                                ]}
-                            >
-                                <InputNumber
-                                    style={{ width: '100%' }}
-                                    placeholder="Enter budget (optional)"
-                                    min={0}
-                                    formatter={value => `$ ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-                                    parser={value => value.replace(/\$\s?|(,*)/g, '')}
-                                />
-                            </Form.Item>
-                        </Col>
-                    </Row>
-
-                    <Row gutter={16}>
-                        <Col xs={24} sm={12}>
-                            <Form.Item
-                                label="Account Reg/Sales Owner"
-                                name="accountRegSalesOwner"
-                            >
-                                <Input placeholder="Enter account reg/sales owner (optional)" />
-                            </Form.Item>
-                        </Col>
-                    </Row>
-
-
-                    <Form.Item
-                        label="Project Description"
-                        name="description"
-                    >
-                        <Input.TextArea rows={4} placeholder="Enter project description" />
-                    </Form.Item>
-                </Form>
-            </CustomModal>
+                onCancel={handleCreateProjectCancel}
+                onSubmit={handleCreateProjectSubmit}
+                loading={isSubmittingProject}
+                filters={filters}
+                projectStatusesList={projectStatusesList}
+                projectTypesList={projectTypesList}
+                accountTypesList={accountTypesList}
+                billingStatusesList={billingStatusesList}
+                clientsList={clientsList}
+                accountManagersList={accountManagersList}
+                loadingAccountManagers={loadingAccountManagers}
+                accountType={accountType}
+                setAccountType={setAccountType}
+                setBillingType={setBillingType}
+            />
 
             {/* Add Team Members Modal */}
             <CustomModal

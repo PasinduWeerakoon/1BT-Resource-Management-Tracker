@@ -90,6 +90,41 @@ export const ENDPOINTS = {
     DELETE: (id) => `${BASE_URL}/project-types/${id}`,
   },
 
+  // Account Types
+  ACCOUNT_TYPES: {
+    BASE: `${BASE_URL}/account-types`,
+    LIST: `${BASE_URL}/account-types`,
+    GET_BY_ID: (id) => `${BASE_URL}/account-types/${id}`,
+    CREATE: `${BASE_URL}/account-types`,
+    UPDATE: (id) => `${BASE_URL}/account-types/${id}`,
+    DELETE: (id) => `${BASE_URL}/account-types/${id}`,
+  },
+
+  // Project Statuses
+  PROJECT_STATUSES: {
+    BASE: `${BASE_URL}/project-statuses`,
+    LIST: `${BASE_URL}/project-statuses`,
+    GET_BY_ID: (id) => `${BASE_URL}/project-statuses/${id}`,
+    CREATE: `${BASE_URL}/project-statuses`,
+    UPDATE: (id) => `${BASE_URL}/project-statuses/${id}`,
+    DELETE: (id) => `${BASE_URL}/project-statuses/${id}`,
+  },
+
+  // Tiers
+  TIERS: {
+    BASE: `${BASE_URL}/tiers`,
+    LIST: `${BASE_URL}/tiers`,
+    GET_BY_ID: (id) => `${BASE_URL}/tiers/${id}`,
+    CREATE: `${BASE_URL}/tiers`,
+    UPDATE: (id) => `${BASE_URL}/tiers/${id}`,
+    DELETE: (id) => `${BASE_URL}/tiers/${id}`,
+  },
+
+  // Configs (Unified endpoint for all configurations)
+  CONFIGS: {
+    GET_ALL: `${BASE_URL}/configs`,
+  },
+
   // Clients
   CLIENTS: {
     BASE: `${BASE_URL}/clients`,
@@ -160,6 +195,13 @@ export const ENDPOINTS = {
     PRE_SALE: `${BASE_URL}/reports/pre-sale`,
     TIER_BREAKDOWN: `${BASE_URL}/reports/tier-breakdown`,
     EXTERNAL_CONSULTANTS: `${BASE_URL}/reports/external-consultants`,
+  },
+
+  // Dashboard Summary
+  DASHBOARD: {
+    RESOURCE_COUNTS: `${BASE_URL}/dashboard/resource-counts`,
+    PERCENTAGES: `${BASE_URL}/dashboard/percentages`,
+    CHARTS: `${BASE_URL}/dashboard/charts`,
   },
 
   // Audit Logs

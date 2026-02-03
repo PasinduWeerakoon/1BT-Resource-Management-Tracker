@@ -1,206 +1,58 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Row, Col, Card, Select, Badge, Button, App, Table, Radio } from 'antd';
-import { FilterOutlined, UpOutlined, DownOutlined, ReloadOutlined } from '@ant-design/icons';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Row, Col, Card, Table, Radio } from 'antd';
+import { useSelector } from 'react-redux';
 import CustomTable from '@components/Table';
-import { reportsService, tracksService } from '@api';
-import { showErrorToast } from '@utils/toast.utils';
+import { selectTracks } from '@redux/slices/configSlice';
+import { useReportFilters } from '@hooks/reports';
+import { FilterSection, ReportHeader } from '@components/ReportLayout';
+import MonthlyAllocationFilters from './components/MonthlyAllocationFilters';
+import { useMonthlyAllocationData } from './hooks/useMonthlyAllocationData';
+import logger from '@utils/logger';
 import dayjs from 'dayjs';
 import '@styles/pages/MonthlyAllocationReport.scss';
 
-const { Option } = Select;
-
 const MonthlyAllocationReport = () => {
-  const { message } = App.useApp();
-  const [filtersExpanded, setFiltersExpanded] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [reportData, setReportData] = useState([]);
-  const [groupedData, setGroupedData] = useState([]);
-  const [periodInfo, setPeriodInfo] = useState(null);
-  const [viewMode, setViewMode] = useState('detailed'); // 'detailed' or 'grouped'
-  const [tracksList, setTracksList] = useState([]);
   const currentDate = dayjs();
-  const [filters, setFilters] = useState({
+  const defaultFilters = {
     year: currentDate.year(),
     month: currentDate.month() + 1, // dayjs months are 0-indexed
     track_id: undefined,
-  });
-  const fetchInProgressRef = useRef(false);
-
-  // Default filter values for comparison
-  const defaultFilters = {
-    year: currentDate.year(),
-    month: currentDate.month() + 1,
-    track_id: undefined,
   };
 
-  // Count active filters
-  const activeFiltersCount = useMemo(() => {
-    let count = 0;
-    Object.keys(filters).forEach((key) => {
-      if (filters[key] !== defaultFilters[key] && filters[key] !== '' && filters[key] !== null && filters[key] !== undefined) {
-        count++;
-      }
-    });
-    return count;
-  }, [filters]);
+  // Use shared hooks
+  const {
+    filters,
+    setFilters,
+    activeFiltersCount,
+    handleResetFilters,
+    filtersExpanded,
+    toggleFiltersExpanded,
+  } = useReportFilters(defaultFilters);
 
-  // Reset filters to default values
-  const handleResetFilters = (e) => {
-    e.stopPropagation();
-    setFilters({ ...defaultFilters });
-  };
+  const [viewMode, setViewMode] = useState('detailed'); // 'detailed' or 'grouped'
 
-  // Generate year options (current year and previous 5 years)
-  const yearOptions = useMemo(() => {
-    const years = [];
-    const currentYear = currentDate.year();
-    for (let i = 0; i < 6; i++) {
-      years.push(currentYear - i);
-    }
-    return years;
-  }, []);
+  // Get tracks from Redux (cached on login)
+  const tracksList = useSelector(selectTracks);
 
-  // Generate month options
-  const monthOptions = useMemo(() => {
-    return [
-      { value: 1, label: 'January' },
-      { value: 2, label: 'February' },
-      { value: 3, label: 'March' },
-      { value: 4, label: 'April' },
-      { value: 5, label: 'May' },
-      { value: 6, label: 'June' },
-      { value: 7, label: 'July' },
-      { value: 8, label: 'August' },
-      { value: 9, label: 'September' },
-      { value: 10, label: 'October' },
-      { value: 11, label: 'November' },
-      { value: 12, label: 'December' },
-    ];
-  }, []);
+  // Use custom hook for data fetching
+  const { loading, reportData, groupedData, periodInfo } = useMonthlyAllocationData(filters);
 
-  // Fetch tracks for filter dropdown
-  useEffect(() => {
-    const fetchTracks = async () => {
-      try {
-        const response = await tracksService.getAll({ limit: 100 });
-        let tracksData = [];
-        
-        if (response) {
-          if (Array.isArray(response.data)) {
-            tracksData = response.data;
-          } else if (response.data && response.data.data && Array.isArray(response.data.data)) {
-            tracksData = response.data.data;
-          }
-        }
-        
-        setTracksList(tracksData);
-      } catch (error) {
-        console.error('Failed to fetch tracks:', error);
-      }
-    };
-    
-    fetchTracks();
-  }, []);
+  // Generate month options for period info display
+  const monthOptions = useMemo(() => [
+    { value: 1, label: 'January' },
+    { value: 2, label: 'February' },
+    { value: 3, label: 'March' },
+    { value: 4, label: 'April' },
+    { value: 5, label: 'May' },
+    { value: 6, label: 'June' },
+    { value: 7, label: 'July' },
+    { value: 8, label: 'August' },
+    { value: 9, label: 'September' },
+    { value: 10, label: 'October' },
+    { value: 11, label: 'November' },
+    { value: 12, label: 'December' },
+  ], []);
 
-  // Fetch monthly allocation report data
-  const fetchMonthlyAllocationReport = async () => {
-    // Prevent duplicate calls
-    if (fetchInProgressRef.current) {
-      return;
-    }
-    
-    try {
-      fetchInProgressRef.current = true;
-      setLoading(true);
-      const queryParams = {
-        year: filters.year,
-        month: filters.month,
-      };
-      
-      // Add track_id filter if selected
-      if (filters.track_id) {
-        queryParams.track_id = filters.track_id;
-      }
-      
-      const response = await reportsService.getMonthlyAllocation(queryParams);
-      
-      // Handle response structure - API returns { success: true, data: { data: [...], total, period, generatedAt } }
-      let reportDataArray = [];
-      let periodInfo = null;
-      
-      if (response) {
-        if (response.data) {
-          if (response.data.data && Array.isArray(response.data.data)) {
-            reportDataArray = response.data.data;
-            periodInfo = response.data.period || null;
-          } else if (Array.isArray(response.data)) {
-            reportDataArray = response.data;
-          }
-        } else if (Array.isArray(response)) {
-          reportDataArray = response;
-        }
-      }
-      
-      // Transform API data to table format
-      const transformedData = reportDataArray.map((item, index) => {
-        const allocationPercentage = parseFloat(item.allocation_percentage || 0);
-        
-        return {
-          key: `${item.resource_name}-${item.project_name}-${index}`,
-          resourceName: item.resource_name || 'N/A',
-          email: item.email || 'N/A',
-          designation: item.designation || 'N/A',
-          track: item.track || 'N/A',
-          projectName: item.project_name || 'N/A',
-          clientName: item.client_name || 'N/A',
-          allocationPercentage: allocationPercentage,
-          allocationPercentageFormatted: `${allocationPercentage.toFixed(2)}%`,
-          startDate: item.start_date ? new Date(item.start_date).toLocaleDateString() : 'N/A',
-          endDate: item.end_date ? new Date(item.end_date).toLocaleDateString() : 'Ongoing',
-        };
-      });
-      
-      // Calculate total allocation per resource
-      const resourceTotals = {};
-      transformedData.forEach((item) => {
-        if (!resourceTotals[item.resourceName]) {
-          resourceTotals[item.resourceName] = {
-            resourceName: item.resourceName,
-            email: item.email,
-            designation: item.designation,
-            track: item.track,
-            totalAllocation: 0,
-            allocations: [],
-          };
-        }
-        resourceTotals[item.resourceName].totalAllocation += item.allocationPercentage;
-        resourceTotals[item.resourceName].allocations.push(item);
-      });
-      
-      // Store period info for display
-      setPeriodInfo(periodInfo);
-      
-      // Store both detailed data and grouped data
-      setReportData(transformedData);
-      setGroupedData(Object.values(resourceTotals));
-    } catch (error) {
-      console.error('Failed to fetch monthly allocation report:', error);
-      showErrorToast('Failed to load monthly allocation report');
-      setReportData([]);
-      setGroupedData([]);
-    } finally {
-      setLoading(false);
-      fetchInProgressRef.current = false;
-    }
-  };
-
-  // Fetch data when filters change
-  useEffect(() => {
-    if (filters.year && filters.month) {
-      fetchMonthlyAllocationReport();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters.year, filters.month, filters.track_id]);
 
   // Expand allocations column renderer for grouped view
   const expandedRowRender = (record) => {
@@ -389,101 +241,20 @@ const MonthlyAllocationReport = () => {
 
   return (
     <div className="monthly-allocation-report-page">
-      {/* Header Section */}
-      <div className="report-header">
-        <h1 className="report-title">MONTHLY ALLOCATION REPORT</h1>
-      </div>
+      <ReportHeader title="MONTHLY ALLOCATION REPORT" />
 
-      {/* Filters Section */}
-      <Card className="filters-card">
-        <div
-          className="filters-header"
-          onClick={() => setFiltersExpanded(!filtersExpanded)}
-          style={{ cursor: 'pointer' }}
-        >
-          <div className="filters-header-left">
-            <FilterOutlined className="filter-icon" />
-            <span className="filters-title">Filters</span>
-            {activeFiltersCount > 0 && (
-              <>
-                <Badge count={activeFiltersCount} showZero={false} className="active-filters-badge">
-                  <span></span>
-                </Badge>
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<ReloadOutlined />}
-                  onClick={handleResetFilters}
-                  className="reset-filters-btn"
-                >
-                  Reset
-                </Button>
-              </>
-            )}
-          </div>
-          {filtersExpanded ? (
-            <UpOutlined className="collapse-icon" />
-          ) : (
-            <DownOutlined className="collapse-icon" />
-          )}
-        </div>
-        {filtersExpanded && (
-          <div className="filters-content">
-            <Row gutter={[16, 16]} className="filters-row">
-              <Col xs={24} sm={12} md={8} lg={6}>
-                <div className="filter-item">
-                  <label>Year</label>
-                  <Select
-                    value={filters.year}
-                    onChange={(value) => setFilters({ ...filters, year: value })}
-                    style={{ width: '100%' }}
-                  >
-                    {yearOptions.map((year) => (
-                      <Option key={year} value={year}>
-                        {year}
-                      </Option>
-                    ))}
-                  </Select>
-                </div>
-              </Col>
-              <Col xs={24} sm={12} md={8} lg={6}>
-                <div className="filter-item">
-                  <label>Month</label>
-                  <Select
-                    value={filters.month}
-                    onChange={(value) => setFilters({ ...filters, month: value })}
-                    style={{ width: '100%' }}
-                  >
-                    {monthOptions.map((month) => (
-                      <Option key={month.value} value={month.value}>
-                        {month.label}
-                      </Option>
-                    ))}
-                  </Select>
-                </div>
-              </Col>
-              <Col xs={24} sm={12} md={8} lg={6}>
-                <div className="filter-item">
-                  <label>Track</label>
-                  <Select
-                    value={filters.track_id}
-                    onChange={(value) => setFilters({ ...filters, track_id: value || undefined })}
-                    style={{ width: '100%' }}
-                    allowClear
-                    placeholder="All Tracks"
-                  >
-                    {tracksList.map((track) => (
-                      <Option key={track.id} value={track.id}>
-                        {track.name}
-                      </Option>
-                    ))}
-                  </Select>
-                </div>
-              </Col>
-            </Row>
-          </div>
-        )}
-      </Card>
+      <FilterSection
+        expanded={filtersExpanded}
+        onToggle={toggleFiltersExpanded}
+        activeFiltersCount={activeFiltersCount}
+        onReset={handleResetFilters}
+      >
+        <MonthlyAllocationFilters
+          filters={filters}
+          setFilters={setFilters}
+          tracksList={tracksList}
+        />
+      </FilterSection>
 
       {/* Period Info Section */}
       {periodInfo && (

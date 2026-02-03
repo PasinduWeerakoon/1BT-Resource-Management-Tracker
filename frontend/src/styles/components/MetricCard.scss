@@ -1,0 +1,33 @@
+.metric-card {
+  text-align: center;
+  transition: all 0.3s ease;
+
+  &:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    transform: translateY(-2px);
+  }
+
+  .metric-icon-wrapper {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 12px;
+
+    .metric-icon {
+      font-size: 32px;
+      color: #1890ff;
+    }
+  }
+
+  .metric-value {
+    font-size: 32px;
+    font-weight: 600;
+    color: #262626;
+    margin-bottom: 8px;
+  }
+
+  .metric-label {
+    font-size: 14px;
+    color: #8c8c8c;
+    line-height: 1.4;
+  }
+}
