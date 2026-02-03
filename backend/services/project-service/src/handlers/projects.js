@@ -503,6 +503,11 @@ export const remove = async (event) => {
 
         const existing = existingResult.rows[0];
 
+        // Prevent deletion of default projects (e.g., Bench)
+        if (existing.is_default) {
+            return error('Cannot delete default system project', 400);
+        }
+
         await db.query(
             `UPDATE projects 
              SET deleted_at = CURRENT_TIMESTAMP, updated_by = $2 

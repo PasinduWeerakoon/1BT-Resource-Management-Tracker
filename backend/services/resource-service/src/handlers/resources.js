@@ -551,6 +551,25 @@ export const create = async (event) => {
             userId = 1; // System user ID (INTEGER, not UUID)
         }
 
+        // Validate helper_id if provided - must reference an existing employee
+        let validatedHelperId = null;
+        if (validated.helper_id) {
+            const helperExists = await drizzle
+                .select({ id: resources.id })
+                .from(resources)
+                .where(and(
+                    eq(resources.id, validated.helper_id),
+                    isNull(resources.deletedAt)
+                ));
+
+            if (helperExists.length > 0) {
+                validatedHelperId = validated.helper_id;
+            } else {
+                log.warn('Invalid helper_id provided, ignoring', { helper_id: validated.helper_id });
+                // Don't fail - just ignore invalid helper_id (could be legacy Excel reference)
+            }
+        }
+
         // Use transaction to ensure resource creation, tags, and bench allocation are atomic
         // If any fails, all are rolled back
         const result = await withTransaction(async (tx) => {
@@ -600,7 +619,7 @@ export const create = async (event) => {
                     status: validated.status || 'Active',
                     totalAllocation: validated.total_allocation || 0,
                     totalResourceBilling: validated.total_resource_billing || 0,
-                    helperId: validated.helper_id || null,
+                    helperId: validatedHelperId,
                     helperIsExternal: validated.helper_is_external || false,
                     createdBy: userId
                 })
@@ -755,6 +774,8 @@ export const update = async (event) => {
             is_external: 'isExternal',
             employee_type: 'employeeType',
             photo_url: 'photoUrl',
+            helper_id: 'helperId',
+            helper_is_external: 'helperIsExternal',
             // Direct mappings (same name)
             name: 'name',
             email: 'email',
@@ -762,6 +783,23 @@ export const update = async (event) => {
             skills: 'skills',
             status: 'status'
         };
+
+        // Validate helper_id if provided - must reference an existing employee
+        if (validated.helper_id !== undefined && validated.helper_id !== null) {
+            const helperExists = await drizzle
+                .select({ id: resources.id })
+                .from(resources)
+                .where(and(
+                    eq(resources.id, validated.helper_id),
+                    isNull(resources.deletedAt)
+                ));
+
+            if (helperExists.length === 0) {
+                log.warn('Invalid helper_id provided in update, setting to null', { helper_id: validated.helper_id });
+                // Set to null instead of using invalid ID
+                validated.helper_id = null;
+            }
+        }
 
         // Build update object for Drizzle (exclude version and tag_ids from update)
         const { version, tag_ids, ...updateData } = validated;
