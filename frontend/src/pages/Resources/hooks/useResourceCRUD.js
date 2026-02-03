@@ -38,22 +38,34 @@ export const useResourceCRUD = ({ form, fetchEmployees, pagination }) => {
       : [];
 
     form.setFieldsValue({
-      employeeNumber: record.employeeNumber,
+      employeeNumber: record.employeeNumber || record.emp_no,
       name: record.name,
       email: record.email,
       mobile: record.mobile || record.phone_number,
       designation_id: record.designation_id,
       track_id: record.track_id,
-      joinDate: record.joinDate ? dayjs(record.joinDate) : null,
+      joinDate: record.joinDate || record.date_of_joining ? dayjs(record.joinDate || record.date_of_joining) : null,
       bod: record.date_of_birth ? dayjs(record.date_of_birth) : null,
       nicOrPassport: record.nic || record.nic_passport,
-      employee_type: record.employee_type || 'Internal',
+      is_internal_employee: record.is_internal_employee !== undefined ? record.is_internal_employee : (record.employee_type === 'Internal'),
+      employment_type: record.employment_type || 'Permanent',
       is_intern: record.is_intern !== undefined ? record.is_intern : false,
       tech_stack: record.tech_stack,
       tag_ids: tagIds,
       tier: record.tier,
       status: record.status,
       photo_url: record.photo_url || record.photo,
+      // New fields
+      epf_no: record.epf_no,
+      total_allocation: record.total_allocation,
+      total_resource_billing: record.total_resource_billing,
+      internship_completion_target_date: record.internship_completion_target_date ? dayjs(record.internship_completion_target_date) : null,
+      university: record.university,
+      global_employeeid: record.global_employeeid,
+      helper_id: record.helper_id,
+      helper: record.helper,
+      last_increment_date: record.last_increment_date ? dayjs(record.last_increment_date) : null,
+      last_promotion_date: record.last_promotion_date ? dayjs(record.last_promotion_date) : null,
     });
     setIsAddEmployeeModalVisible(true);
   };
@@ -78,25 +90,36 @@ export const useResourceCRUD = ({ form, fetchEmployees, pagination }) => {
           email: values.email || '',
           phone_number: values.mobile || values.phone_number || '',
           designation_id: values.designation_id,
+          track_id: values.track_id,
           date_of_birth: values.bod ? values.bod.format('YYYY-MM-DD') : values.date_of_birth || undefined,
           nic_passport: values.nicOrPassport || values.nic_passport || '',
           is_intern: values.is_intern !== undefined ? values.is_intern : false,
-          employee_type: values.employee_type || 'Internal',
+          is_internal_employee: values.is_internal_employee !== undefined ? values.is_internal_employee : true,
+          employment_type: values.employment_type || 'Permanent',
           tier: values.tier || undefined,
           tech_stack: values.tech_stack || undefined,
           photo_url: values.photo_url || undefined,
           status: values.status || 'Active',
           tag_ids: values.tag_ids && Array.isArray(values.tag_ids) ? values.tag_ids : undefined,
+          // New fields
+          epf_no: values.epf_no || undefined,
+          total_allocation: values.total_allocation !== undefined && values.total_allocation !== null ? values.total_allocation : undefined,
+          total_resource_billing: values.total_resource_billing !== undefined && values.total_resource_billing !== null ? values.total_resource_billing : undefined,
+          internship_completion_target_date: values.internship_completion_target_date ? values.internship_completion_target_date.format('YYYY-MM-DD') : undefined,
+          university: values.university || undefined,
+          global_employeeid: values.global_employeeid || undefined,
+          helper_id: values.helper_id || undefined,
+          helper: values.helper || undefined,
+          last_increment_date: values.last_increment_date ? values.last_increment_date.format('YYYY-MM-DD') : undefined,
+          last_promotion_date: values.last_promotion_date ? values.last_promotion_date.format('YYYY-MM-DD') : undefined,
         };
 
-        const employeeTypeValue = values.employee_type || 'Internal';
+        // Clean up undefined and empty string values
         Object.keys(updatePayload).forEach(key => {
-          if (updatePayload[key] === undefined || (updatePayload[key] === '' && key !== 'employee_type')) {
+          if (updatePayload[key] === undefined || (updatePayload[key] === '' && key !== 'employment_type' && key !== 'is_internal_employee')) {
             delete updatePayload[key];
           }
         });
-
-        updatePayload.employee_type = employeeTypeValue;
 
         const response = await resourcesService.update(selectedEmployee.id, updatePayload);
 
@@ -119,16 +142,29 @@ export const useResourceCRUD = ({ form, fetchEmployees, pagination }) => {
           date_of_birth: values.bod ? values.bod.format('YYYY-MM-DD') : null,
           nic_passport: values.nicOrPassport || '',
           is_intern: values.is_intern || false,
-          employee_type: values.employee_type || 'Internal',
+          is_internal_employee: values.is_internal_employee !== undefined ? values.is_internal_employee : true,
+          employment_type: values.employment_type || 'Permanent',
           tier: values.tier || undefined,
           tech_stack: values.tech_stack || undefined,
           photo_url: values.photo_url || undefined,
           status: values.status || 'Active',
           tag_ids: values.tag_ids && Array.isArray(values.tag_ids) && values.tag_ids.length > 0 ? values.tag_ids : undefined,
+          // New fields
+          epf_no: values.epf_no || undefined,
+          total_allocation: values.total_allocation !== undefined && values.total_allocation !== null ? values.total_allocation : undefined,
+          total_resource_billing: values.total_resource_billing !== undefined && values.total_resource_billing !== null ? values.total_resource_billing : undefined,
+          internship_completion_target_date: values.internship_completion_target_date ? values.internship_completion_target_date.format('YYYY-MM-DD') : undefined,
+          university: values.university || undefined,
+          global_employeeid: values.global_employeeid || undefined,
+          helper_id: values.helper_id || undefined,
+          helper: values.helper || undefined,
+          last_increment_date: values.last_increment_date ? values.last_increment_date.format('YYYY-MM-DD') : undefined,
+          last_promotion_date: values.last_promotion_date ? values.last_promotion_date.format('YYYY-MM-DD') : undefined,
         };
 
+        // Clean up undefined and empty string values
         Object.keys(apiPayload).forEach(key => {
-          if (apiPayload[key] === undefined) {
+          if (apiPayload[key] === undefined || (apiPayload[key] === '' && key !== 'employment_type' && key !== 'is_internal_employee')) {
             delete apiPayload[key];
           }
         });

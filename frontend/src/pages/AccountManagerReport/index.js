@@ -2334,7 +2334,7 @@ const AccountManagerReport = () => {
             <ProjectModal
                 visible={isCreateProjectModalVisible}
                 isEditMode={isEditMode}
-                form={form}
+                    form={form}
                 onCancel={handleCreateProjectCancel}
                 onSubmit={handleCreateProjectSubmit}
                 loading={isSubmittingProject}

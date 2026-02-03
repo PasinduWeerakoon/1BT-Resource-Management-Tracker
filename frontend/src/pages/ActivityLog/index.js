@@ -195,7 +195,7 @@ const ActivityLog = () => {
       render: (fields) => {
         if (!fields || fields.length === 0) return 'N/A';
         return (
-          <span>{fields.length} field{fields.length > 1 ? 's' : ''}</span>
+            <span>{fields.length} field{fields.length > 1 ? 's' : ''}</span>
         );
       },
     },
@@ -291,12 +291,12 @@ const ActivityLog = () => {
                 {/* Table Section */}
                 <LogsTable
                   auditLogs={auditLogs}
-                  columns={columns}
+                    columns={columns}
                   pagination={pagination}
                   onPaginationChange={handleTableChange}
-                  loading={loading}
+                    loading={loading}
                   onViewDetail={handleViewDetail}
-                />
+                  />
               </>
             ),
           },
