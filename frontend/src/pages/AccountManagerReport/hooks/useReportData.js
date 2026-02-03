@@ -61,45 +61,31 @@ export const useReportData = ({
       // Build query parameters from filters
       const queryParams = {};
 
-      // Account Manager ID
+      // Account Manager ID (filter value is already an ID)
       if (filters.accountManager && filters.accountManager !== 'All') {
-        const selectedAM = accountManagersList.find(am => am.name === filters.accountManager);
-        if (selectedAM) {
-          queryParams.account_manager_id = selectedAM.id;
-        }
+        queryParams.account_manager_id = filters.accountManager;
       }
 
-      // Project ID (from filter or selected project)
+      // Project ID (from filter or selected project) - filter value is already an ID
       if (selectedProjectId) {
         queryParams.project_id = selectedProjectId;
       } else if (filters.projectName && filters.projectName !== 'All') {
-        const selectedProject = projectsForFilter.find(p => p.name === filters.projectName);
-        if (selectedProject) {
-          queryParams.project_id = selectedProject.id;
-        }
+        queryParams.project_id = filters.projectName;
       }
 
-      // Project Status
+      // Project Status ID (filter value is already an ID)
       if (filters.projectStatus && filters.projectStatus !== 'All') {
-        queryParams.project_status = filters.projectStatus;
+        queryParams.project_status_id = filters.projectStatus;
       }
 
-      // Allocation Status
-      if (filters.allocationStatus && filters.allocationStatus !== 'All') {
-        queryParams.allocation_status = filters.allocationStatus;
-      }
-
-      // Client ID
+      // Client ID (filter value is already an ID)
       if (filters.clientName && filters.clientName !== 'All') {
-        const selectedClient = clientsList.find(c => c.client_name === filters.clientName);
-        if (selectedClient) {
-          queryParams.client_id = selectedClient.id;
-        }
+        queryParams.client_id = filters.clientName;
       }
 
-      // Billing Status
+      // Billing Status ID (filter value is already an ID)
       if (filters.billingStatus && filters.billingStatus !== 'All') {
-        queryParams.billing_status = filters.billingStatus;
+        queryParams.billing_status_id = filters.billingStatus;
       }
 
       // Pagination (use allocation pagination if project is selected, otherwise project pagination)
@@ -190,7 +176,6 @@ export const useReportData = ({
     filters.accountManager,
     filters.projectName,
     filters.projectStatus,
-    filters.allocationStatus,
     filters.clientName,
     filters.billingStatus,
     projectPagination.current,

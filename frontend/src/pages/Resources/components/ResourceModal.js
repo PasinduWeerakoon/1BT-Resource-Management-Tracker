@@ -3,7 +3,7 @@
  * Add/Edit Employee form modal with multi-step form
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Form, Steps, Button, Space } from 'antd';
 import CustomModal from '@components/Modal';
 import PersonalInfoStep from './ResourceModal/PersonalInfoStep';
@@ -47,70 +47,11 @@ const ResourceModal = ({
   universities,
 }) => {
   const [currentStep, setCurrentStep] = useState(0);
-  const [isFormValid, setIsFormValid] = useState(false);
 
-  // Watch required fields to determine if form is valid
-  const name = Form.useWatch('name', form);
-  const email = Form.useWatch('email', form);
-  const emp_no = Form.useWatch('emp_no', form);
-  const epf_no = Form.useWatch('epf_no', form);
-  const employee_type_id = Form.useWatch('employee_type_id', form);
-  const designation_id = Form.useWatch('designation_id', form);
-  const tier_id = Form.useWatch('tier_id', form);
-  const track_id = Form.useWatch('track_id', form);
-  const status = Form.useWatch('status', form);
-
-  // Check if all required fields are filled
-  useEffect(() => {
-    const checkFormValidity = async () => {
-      try {
-        // Get all required fields based on mode
-        const requiredFields = isEditMode
-          ? ['name', 'email', 'epf_no', 'emp_no', 'employee_type_id', 'designation_id', 'tier_id', 'track_id', 'status']
-          : ['name', 'email', 'epf_no', 'emp_no', 'employee_type_id', 'designation_id', 'tier_id', 'track_id'];
-
-        // Validate required fields
-        await form.validateFields(requiredFields);
-
-        // Check if all required fields have values
-        const values = form.getFieldsValue();
-        const allFieldsFilled = requiredFields.every(field => {
-          const value = values[field];
-          if (value === undefined || value === null || value === '') {
-            return false;
-          }
-          // For date fields, check if it's a valid dayjs object
-          if (field === 'joined_date' || field === 'last_increment_date' || field === 'last_promotion_date' || field === 'internship_completion_target_date') {
-            return !value || (value && value.isValid && value.isValid());
-          }
-          return true;
-        });
-
-        setIsFormValid(allFieldsFilled);
-      } catch (error) {
-        setIsFormValid(false);
-      }
-    };
-
-    // Check validity when fields change
-    const timer = setTimeout(() => {
-      checkFormValidity();
-    }, 100);
-
-    return () => clearTimeout(timer);
-  }, [name, email, epf_no, emp_no, employee_type_id, designation_id, tier_id, track_id, status, isEditMode, form]);
-
-  // Handle step navigation
-  const handleNext = async () => {
-    try {
-      // Validate current step fields
-      const fieldsToValidate = getStepFields(currentStep);
-      await form.validateFields(fieldsToValidate);
-      if (currentStep < stepItems.length - 1) {
-        setCurrentStep(currentStep + 1);
-      }
-    } catch (error) {
-      console.error('Validation failed:', error);
+  // Handle step navigation - no validation
+  const handleNext = () => {
+    if (currentStep < stepItems.length - 1) {
+      setCurrentStep(currentStep + 1);
     }
   };
 
@@ -120,88 +61,22 @@ const ResourceModal = ({
     }
   };
 
-  // Get fields for each step for validation
-  const getStepFields = (step) => {
-    const stepFields = {
-      0: ['name', 'email', 'epf_no'], // Personal Info (name, email, epf_no are required)
-      1: isEditMode
-        ? ['emp_no', 'employee_type_id', 'designation_id', 'tier_id', 'track_id', 'status']
-        : ['emp_no', 'employee_type_id', 'designation_id', 'tier_id', 'track_id'], // Employment (joined_date is optional)
-      2: [], // Education (optional fields)
-      3: [], // Billing (optional fields)
-      4: [], // Additional (optional fields)
-    };
-    return stepFields[step] || [];
-  };
-
-  // Handle form submit
+  // Handle form submit - validate then submit
   const handleSubmit = async () => {
     try {
-      // Validate all fields
       await form.validateFields();
       onSubmit();
-      // Reset step on successful submit
       setCurrentStep(0);
     } catch (error) {
       console.error('Form validation failed:', error);
-      // Find the first error step and navigate to it
-      if (error.errorFields && error.errorFields.length > 0) {
-        const firstErrorField = error.errorFields[0].name?.[0];
-        if (firstErrorField) {
-          const errorStep = getStepForField(firstErrorField);
-          if (errorStep !== null) {
-            setCurrentStep(errorStep);
-          }
-        }
-      }
+      // Show validation errors but don't block - user can fix and retry
     }
-  };
-
-  // Get step number for a field
-  const getStepForField = (fieldName) => {
-    const fieldStepMap = {
-      name: 0, email: 0, mobile: 0, epf_no: 0, global_employee_id: 0, photo: 0,
-      emp_no: 1, employee_type_id: 1, designation_id: 1, tier_id: 1, track_id: 1,
-      tech_stack_id: 1, joined_date: 1, last_increment_date: 1, last_promotion_date: 1, status: 1,
-      university_id: 2, is_intern: 2, internship_completion_target_date: 2,
-      total_allocation: 3, total_resource_billing: 3,
-      tag_ids: 4, skills: 4, helper_id: 4, helper: 4,
-    };
-    return fieldStepMap[fieldName] !== undefined ? fieldStepMap[fieldName] : null;
   };
 
   // Reset step when modal closes
   const handleClose = () => {
     setCurrentStep(0);
     onClose();
-  };
-
-  // Render step content
-  const renderStepContent = () => {
-    switch (currentStep) {
-      case 0:
-        return <PersonalInfoStep form={form} isEditMode={isEditMode} />;
-      case 1:
-        return (
-          <EmploymentDetailsStep
-            form={form}
-            isEditMode={isEditMode}
-            designations={designations}
-            tiers={tiers}
-            tracks={tracks}
-            techStacks={techStacks}
-            employeeTypes={employeeTypes}
-          />
-        );
-      case 2:
-        return <EducationInternshipStep form={form} universities={universities} />;
-      case 3:
-        return <BillingAllocationStep form={form} />;
-      case 4:
-        return <AdditionalInfoStep form={form} tags={tags} />;
-      default:
-        return null;
-    }
   };
 
   return (
@@ -221,7 +96,6 @@ const ResourceModal = ({
           type: 'primary',
           onClick: handleSubmit,
           loading: loading,
-          disabled: !isFormValid,
         },
       ]}
     >
@@ -244,8 +118,31 @@ const ResourceModal = ({
           />
         </div>
 
+        {/* Render ALL steps but hide inactive ones - keeps form values preserved */}
         <div style={{ minHeight: '400px', padding: '20px 0' }}>
-          {renderStepContent()}
+          <div style={{ display: currentStep === 0 ? 'block' : 'none' }}>
+            <PersonalInfoStep form={form} isEditMode={isEditMode} />
+          </div>
+          <div style={{ display: currentStep === 1 ? 'block' : 'none' }}>
+            <EmploymentDetailsStep
+              form={form}
+              isEditMode={isEditMode}
+              designations={designations}
+              tiers={tiers}
+              tracks={tracks}
+              techStacks={techStacks}
+              employeeTypes={employeeTypes}
+            />
+          </div>
+          <div style={{ display: currentStep === 2 ? 'block' : 'none' }}>
+            <EducationInternshipStep form={form} universities={universities} />
+          </div>
+          <div style={{ display: currentStep === 3 ? 'block' : 'none' }}>
+            <BillingAllocationStep form={form} />
+          </div>
+          <div style={{ display: currentStep === 4 ? 'block' : 'none' }}>
+            <AdditionalInfoStep form={form} tags={tags} />
+          </div>
         </div>
 
         <Space style={{ width: '100%', justifyContent: 'space-between', marginTop: 24 }}>

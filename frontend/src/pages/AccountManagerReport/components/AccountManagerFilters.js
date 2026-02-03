@@ -5,6 +5,8 @@
 
 import React from 'react';
 import { Row, Col, Select } from 'antd';
+import { useSelector } from 'react-redux';
+import { selectProjectStatuses, selectBillingStatuses } from '@redux/slices/configSlice';
 import PropTypes from 'prop-types';
 
 const { Option } = Select;
@@ -29,6 +31,9 @@ const AccountManagerFilters = ({
   loadingAccountManagers = false,
   loadingProjectsForFilter = false,
 }) => {
+  // Get project statuses and billing statuses from Redux
+  const projectStatuses = useSelector(selectProjectStatuses);
+  const billingStatuses = useSelector(selectBillingStatuses);
   return (
     <Row gutter={[16, 16]} className="filters-row">
       <Col xs={24} sm={12} md={8} lg={6}>
@@ -84,9 +89,14 @@ const AccountManagerFilters = ({
             value={filters.projectStatus}
             onChange={(value) => setFilters({ ...filters, projectStatus: value })}
             style={{ width: '100%' }}
+            placeholder="Select Project Status"
           >
-            <Option value="Active">Active</Option>
-            <Option value="Inactive">Inactive</Option>
+            <Option value="All">All</Option>
+            {projectStatuses.map((status) => (
+              <Option key={status.id} value={status.id}>
+                {status.name}
+              </Option>
+            ))}
           </Select>
         </div>
       </Col>
@@ -119,13 +129,14 @@ const AccountManagerFilters = ({
             value={filters.billingStatus}
             onChange={(value) => setFilters({ ...filters, billingStatus: value })}
             style={{ width: '100%' }}
+            placeholder="Select Billing Status"
           >
             <Option value="All">All</Option>
-            <Option value="Billing">Billing</Option>
-            <Option value="Non-Billing">Non-Billing</Option>
-            <Option value="Bench">Bench</Option>
-            <Option value="Training">Training</Option>
-            <Option value="Presale">Presale</Option>
+            {billingStatuses.map((status) => (
+              <Option key={status.id} value={status.id}>
+                {status.name}
+              </Option>
+            ))}
           </Select>
         </div>
       </Col>
