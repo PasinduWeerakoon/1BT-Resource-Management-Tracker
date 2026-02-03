@@ -92,19 +92,6 @@ const AccountManagerFilters = ({
       </Col>
       <Col xs={24} sm={12} md={8} lg={6}>
         <div className="filter-item">
-          <label>Allocation Status</label>
-          <Select
-            value={filters.allocationStatus}
-            onChange={(value) => setFilters({ ...filters, allocationStatus: value })}
-            style={{ width: '100%' }}
-          >
-            <Option value="Active">Active</Option>
-            <Option value="Inactive">Inactive</Option>
-          </Select>
-        </div>
-      </Col>
-      <Col xs={24} sm={12} md={8} lg={6}>
-        <div className="filter-item">
           <label>Client Name</label>
           <Select
             value={filters.clientName}
