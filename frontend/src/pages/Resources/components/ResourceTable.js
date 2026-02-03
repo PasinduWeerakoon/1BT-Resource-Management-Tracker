@@ -25,17 +25,11 @@ const ResourceTable = ({
   // Memoize default columns to avoid recreation on every render
   const defaultColumns = useMemo(() => [
     {
-      title: 'Employee Number',
-      dataIndex: 'employeeNumber',
-      key: 'employeeNumber',
-      width: 150,
-      fixed: 'left',
-    },
-    {
       title: 'Name',
       dataIndex: 'name',
       key: 'name',
       width: 200,
+      fixed: 'left',
     },
     {
       title: 'Tier',
