@@ -138,7 +138,7 @@ module.exports = {
     new webpack.DefinePlugin({
       // NODE_ENV is automatically set by webpack based on --mode flag, so we don't define it here
       // 'process.env.NODE_ENV' is handled by webpack automatically
-      'process.env.REACT_APP_ENV': JSON.stringify(envVars.REACT_APP_ENV || process.env.REACT_APP_ENV || 'dev'),
+      'process.env.REACT_APP_ENV': JSON.stringify(envVars.REACT_APP_ENV || process.env.REACT_APP_ENV || 'qa'),
       'process.env.REACT_APP_API_BASE_URL': JSON.stringify(envVars.REACT_APP_API_BASE_URL || process.env.REACT_APP_API_BASE_URL || ''),
     }),
     new SuppressSassWarningsPlugin(),
