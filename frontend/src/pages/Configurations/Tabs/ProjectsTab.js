@@ -8,7 +8,7 @@ import { useConfigCRUD } from '../hooks/useConfigCRUD';
 import ConfigTable from '../components/ConfigTable';
 import ConfigModal from '../components/ConfigModal';
 import ProjectForm from './ProjectsTab/components/ProjectForm';
-import { projectsService, projectTypesService, accountTypesService, projectStatusesService, billingStatusesService } from '@api';
+import { projectsService, projectTypesService, billingStatusesService } from '@api';
 import { showErrorToast } from '@utils/toast.utils';
 import logger from '@utils/logger';
 import dayjs from 'dayjs';
@@ -24,8 +24,6 @@ const ProjectsTab = () => {
         total: 0,
     });
     const [projectTypesForModal, setProjectTypesForModal] = useState([]);
-    const [accountTypesForModal, setAccountTypesForModal] = useState([]);
-    const [projectStatusesForModal, setProjectStatusesForModal] = useState([]);
     const [billingStatusesForModal, setBillingStatusesForModal] = useState([]);
     const [loadingConfigForModal, setLoadingConfigForModal] = useState(false);
 
@@ -45,10 +43,8 @@ const ProjectsTab = () => {
         const fetchConfigurationsForModal = async () => {
             try {
                 setLoadingConfigForModal(true);
-                const [projectTypesRes, accountTypesRes, projectStatusesRes, billingStatusesRes] = await Promise.all([
+                const [projectTypesRes, billingStatusesRes] = await Promise.all([
                     projectTypesService.getAll(),
-                    accountTypesService.getAll(),
-                    projectStatusesService.getAll(),
                     billingStatusesService.getAll(),
                 ]);
 
@@ -60,8 +56,6 @@ const ProjectsTab = () => {
                 };
 
                 setProjectTypesForModal(extractData(projectTypesRes));
-                setAccountTypesForModal(extractData(accountTypesRes));
-                setProjectStatusesForModal(extractData(projectStatusesRes));
                 setBillingStatusesForModal(extractData(billingStatusesRes));
             } catch (error) {
                 logger.error('Failed to fetch configurations for Projects modal:', error);
@@ -149,9 +143,7 @@ const ProjectsTab = () => {
                 // Error already handled in hook
             }
         },
-        accountTypesForModal,
         projectTypesForModal,
-        projectStatusesForModal,
         billingStatusesForModal,
         onCloseModal: handleCloseModal,
     });
@@ -166,8 +158,8 @@ const ProjectsTab = () => {
         setAccountType('External');
         form.resetFields();
         form.setFieldsValue({
-            account_type: accountTypesForModal.find(at => at.name === 'External')?.id,
-            status: projectStatusesForModal.find(ps => ps.name === 'Active')?.id,
+            account_type: 'External',
+            status: 'Active',
             billing_type: billingStatusesForModal.find(bs => bs.name === 'Billing')?.id,
             team_size: 1,
         });
@@ -176,8 +168,7 @@ const ProjectsTab = () => {
 
     // Custom edit handler
     const handleEditProject = (record) => {
-        const accountTypeObj = accountTypesForModal.find(at => at.name === (record.account_type || 'External'));
-        setAccountType(accountTypeObj?.name || 'External');
+        setAccountType(record.account_type || 'External');
 
         form.setFieldsValue({
             project_name: record.project_name,
@@ -185,7 +176,8 @@ const ProjectsTab = () => {
             client_id: record.client_id,
             project_type: projectTypesForModal.find(pt => pt.name === record.project_type)?.id,
             is_billable: record.is_billable !== undefined ? record.is_billable : true,
-            status: projectStatusesForModal.find(ps => ps.name === record.status)?.id,
+            account_type: record.account_type || 'External',
+            status: record.status || 'Active',
             start_date: record.start_date ? dayjs(record.start_date) : null,
             end_date: record.end_date ? dayjs(record.end_date) : null,
             description: record.description,
@@ -207,6 +199,8 @@ const ProjectsTab = () => {
                     title: 'Delete Project',
                     content: `Are you sure you want to delete "${record.project_name}"? This action cannot be undone.`,
                 })}
+                isEditDisabled={(record) => record.is_default === true || record.isDefault === true}
+                isDeleteDisabled={(record) => record.is_default === true || record.isDefault === true}
                 pagination={{
                     current: pagination.current,
                     pageSize: pagination.pageSize,
@@ -246,8 +240,6 @@ const ProjectsTab = () => {
                     clients={clients}
                     accountManagersList={accountManagersList}
                     projectTypesForModal={projectTypesForModal}
-                    accountTypesForModal={accountTypesForModal}
-                    projectStatusesForModal={projectStatusesForModal}
                     billingStatusesForModal={billingStatusesForModal}
                     loadingConfigForModal={loadingConfigForModal}
                     loadingAccountManagers={loadingAccountManagers}

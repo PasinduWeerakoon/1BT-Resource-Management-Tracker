@@ -17,11 +17,12 @@ const TiersTab = () => {
     fetchFunction: tiersService.getAll,
     transformData: (item) => ({
       id: item.id,
-      name: item.name,
-      level: item.level,
+      name: item.label || item.name, // Use label from API response as name
+      level: item.value || item.level, // Use value from API response as level
       description: item.description || '',
-      is_active: item.is_active !== undefined ? item.is_active : true,
-      is_default: item.is_default === true,
+      is_active: item.isActive !== undefined ? item.isActive : (item.is_active !== undefined ? item.is_active : true),
+      is_default: item.isDefault !== undefined ? item.isDefault : (item.is_default !== undefined ? item.is_default : false),
+      displayOrder: item.displayOrder || 0,
     }),
     autoFetch: true,
   });
@@ -106,6 +107,8 @@ const TiersTab = () => {
         loading={loadingTiers}
         onEdit={handleEditTier}
         onDelete={handleDeleteTier}
+        isEditDisabled={(record) => record.is_default === true || record.isDefault === true}
+        isDeleteDisabled={(record) => record.is_default === true || record.isDefault === true}
         pagination={{ pageSize: 20 }}
         scroll={{ x: 700 }}
         title="Tiers"

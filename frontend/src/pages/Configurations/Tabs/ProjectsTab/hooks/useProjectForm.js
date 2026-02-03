@@ -13,9 +13,7 @@ import logger from '@utils/logger';
  * @param {Object} options - Hook options
  * @param {Object} options.form - Form instance
  * @param {Function} options.onFetch - Callback to refetch projects
- * @param {Array} options.accountTypesForModal - Account types list
  * @param {Array} options.projectTypesForModal - Project types list
- * @param {Array} options.projectStatusesForModal - Project statuses list
  * @param {Array} options.billingStatusesForModal - Billing statuses list
  * @param {Function} options.onCloseModal - Close modal handler
  * @returns {Object} Form state and handlers
@@ -23,9 +21,7 @@ import logger from '@utils/logger';
 export const useProjectForm = ({
   form,
   onFetch,
-  accountTypesForModal,
   projectTypesForModal,
-  projectStatusesForModal,
   billingStatusesForModal,
   onCloseModal,
 }) => {
@@ -53,8 +49,8 @@ export const useProjectForm = ({
       }
 
       let client_id = null;
-      const accountTypeObj = accountTypesForModal.find(at => at.id === values.account_type);
-      if (accountTypeObj?.name === 'External') {
+      const accountType = values.account_type || 'External';
+      if (accountType === 'External') {
         if (values.client_id) {
           client_id = values.client_id;
         } else {
@@ -66,8 +62,7 @@ export const useProjectForm = ({
       const projectTypeObj = projectTypesForModal.find(pt => pt.id === values.project_type);
       const project_type = projectTypeObj?.name || 'Client';
 
-      const statusObj = projectStatusesForModal.find(ps => ps.id === values.status);
-      const status = statusObj?.name || 'Active';
+      const status = values.status || 'Active';
 
       if (isEditMode) {
         const updatePayload = {
@@ -94,7 +89,7 @@ export const useProjectForm = ({
           project_code: values.project_code || '',
           client_id: client_id,
           project_type: project_type,
-          account_type: accountTypeObj?.name || 'External',
+          account_type: accountType || 'External',
           account_manager: values.account_manager,
           account_reg_sales_owner: values.account_reg_sales_owner || '',
           team_size: values.team_size || 1,
@@ -123,7 +118,7 @@ export const useProjectForm = ({
         if (!cleanedPayload.end_date) {
           delete cleanedPayload.end_date;
         }
-        if (accountTypeObj?.name === 'Internal') {
+        if (accountType === 'Internal') {
           delete cleanedPayload.client_id;
         }
 

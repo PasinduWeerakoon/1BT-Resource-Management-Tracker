@@ -18,10 +18,16 @@ const DesignationsTab = () => {
         fetchFunction: designationsService.getAll,
         transformData: (item) => ({
             id: item.id,
-            name: item.name,
+            name: item.label || item.name, // Use label from API response as name
             level: item.level,
             tier: item.level ? `Tier ${String(item.level).padStart(2, '0')}` : null,
-            is_active: item.is_active !== undefined ? item.is_active : true,
+            is_active: item.isActive !== undefined ? item.isActive : (item.is_active !== undefined ? item.is_active : true),
+            description: item.description || '',
+            category: item.category || '',
+            isDefault: item.isDefault !== undefined ? item.isDefault : (item.is_default !== undefined ? item.is_default : false),
+            is_default: item.isDefault !== undefined ? item.isDefault : (item.is_default !== undefined ? item.is_default : false),
+            isInternRole: item.isInternRole || false,
+            displayOrder: item.displayOrder || 0,
         }),
         autoFetch: true,
     });
@@ -108,6 +114,8 @@ const DesignationsTab = () => {
                     title: 'Delete Designation',
                     content: `Are you sure you want to delete "${record.name}"? This action cannot be undone.`,
                 })}
+                isEditDisabled={(record) => record.isDefault === true || record.is_default === true}
+                isDeleteDisabled={(record) => record.isDefault === true || record.is_default === true}
                 pagination={{ pageSize: 20 }}
                 scroll={{ x: 600 }}
                 title="Designations"

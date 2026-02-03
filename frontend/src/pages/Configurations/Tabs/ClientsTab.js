@@ -77,6 +77,7 @@ const ClientsTab = () => {
         contact_phone: client.contact_phone,
         address: client.address,
         is_active: client.is_active !== undefined ? client.is_active : true,
+        is_default: client.isDefault !== undefined ? client.isDefault : (client.is_default !== undefined ? client.is_default : false),
       }));
 
       setPagination({
@@ -184,6 +185,8 @@ const ClientsTab = () => {
           title: 'Delete Client',
           content: `Are you sure you want to delete "${record.client_name}"? This action cannot be undone.`,
         })}
+        isEditDisabled={(record) => record.is_default === true || record.isDefault === true}
+        isDeleteDisabled={(record) => record.is_default === true || record.isDefault === true}
         pagination={{
           current: pagination.current,
           pageSize: pagination.pageSize,

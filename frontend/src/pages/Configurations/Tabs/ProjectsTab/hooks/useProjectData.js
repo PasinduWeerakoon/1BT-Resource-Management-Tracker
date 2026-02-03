@@ -137,6 +137,7 @@ export const useProjectData = (pagination) => {
         start_date: project.start_date,
         end_date: project.end_date,
         description: project.description,
+        is_default: project.isDefault !== undefined ? project.isDefault : (project.is_default !== undefined ? project.is_default : false),
       }));
 
       setProjects(transformed);

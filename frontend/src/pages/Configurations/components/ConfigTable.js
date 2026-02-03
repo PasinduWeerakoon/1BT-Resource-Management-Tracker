@@ -16,6 +16,8 @@ import CustomTable from '@components/Table';
  * @param {boolean} props.loading - Loading state
  * @param {Function} props.onEdit - Edit handler
  * @param {Function} props.onDelete - Delete handler
+ * @param {Function} props.isEditDisabled - Function to check if edit should be disabled for a record
+ * @param {Function} props.isDeleteDisabled - Function to check if delete should be disabled for a record
  * @param {Object} props.pagination - Pagination config
  * @param {Object} props.scroll - Scroll config
  * @param {string} props.title - Table title
@@ -29,6 +31,8 @@ const ConfigTable = ({
   loading,
   onEdit,
   onDelete,
+  isEditDisabled,
+  isDeleteDisabled,
   pagination = { pageSize: 20 },
   scroll = { x: 600 },
   title,
@@ -45,29 +49,36 @@ const ConfigTable = ({
       key: 'actions',
       fixed: 'right',
       width: 120,
-      render: (_, record) => (
-        <Space size="middle">
-          {onEdit && (
-            <Tooltip title="Edit">
-              <Button
-                type="link"
-                icon={<EditOutlined />}
-                onClick={() => onEdit(record)}
-              />
-            </Tooltip>
-          )}
-          {onDelete && (
-            <Tooltip title="Delete">
-              <Button
-                type="link"
-                danger
-                icon={<DeleteOutlined />}
-                onClick={() => onDelete(record)}
-              />
-            </Tooltip>
-          )}
-        </Space>
-      ),
+      render: (_, record) => {
+        const editDisabled = isEditDisabled ? isEditDisabled(record) : false;
+        const deleteDisabled = isDeleteDisabled ? isDeleteDisabled(record) : false;
+        
+        return (
+          <Space size="middle">
+            {onEdit && (
+              <Tooltip title={editDisabled ? 'Default items cannot be edited' : 'Edit'}>
+                <Button
+                  type="link"
+                  icon={<EditOutlined />}
+                  onClick={() => onEdit(record)}
+                  disabled={editDisabled}
+                />
+              </Tooltip>
+            )}
+            {onDelete && (
+              <Tooltip title={deleteDisabled ? 'Default items cannot be deleted' : 'Delete'}>
+                <Button
+                  type="link"
+                  danger
+                  icon={<DeleteOutlined />}
+                  onClick={() => onDelete(record)}
+                  disabled={deleteDisabled}
+                />
+              </Tooltip>
+            )}
+          </Space>
+        );
+      },
     });
   }
 

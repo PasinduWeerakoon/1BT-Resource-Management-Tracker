@@ -17,10 +17,12 @@ const TagsTab = () => {
     fetchFunction: tagsService.getAll,
     transformData: (item) => ({
       id: item.id,
-      name: item.name,
+      name: item.label || item.name, // Use label from API response as name
       description: item.description || '',
-      is_active: item.is_active !== undefined ? item.is_active : true,
-      is_default: item.is_default !== undefined ? item.is_default : false,
+      is_active: item.isActive !== undefined ? item.isActive : (item.is_active !== undefined ? item.is_active : true),
+      is_default: item.isDefault !== undefined ? item.isDefault : (item.is_default !== undefined ? item.is_default : false),
+      value: item.value || item.id,
+      displayOrder: item.displayOrder || 0,
     }),
     autoFetch: true,
   });
@@ -98,6 +100,8 @@ const TagsTab = () => {
         loading={loadingTags}
         onEdit={handleEditTag}
         onDelete={handleDeleteTag}
+        isEditDisabled={(record) => record.is_default === true || record.isDefault === true}
+        isDeleteDisabled={(record) => record.is_default === true || record.isDefault === true}
         pagination={{ pageSize: 20 }}
         scroll={{ x: 600 }}
         title="Tags"

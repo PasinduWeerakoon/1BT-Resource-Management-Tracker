@@ -20,8 +20,6 @@ const { Option } = Select;
  * @param {Array} props.clients - Clients list
  * @param {Array} props.accountManagersList - Account managers list
  * @param {Array} props.projectTypesForModal - Project types list
- * @param {Array} props.accountTypesForModal - Account types list
- * @param {Array} props.projectStatusesForModal - Project statuses list
  * @param {Array} props.billingStatusesForModal - Billing statuses list
  * @param {boolean} props.loadingConfigForModal - Loading state for config
  * @param {boolean} props.loadingAccountManagers - Loading state for account managers
@@ -34,8 +32,6 @@ const ProjectForm = ({
   clients,
   accountManagersList,
   projectTypesForModal,
-  accountTypesForModal,
-  projectStatusesForModal,
   billingStatusesForModal,
   loadingConfigForModal,
   loadingAccountManagers,
@@ -85,20 +81,16 @@ const ProjectForm = ({
             label="Account Type"
             name="account_type"
             rules={[{ required: true, message: 'Account type is required' }]}
+            initialValue="External"
           >
             <Select
               placeholder="Select account type"
               onChange={(value) => {
-                const selectedAccountType = accountTypesForModal.find(at => at.id === value);
-                setAccountType(selectedAccountType?.name || 'External');
+                setAccountType(value || 'External');
               }}
-              loading={loadingConfigForModal}
             >
-              {accountTypesForModal.map((type) => (
-                <Option key={type.id} value={type.id}>
-                  {type.name}
-                </Option>
-              ))}
+              <Option value="External">External</Option>
+              <Option value="Internal">Internal</Option>
             </Select>
           </Form.Item>
         </Col>
@@ -112,9 +104,8 @@ const ProjectForm = ({
             rules={[
               ({ getFieldValue }) => ({
                 validator(_, value) {
-                  const accountTypeId = getFieldValue('account_type');
-                  const accountTypeObj = accountTypesForModal.find(at => at.id === accountTypeId);
-                  if (accountTypeObj?.name === 'External' && !value) {
+                  const accountType = getFieldValue('account_type');
+                  if (accountType === 'External' && !value) {
                     return Promise.reject(new Error('Client is required for External projects'));
                   }
                   return Promise.resolve();
@@ -144,13 +135,13 @@ const ProjectForm = ({
             label="Status"
             name="status"
             rules={[{ required: true, message: 'Status is required' }]}
+            initialValue="Active"
           >
-            <Select placeholder="Select status" loading={loadingConfigForModal}>
-              {projectStatusesForModal.map((status) => (
-                <Option key={status.id} value={status.id}>
-                  {status.name}
-                </Option>
-              ))}
+            <Select placeholder="Select status">
+              <Option value="Active">Active</Option>
+              <Option value="On Hold">On Hold</Option>
+              <Option value="Completed">Completed</Option>
+              <Option value="Cancelled">Cancelled</Option>
             </Select>
           </Form.Item>
         </Col>
@@ -303,8 +294,6 @@ ProjectForm.propTypes = {
   clients: PropTypes.array.isRequired,
   accountManagersList: PropTypes.array.isRequired,
   projectTypesForModal: PropTypes.array.isRequired,
-  accountTypesForModal: PropTypes.array.isRequired,
-  projectStatusesForModal: PropTypes.array.isRequired,
   billingStatusesForModal: PropTypes.array.isRequired,
   loadingConfigForModal: PropTypes.bool,
   loadingAccountManagers: PropTypes.bool,
