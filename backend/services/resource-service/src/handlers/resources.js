@@ -1,3 +1,4 @@
+﻿// Deployment: 2026-02-03 14:57:48
 /**
  * Resources Handler
  * Lambda handlers for resource (employee) management
@@ -18,7 +19,8 @@
 import * as db from '/opt/nodejs/database/index.js';
 import { getDrizzle, withTransaction } from '/opt/nodejs/database/drizzle.js';
 import schema from '/opt/nodejs/database/schema.js';
-const { employees, allocations, projects, designations, users, clients, tags, employeeTags } = schema;
+// Alias 'employees' as 'resources' to maintain backward compatibility in handlers
+const { employees: resources, allocations, projects, designations, users, clients, tags, employeeTags } = schema;
 import { eq, and, isNull, ilike, or, sql, desc, inArray } from 'drizzle-orm';
 import logger from '/opt/nodejs/logger/index.js';
 import { success, error, notFound, validationError, conflict } from '/opt/nodejs/utils/response.js';
@@ -61,7 +63,7 @@ const autoEndAllocationsOnInactive = async (resourceId, userId, log) => {
                     updated_by = $2,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE id = $3
-            `, [today, userId || '00000000-0000-0000-0000-000000000000', allocation.id]);
+            `, [today, userId, allocation.id]);
 
             // Log to allocation change history
             await db.query(`
@@ -72,7 +74,7 @@ const autoEndAllocationsOnInactive = async (resourceId, userId, log) => {
             `, [
                 allocation.id,
                 'UPDATED',
-                userId || '00000000-0000-0000-0000-000000000000',
+                userId,
                 JSON.stringify(['end_date', 'is_active']),
                 JSON.stringify({ end_date: allocation.end_date, is_active: true }),
                 JSON.stringify({ end_date: today, is_active: false }),
@@ -207,10 +209,10 @@ const createInitialBenchAllocation = async (tx, resourceId, trackId, userId, log
         const result = await tx
             .insert(allocations)
             .values({
-                resourceId: resourceId,
+                employeeId: resourceId,  // employeeId in schema, resourceId is the employee ID passed in
                 projectId: benchProjectId,
-                allocationPercentage: '100',
-                billingPercentage: '0', // Bench is non-billing
+                allocationPercentage: 100,
+                billingPercentage: 0, // Bench is non-billing
                 allocatedDate: new Date().toISOString().split('T')[0], // YYYY-MM-DD format
                 isActive: true,
                 notes: 'Auto-created bench allocation for new resource',
@@ -327,13 +329,13 @@ export const list = async (event) => {
             LEFT JOIN tags tg ON rt.tag_id = tg.id
             GROUP BY fr.id, fr.epf_no, fr.emp_no, fr.global_employee_id, fr.name, fr.phone_number, 
                      fr.email, fr.designation_id, fr.track_id, fr.tech_stack_id, fr.tier_id,
-                     fr.skills, fr.joined_date, fr.status, fr.notice_period_end_date, 
+                     fr.skills, fr.joined_date, fr.date_of_birth, fr.status, fr.notice_period_end_date, 
                      fr.deleted_at, fr.version, fr.created_at, fr.updated_at, fr.created_by, 
                      fr.updated_by, fr.is_account_manager, fr.photo_url, fr.total_allocation, 
                      fr.total_resource_billing, fr.employee_type_id, fr.university_id,
                      fr.last_increment_date, fr.last_promotion_date, fr.internship_completion_target_date,
-                     fr.helper_id, fr.helper_is_external, fr.designation_name, fr.designation_level, 
-                     fr.total_count
+                     fr.helper_id, fr.helper_is_external, fr.nic_passport, fr.is_external,
+                     fr.designation_name, fr.designation_level, fr.total_count
             ORDER BY fr.name ASC
         `;
         params.push(limit, offset);
@@ -418,21 +420,21 @@ export const getById = async (event) => {
                 d.name as designation_name,
                 d.level as designation_level,
                 COALESCE(
-                    json_agg(
-                        DISTINCT json_build_object(
+                    (
+                        SELECT jsonb_agg(jsonb_build_object(
                             'id', tg.id,
                             'name', tg.name,
                             'description', tg.description
-                        )
-                    ) FILTER (WHERE tg.id IS NOT NULL),
-                    '[]'::json
+                        ))
+                        FROM employee_tags rt
+                        JOIN tags tg ON rt.tag_id = tg.id
+                        WHERE rt.employee_id = r.id
+                    ),
+                    '[]'::jsonb
                 ) as tags
             FROM employees r
             LEFT JOIN designations d ON r.designation_id = d.id
-            LEFT JOIN employee_tags rt ON r.id = rt.employee_id
-            LEFT JOIN tags tg ON rt.tag_id = tg.id
             WHERE r.id = $1 AND r.deleted_at IS NULL
-            GROUP BY r.id, d.id
             LIMIT 1
         `;
 
@@ -496,37 +498,37 @@ export const create = async (event) => {
 
         log.info('Creating resource', {
             email: validated.email,
-            employee_id: validated.employee_id,
-            employee_type: validated.employee_type,
+            epf_no: validated.epf_no,
+            emp_no: validated.emp_no,
             validated_data: validated
         });
 
         const drizzle = await getDrizzle();
 
-        // Check for duplicate employee_id using Drizzle
-        const existingEmployeeId = await drizzle
+        // Check for duplicate EPF number using Drizzle
+        const existingEpfNo = await drizzle
             .select({ id: resources.id })
             .from(resources)
             .where(and(
-                eq(resources.epfNo, validated.employee_id),
+                eq(resources.epfNo, validated.epf_no),
                 isNull(resources.deletedAt)
             ));
 
-        if (existingEmployeeId.length > 0) {
-            return conflict('A resource with this employee_id already exists');
+        if (existingEpfNo.length > 0) {
+            return conflict('A resource with this EPF number already exists');
         }
 
-        // Check for duplicate employee_number using Drizzle
-        const existingEmployeeNumber = await drizzle
+        // Check for duplicate employee number using Drizzle
+        const existingEmpNo = await drizzle
             .select({ id: resources.id })
             .from(resources)
             .where(and(
-                eq(resources.employeeNumber, validated.employee_number),
+                eq(resources.empNo, validated.emp_no),
                 isNull(resources.deletedAt)
             ));
 
-        if (existingEmployeeNumber.length > 0) {
-            return conflict('A resource with this employee_number already exists');
+        if (existingEmpNo.length > 0) {
+            return conflict('A resource with this employee number already exists');
         }
 
         // Get user info from auth context for created_by
@@ -546,60 +548,68 @@ export const create = async (event) => {
         }
         // Use a system UUID if no user found
         if (!userId) {
-            userId = '00000000-0000-0000-0000-000000000000';
+            userId = 1; // System user ID (INTEGER, not UUID)
         }
 
         // Use transaction to ensure resource creation, tags, and bench allocation are atomic
         // If any fails, all are rolled back
         const result = await withTransaction(async (tx) => {
-            // Prepare employeeType - Joi validation ensures it's 'Internal' or 'External' or defaults to 'Internal'
-            // Explicitly check for the value to ensure it's not being overridden
-            const employeeType = (validated.employee_type && (validated.employee_type === 'Internal' || validated.employee_type === 'External'))
-                ? validated.employee_type
-                : 'Internal';
-
-            log.info('Inserting resource with employee_type', {
-                raw_employee_type: validated.employee_type,
-                validated_employee_type: validated.employee_type,
-                employeeType: employeeType,
-                willUse: employeeType,
-                typeCheck: typeof validated.employee_type,
-                isExternal: validated.employee_type === 'External',
-                isInternal: validated.employee_type === 'Internal'
+            log.info('Inserting resource', {
+                epf_no: validated.epf_no,
+                emp_no: validated.emp_no,
+                name: validated.name,
+                track_id: validated.track_id,
+                tier_id: validated.tier_id,
+                designation_id: validated.designation_id,
+                employee_type_id: validated.employee_type_id,
+                is_external: validated.is_external
             });
 
             // Insert resource using Drizzle (use camelCase properties from schema)
             // track_id, tier_id, tech_stack_id are INTEGER IDs mapping to shared configs
+            // designation_id, employee_type_id, university_id are INTEGER IDs referencing lookup tables
             const [newResource] = await tx
                 .insert(resources)
                 .values({
-                    employeeId: validated.employee_id,
-                    employeeNumber: validated.employee_number,
+                    epfNo: validated.epf_no,
+                    empNo: validated.emp_no,
+                    globalEmployeeId: validated.global_employee_id || null,
                     name: validated.name,
-                    phoneNumber: validated.phone_number,
                     email: validated.email || null,
-                    address: validated.address || null,
-                    designationId: validated.designation_id,
-                    trackId: validated.track_id || null,
-                    tierId: validated.tier_id || null,
+                    phoneNumber: validated.phone_number || null,
+                    // Config-based INTEGER IDs
+                    trackId: validated.track_id,
+                    tierId: validated.tier_id,
                     techStackId: validated.tech_stack_id || null,
-                    internClassification: validated.intern_classification || null,
-                    skills: validated.skills || [],
-                    dateOfJoining: validated.date_of_joining || null,
+                    // Lookup table INTEGER IDs
+                    designationId: validated.designation_id,
+                    employeeTypeId: validated.employee_type_id,
+                    universityId: validated.university_id || null,
+                    // Dates
+                    joinedDate: validated.joined_date || null,
                     dateOfBirth: validated.date_of_birth || null,
+                    lastIncrementDate: validated.last_increment_date || null,
+                    lastPromotionDate: validated.last_promotion_date || null,
+                    internshipCompletionTargetDate: validated.internship_completion_target_date || null,
+                    // Personal info
                     nicPassport: validated.nic_passport || null,
-                    isIntern: validated.is_intern !== undefined ? validated.is_intern : false,
-                    employeeType: employeeType,
+                    isExternal: validated.is_external ?? false,
+                    // Other fields
+                    skills: validated.skills && validated.skills.length > 0 ? validated.skills : null,
                     photoUrl: validated.photo_url || null,
                     status: validated.status || 'Active',
+                    totalAllocation: validated.total_allocation || 0,
+                    totalResourceBilling: validated.total_resource_billing || 0,
+                    helperId: validated.helper_id || null,
+                    helperIsExternal: validated.helper_is_external || false,
                     createdBy: userId
                 })
                 .returning();
 
             log.info('Resource created in transaction', {
                 id: newResource.id,
-                employeeType: newResource.employeeType,
-                employee_type_from_db: newResource.employeeType
+                epfNo: newResource.epfNo,
+                empNo: newResource.empNo
             });
 
             // Handle tags if provided
@@ -614,14 +624,14 @@ export const create = async (event) => {
                     throw new Error('One or more tag IDs are invalid');
                 }
 
-                // Insert resource tags
+                // Insert resource tags (employeeTags table)
                 const tagInserts = validated.tag_ids.map(tagId => ({
-                    resourceId: newResource.id,
+                    employeeId: newResource.id,
                     tagId: tagId,
                     createdBy: userId
                 }));
 
-                await tx.insert(resourceTags).values(tagInserts);
+                await tx.insert(employeeTags).values(tagInserts);
                 log.info('Resource tags created', { resourceId: newResource.id, tagCount: tagInserts.length });
             }
 
@@ -642,7 +652,7 @@ export const create = async (event) => {
             newResource.name,
             newResource,
             SERVICE_NAME,
-            { employee_id: newResource.employee_id, benchAllocation: benchAllocation?.id }
+            { epf_no: newResource.epfNo, benchAllocation: benchAllocation?.id }
         );
 
         // Include bench allocation info in response
@@ -710,7 +720,7 @@ export const update = async (event) => {
             return conflict('Resource has been modified by another user. Please refresh and try again.');
         }
 
-        // Get user info for updated_by - use system UUID as fallback
+        // Get user info for updated_by - use null as fallback (updated_by is nullable integer)
         const cognitoSub = event.requestContext?.authorizer?.jwt?.claims?.sub
             || event.requestContext?.authorizer?.claims?.sub;
 
@@ -725,9 +735,7 @@ export const update = async (event) => {
                 userId = userResult[0].id;
             }
         }
-        if (!userId) {
-            userId = '00000000-0000-0000-0000-000000000000';
-        }
+        // userId remains null if not found - updated_by is a nullable integer column
 
         // Map API snake_case to Drizzle schema camelCase
         // Note: track_id, tier_id, tech_stack_id are INTEGER IDs mapping to shared configs
@@ -744,6 +752,7 @@ export const update = async (event) => {
             date_of_birth: 'dateOfBirth',
             nic_passport: 'nicPassport',
             is_intern: 'isIntern',
+            is_external: 'isExternal',
             employee_type: 'employeeType',
             photo_url: 'photoUrl',
             // Direct mappings (same name)
@@ -799,8 +808,8 @@ export const update = async (event) => {
             if (tag_ids !== undefined) {
                 // Delete existing tags
                 await tx
-                    .delete(resourceTags)
-                    .where(eq(resourceTags.resourceId, id));
+                    .delete(employeeTags)
+                    .where(eq(employeeTags.employeeId, id));
 
                 // Insert new tags if provided
                 if (Array.isArray(tag_ids) && tag_ids.length > 0) {
@@ -814,17 +823,17 @@ export const update = async (event) => {
                         throw new Error('One or more tag IDs are invalid');
                     }
 
-                    // Insert resource tags
+                    // Insert employee tags
                     const tagInserts = tag_ids.map(tagId => ({
-                        resourceId: id,
+                        employeeId: parseInt(id),
                         tagId: tagId,
                         createdBy: userId
                     }));
 
-                    await tx.insert(resourceTags).values(tagInserts);
-                    log.info('Resource tags updated', { resourceId: id, tagCount: tagInserts.length });
+                    await tx.insert(employeeTags).values(tagInserts);
+                    log.info('Employee tags updated', { employeeId: id, tagCount: tagInserts.length });
                 } else {
-                    log.info('Resource tags cleared', { resourceId: id });
+                    log.info('Employee tags cleared', { employeeId: id });
                 }
             }
 
@@ -971,42 +980,41 @@ export const getAllocations = async (event) => {
         }
 
         // Build where conditions for active allocations
-        const conditions = [eq(allocations.resourceId, id)];
+        // Use raw SQL to avoid Drizzle issues with undefined schema fields
+        let whereClause = `a.employee_id = $1`;
         if (!includeHistory) {
-            conditions.push(eq(allocations.isActive, true));
+            whereClause += ` AND a.is_active = true`;
         }
 
-        // Get active/historical allocations with joins using Drizzle
-        const activeAllocations = await drizzle
-            .select({
-                id: allocations.id,
-                resource_id: allocations.resourceId,
-                project_id: allocations.projectId,
-                allocation_percentage: allocations.allocationPercentage,
-                allocated_date: allocations.allocatedDate,
-                deallocated_date: allocations.deallocatedDate,
-                is_active: allocations.isActive,
-                notes: allocations.notes,
-                created_at: allocations.createdAt,
-                updated_at: allocations.updatedAt,
-                created_by: allocations.createdBy,
-                billing_percentage: allocations.billingPercentage,
-                // Joined fields from projects
-                project_name: projects.projectName,
-                project_code: projects.projectCode,
-                project_type: projects.projectType,
-                // Joined field from clients
-                client_name: clients.clientName,
-                // Add status indicator
-                allocation_status: sql`'active'`.as('allocation_status')
-            })
-            .from(allocations)
-            .leftJoin(projects, eq(allocations.projectId, projects.id))
-            .leftJoin(clients, eq(projects.clientId, clients.id))
-            .where(and(...conditions))
-            .orderBy(desc(allocations.allocatedDate));
+        // Get active/historical allocations with joins using raw SQL
+        const activeAllocationsQuery = await db.query(`
+            SELECT 
+                a.id,
+                a.employee_id as resource_id,
+                a.project_id,
+                a.allocation_percentage,
+                a.allocated_date,
+                a.deallocated_date,
+                a.is_active,
+                a.notes,
+                a.created_at,
+                a.updated_at,
+                a.created_by,
+                a.billing_percentage,
+                p.project_name,
+                p.project_code,
+                pt.name as project_type,
+                c.client_name,
+                'active' as allocation_status
+            FROM allocations a
+            LEFT JOIN projects p ON a.project_id = p.id
+            LEFT JOIN project_types pt ON p.project_type_id = pt.id
+            LEFT JOIN clients c ON p.client_id = c.id
+            WHERE ${whereClause}
+            ORDER BY a.allocated_date DESC
+        `, [id]);
 
-        let result = activeAllocations;
+        let result = activeAllocationsQuery.rows;
 
         // Fetch future allocations if requested
         if (includeFuture) {
@@ -1029,11 +1037,12 @@ export const getAllocations = async (event) => {
                     false as is_active,
                     p.project_name,
                     p.project_code,
-                    p.project_type,
+                    pt.name as project_type,
                     c.client_name,
                     'future' as allocation_status
                 FROM future_allocations fa
                 LEFT JOIN projects p ON fa.project_id = p.id
+                LEFT JOIN project_types pt ON p.project_type_id = pt.id
                 LEFT JOIN clients c ON p.client_id = c.id
                 WHERE fa.employee_id = $1
                 AND fa.status = 'scheduled'
@@ -1041,7 +1050,7 @@ export const getAllocations = async (event) => {
             `, [id]);
 
             // Combine active and future allocations
-            result = [...activeAllocations, ...futureAllocations.rows];
+            result = [...result, ...futureAllocations.rows];
         }
 
         return success({
@@ -1078,13 +1087,28 @@ export const getDesignationHistory = async (event) => {
 
         const query = `
             SELECT 
-                dh.*,
-                d.name as designation_name,
-                d.level as designation_level
+                dh.id,
+                dh.employee_id,
+                dh.previous_designation_id,
+                dh.new_designation_id,
+                dh.previous_track_id,
+                dh.new_track_id,
+                dh.change_type,
+                dh.change_reason,
+                dh.effective_from,
+                dh.effective_until,
+                dh.changed_at,
+                dh.changed_by,
+                dh.changed_by_username,
+                pd.name as previous_designation_name,
+                pd.level as previous_designation_level,
+                nd.name as new_designation_name,
+                nd.level as new_designation_level
             FROM designation_history dh
-            LEFT JOIN designations d ON dh.designation_id = d.id
-            WHERE dh.resource_id = $1
-            ORDER BY dh.effective_date DESC
+            LEFT JOIN designations pd ON dh.previous_designation_id = pd.id
+            LEFT JOIN designations nd ON dh.new_designation_id = nd.id
+            WHERE dh.employee_id = $1
+            ORDER BY dh.effective_from DESC
         `;
 
         const result = await db.query(query, [id]);
@@ -1161,16 +1185,20 @@ export const updateTier = async (event) => {
         const body = JSON.parse(event.body || '{}');
         const { tier } = body;
 
-        const validTiers = ['Tier - 1', 'Tier - 2', 'Tier - 3', 'Tier - 4'];
+        const validTiers = TIERS.map(t => t.label);
         if (!tier || !validTiers.includes(tier)) {
             return validationError(`Invalid tier. Must be one of: ${validTiers.join(', ')}`);
         }
 
-        log.info('Updating resource tier', { id, tier });
+        // Convert tier label to ID
+        const tierConfig = TIERS.find(t => t.label === tier);
+        const tierId = tierConfig?.id;
+
+        log.info('Updating resource tier', { id, tier, tierId });
 
         // Check if resource exists
         const resourceCheck = await db.query(
-            'SELECT id, name, tier FROM employees WHERE id = $1 AND deleted_at IS NULL',
+            'SELECT id, name, tier_id FROM employees WHERE id = $1 AND deleted_at IS NULL',
             [id]
         );
 
@@ -1181,18 +1209,21 @@ export const updateTier = async (event) => {
         // Update resource
         const updateQuery = `
             UPDATE employees 
-            SET tier = $1, updated_at = CURRENT_TIMESTAMP
+            SET tier_id = $1, updated_at = CURRENT_TIMESTAMP
             WHERE id = $2
-            RETURNING id, name, tier
+            RETURNING id, name, tier_id
         `;
 
-        const result = await db.query(updateQuery, [tier, id]);
+        const result = await db.query(updateQuery, [tierId, id]);
 
-        log.info('Resource tier updated', { id, tier });
+        log.info('Resource tier updated', { id, tier, tierId });
 
         return success({
             message: 'Resource tier updated successfully',
-            data: result.rows[0]
+            data: {
+                ...result.rows[0],
+                tier: tier // Include the label for convenience
+            }
         });
 
     } catch (err) {
@@ -1212,15 +1243,20 @@ export const updateTechStack = async (event) => {
         const body = JSON.parse(event.body || '{}');
         const { tech_stack } = body;
 
-        if (!tech_stack || typeof tech_stack !== 'string') {
-            return validationError('Tech stack is required and must be a string');
+        const validTechStacks = TECH_STACKS.map(t => t.label);
+        if (!tech_stack || !validTechStacks.includes(tech_stack)) {
+            return validationError(`Invalid tech stack. Must be one of: ${validTechStacks.join(', ')}`);
         }
 
-        log.info('Updating resource tech stack', { id, tech_stack });
+        // Convert tech_stack label to ID
+        const techStackConfig = TECH_STACKS.find(t => t.label === tech_stack);
+        const techStackId = techStackConfig?.id;
+
+        log.info('Updating resource tech stack', { id, tech_stack, techStackId });
 
         // Check if resource exists
         const resourceCheck = await db.query(
-            'SELECT id, name, tech_stack FROM employees WHERE id = $1 AND deleted_at IS NULL',
+            'SELECT id, name, tech_stack_id FROM employees WHERE id = $1 AND deleted_at IS NULL',
             [id]
         );
 
@@ -1231,18 +1267,21 @@ export const updateTechStack = async (event) => {
         // Update resource
         const updateQuery = `
             UPDATE employees 
-            SET tech_stack = $1, updated_at = CURRENT_TIMESTAMP
+            SET tech_stack_id = $1, updated_at = CURRENT_TIMESTAMP
             WHERE id = $2
-            RETURNING id, name, tech_stack
+            RETURNING id, name, tech_stack_id
         `;
 
-        const result = await db.query(updateQuery, [tech_stack, id]);
+        const result = await db.query(updateQuery, [techStackId, id]);
 
-        log.info('Resource tech stack updated', { id, tech_stack });
+        log.info('Resource tech stack updated', { id, tech_stack, techStackId });
 
         return success({
             message: 'Resource tech stack updated successfully',
-            data: result.rows[0]
+            data: {
+                ...result.rows[0],
+                tech_stack: tech_stack // Include the label for convenience
+            }
         });
 
     } catch (err) {
@@ -1250,3 +1289,4 @@ export const updateTechStack = async (event) => {
         return error('Failed to update resource tech stack', err);
     }
 };
+

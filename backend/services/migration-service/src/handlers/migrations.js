@@ -113,10 +113,13 @@ CREATE TABLE IF NOT EXISTS employees (
     employee_type_id INTEGER REFERENCES employee_types(id) ON DELETE SET NULL,
     university_id INTEGER REFERENCES universities(id) ON DELETE SET NULL,
     joined_date DATE,
+    date_of_birth DATE,
     last_increment_date DATE,
     last_promotion_date DATE,
     internship_completion_target_date DATE,
     notice_period_end_date DATE,
+    nic_passport VARCHAR(50),
+    is_external BOOLEAN NOT NULL DEFAULT false,
     status employee_status NOT NULL DEFAULT 'Active',
     total_allocation DECIMAL(5,2) NOT NULL DEFAULT 0,
     total_resource_billing DECIMAL(5,2) NOT NULL DEFAULT 0,
@@ -406,7 +409,64 @@ CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_logs(user_id) WHERE user_id I
 CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_logs(entity_type, entity_id);
 CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_logs(action);
 CREATE INDEX IF NOT EXISTS idx_audit_composite ON audit_logs(timestamp, action, entity_type);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_audit_message_id ON audit_logs(message_id) WHERE message_id IS NOT NULL;`
+CREATE UNIQUE INDEX IF NOT EXISTS idx_audit_message_id ON audit_logs(message_id) WHERE message_id IS NOT NULL;`,
+
+    '008_create_dashboard_stats': `-- Migration: 008_create_dashboard_stats
+-- Daily snapshot table for dashboard statistics (calculated at midnight)
+CREATE TABLE IF NOT EXISTS dashboard_stats (
+    id SERIAL PRIMARY KEY,
+    stats_date DATE NOT NULL,
+    stats_type VARCHAR(50) NOT NULL, -- 'resource_counts', 'percentages', 'charts'
+    
+    -- Resource Counts (stored as JSONB for flexibility)
+    resource_counts JSONB,
+    
+    -- Percentages
+    percentages JSONB,
+    
+    -- Charts Data
+    charts_data JSONB,
+    
+    -- Metadata
+    calculated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    calculation_duration_ms INTEGER,
+    source VARCHAR(20) DEFAULT 'scheduled', -- 'scheduled', 'manual', 'on_demand'
+    
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Unique constraint: one record per date per stats_type
+CREATE UNIQUE INDEX IF NOT EXISTS idx_dashboard_stats_date_type ON dashboard_stats(stats_date, stats_type);
+
+-- Index for quick lookups by date
+CREATE INDEX IF NOT EXISTS idx_dashboard_stats_date ON dashboard_stats(stats_date DESC);
+
+-- Index for getting latest stats quickly
+CREATE INDEX IF NOT EXISTS idx_dashboard_stats_latest ON dashboard_stats(stats_type, stats_date DESC);
+
+-- Cleanup: Keep only last 365 days of data (can be adjusted)
+COMMENT ON TABLE dashboard_stats IS 'Daily dashboard statistics snapshots. Calculated at midnight UTC. Retention: 365 days.';`,
+
+    '009_add_employee_personal_fields': `-- Migration: 009_add_employee_personal_fields
+-- Add date_of_birth, nic_passport, and is_external columns to employees table
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS date_of_birth DATE;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS nic_passport VARCHAR(50);
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS is_external BOOLEAN NOT NULL DEFAULT false;
+
+-- Add comment for documentation
+COMMENT ON COLUMN employees.date_of_birth IS 'Employee date of birth';
+COMMENT ON COLUMN employees.nic_passport IS 'NIC or Passport number';
+COMMENT ON COLUMN employees.is_external IS 'Whether the employee is external (contractor/vendor)';`,
+
+    '010_add_cognito_user_id': `-- Migration: 010_add_cognito_user_id
+-- Add cognito_user_id column to users table for Cognito authentication integration
+ALTER TABLE users ADD COLUMN IF NOT EXISTS cognito_user_id VARCHAR(255);
+
+-- Create index for fast lookups
+CREATE INDEX IF NOT EXISTS idx_users_cognito_user_id ON users(cognito_user_id);
+
+-- Add comment for documentation
+COMMENT ON COLUMN users.cognito_user_id IS 'AWS Cognito User Pool sub ID for authentication';`
 };
 
 // ============================================================================

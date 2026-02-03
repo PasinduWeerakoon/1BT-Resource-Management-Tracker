@@ -1,3 +1,4 @@
+﻿// Version: 2026-02-03 15:30:00
 /**
  * Drizzle ORM Schema
  * Type-safe database schema definitions for 1BT Resource Management
@@ -141,10 +142,14 @@ export const employees = pgTable('employees', {
     universityId: integer('university_id').references(() => universities.id, { onDelete: 'set null' }),
     // Dates
     joinedDate: date('joined_date'),
+    dateOfBirth: date('date_of_birth'),
     lastIncrementDate: date('last_increment_date'),
     lastPromotionDate: date('last_promotion_date'),
     internshipCompletionTargetDate: date('internship_completion_target_date'),
     noticePeriodEndDate: date('notice_period_end_date'),
+    // Personal info
+    nicPassport: varchar('nic_passport', { length: 50 }),
+    isExternal: boolean('is_external').notNull().default(false),
     // Status and allocation
     status: employeeStatusEnum('status').notNull().default('Active'),
     totalAllocation: decimal('total_allocation', { precision: 5, scale: 2 }).notNull().default('0'),
@@ -153,7 +158,7 @@ export const employees = pgTable('employees', {
     helperId: integer('helper_id'),
     helperIsExternal: boolean('helper_is_external').notNull().default(false),
     // Other fields
-    skills: text('skills').array().default(sql`'{}'`),
+    skills: text('skills').array(),
     isAccountManager: boolean('is_account_manager').notNull().default(false),
     photoUrl: varchar('photo_url', { length: 500 }),
     // Soft delete and versioning
@@ -187,6 +192,7 @@ export const employees = pgTable('employees', {
  */
 export const users = pgTable('users', {
     id: serial('id').primaryKey(),
+    cognitoUserId: varchar('cognito_user_id', { length: 255 }),  // Cognito sub ID for authentication
     username: varchar('username', { length: 50 }).notNull(),
     email: varchar('email', { length: 100 }).notNull(),
     passwordHash: varchar('password_hash', { length: 255 }).notNull(),
@@ -203,6 +209,7 @@ export const users = pgTable('users', {
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
     createdBy: integer('created_by'),
 }, (table) => ({
+    cognitoUserIdIdx: index('idx_users_cognito_user_id').on(table.cognitoUserId),
     usernameUnique: uniqueIndex('users_username_unique').on(table.username).where(sql`deleted_at IS NULL`),
     emailUnique: uniqueIndex('users_email_unique').on(table.email).where(sql`deleted_at IS NULL`),
 }));
@@ -607,3 +614,4 @@ export const schema = {
 };
 
 export default schema;
+
