@@ -50,7 +50,7 @@ const TierBreakdownFilters = ({
           >
             <Option value="All">All</Option>
             {tiers.map((tier) => (
-              <Option key={tier.id} value={tier.name} label={tier.name}>
+              <Option key={tier.id} value={tier.id} label={tier.name}>
                 {tier.name}
               </Option>
             ))}
@@ -73,7 +73,7 @@ const TierBreakdownFilters = ({
           >
             <Option value="All">All</Option>
             {projects.map((project) => (
-              <Option key={project.id} value={project.name} label={project.name}>
+              <Option key={project.id} value={project.id} label={project.name}>
                 {project.name}
               </Option>
             ))}
@@ -96,7 +96,7 @@ const TierBreakdownFilters = ({
           >
             <Option value="All">All</Option>
             {accountManagers.map((am) => (
-              <Option key={am.id} value={am.name} label={am.name}>
+              <Option key={am.id} value={am.id} label={am.name}>
                 {am.name}
               </Option>
             ))}
@@ -118,7 +118,7 @@ const TierBreakdownFilters = ({
           >
             <Option value="All">All</Option>
             {tracks.map((track) => (
-              <Option key={track.id} value={track.name} label={track.name}>
+              <Option key={track.id} value={track.id} label={track.name}>
                 {track.name}
               </Option>
             ))}
@@ -140,7 +140,7 @@ const TierBreakdownFilters = ({
           >
             <Option value="All">All</Option>
             {techStacks.map((techStack) => (
-              <Option key={techStack.name} value={techStack.name} label={techStack.name}>
+              <Option key={techStack.id || techStack.name} value={techStack.id || techStack.name} label={techStack.name}>
                 {techStack.name}
               </Option>
             ))}

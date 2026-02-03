@@ -268,7 +268,7 @@ const ProjectModal = ({
                 }
               >
                 {accountManagersList.map((am) => (
-                  <Option key={am.id} value={am.name} label={am.name}>
+                  <Option key={am.id} value={am.id} label={am.name}>
                     {am.name}
                   </Option>
                 ))}

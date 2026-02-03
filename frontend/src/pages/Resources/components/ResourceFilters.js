@@ -91,7 +91,7 @@ const ResourceFilters = ({
                 >
                   <Option value="All">All</Option>
                   {tiers.map((tier) => (
-                    <Option key={tier.id} value={tier.name}>
+                    <Option key={tier.id} value={tier.id}>
                       {tier.name}
                     </Option>
                   ))}

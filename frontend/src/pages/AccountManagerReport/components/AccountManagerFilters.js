@@ -47,7 +47,7 @@ const AccountManagerFilters = ({
           >
             <Option value="All">All</Option>
             {accountManagersList.map((am) => (
-              <Option key={am.id} value={am.name} label={am.name}>
+              <Option key={am.id} value={am.id} label={am.name}>
                 {am.name}
               </Option>
             ))}
@@ -70,7 +70,7 @@ const AccountManagerFilters = ({
           >
             <Option value="All">All</Option>
             {projectsForFilter.map((project) => (
-              <Option key={project.id} value={project.name} label={project.name}>
+              <Option key={project.id} value={project.id} label={project.name}>
                 {project.name}
               </Option>
             ))}
@@ -118,7 +118,7 @@ const AccountManagerFilters = ({
           >
             <Option value="All">All</Option>
             {clientsList.map((client) => (
-              <Option key={client.id} value={client.client_name} label={client.client_name}>
+              <Option key={client.id} value={client.id} label={client.client_name}>
                 {client.client_name}
               </Option>
             ))}
