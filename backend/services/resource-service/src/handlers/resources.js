@@ -1,3 +1,4 @@
+﻿// Deployment: 2026-02-03 14:57:48
 /**
  * Resources Handler
  * Lambda handlers for resource (employee) management
@@ -592,9 +593,9 @@ export const create = async (event) => {
                     internshipCompletionTargetDate: validated.internship_completion_target_date || null,
                     // Personal info
                     nicPassport: validated.nic_passport || null,
-                    isExternal: validated.is_external || false,
+                    isExternal: validated.is_external ?? false,
                     // Other fields
-                    skills: validated.skills || [],
+                    skills: validated.skills && validated.skills.length > 0 ? validated.skills : null,
                     photoUrl: validated.photo_url || null,
                     status: validated.status || 'Active',
                     totalAllocation: validated.total_allocation || 0,
@@ -1260,3 +1261,4 @@ export const updateTechStack = async (event) => {
         return error('Failed to update resource tech stack', err);
     }
 };
+

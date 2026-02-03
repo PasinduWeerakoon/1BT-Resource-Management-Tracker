@@ -456,7 +456,17 @@ ALTER TABLE employees ADD COLUMN IF NOT EXISTS is_external BOOLEAN NOT NULL DEFA
 -- Add comment for documentation
 COMMENT ON COLUMN employees.date_of_birth IS 'Employee date of birth';
 COMMENT ON COLUMN employees.nic_passport IS 'NIC or Passport number';
-COMMENT ON COLUMN employees.is_external IS 'Whether the employee is external (contractor/vendor)';`
+COMMENT ON COLUMN employees.is_external IS 'Whether the employee is external (contractor/vendor)';`,
+
+    '010_add_cognito_user_id': `-- Migration: 010_add_cognito_user_id
+-- Add cognito_user_id column to users table for Cognito authentication integration
+ALTER TABLE users ADD COLUMN IF NOT EXISTS cognito_user_id VARCHAR(255);
+
+-- Create index for fast lookups
+CREATE INDEX IF NOT EXISTS idx_users_cognito_user_id ON users(cognito_user_id);
+
+-- Add comment for documentation
+COMMENT ON COLUMN users.cognito_user_id IS 'AWS Cognito User Pool sub ID for authentication';`
 };
 
 // ============================================================================
