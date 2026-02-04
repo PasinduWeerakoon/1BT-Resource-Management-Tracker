@@ -15,6 +15,8 @@ import logger from '@utils/logger';
  * @param {Function} options.onFetch - Callback to refetch projects
  * @param {Array} options.projectTypesForModal - Project types list
  * @param {Array} options.billingStatusesForModal - Billing statuses list
+ * @param {Array} options.accountTypesForModal - Account types list from Redux
+ * @param {Array} options.projectStatusesForModal - Project statuses list from Redux
  * @param {Function} options.onCloseModal - Close modal handler
  * @returns {Object} Form state and handlers
  */
@@ -23,9 +25,13 @@ export const useProjectForm = ({
   onFetch,
   projectTypesForModal,
   billingStatusesForModal,
+  accountTypesForModal,
+  projectStatusesForModal,
   onCloseModal,
 }) => {
-  const [accountType, setAccountType] = useState('External');
+  // Initialize with External account type ID (id: 2)
+  const defaultAccountTypeId = accountTypesForModal?.find(at => at.name === 'External')?.id || 2;
+  const [accountTypeId, setAccountTypeId] = useState(defaultAccountTypeId);
 
   /**
    * Handle form submission
@@ -49,8 +55,9 @@ export const useProjectForm = ({
       }
 
       let client_id = null;
-      const accountType = values.account_type || 'External';
-      if (accountType === 'External') {
+      const accountTypeId = values.account_type;
+      const accountType = accountTypesForModal?.find(at => at.id === accountTypeId);
+      if (accountType?.name === 'External') {
         if (values.client_id) {
           client_id = values.client_id;
         } else {
@@ -59,18 +66,47 @@ export const useProjectForm = ({
         }
       }
 
-      const projectTypeObj = projectTypesForModal.find(pt => pt.id === values.project_type);
-      const project_type = projectTypeObj?.name || 'Client';
-
-      const status = values.status || 'Active';
-
       if (isEditMode) {
+        // For edit mode, send all updatable fields with IDs
         const updatePayload = {
           project_name: values.project_name,
+          project_code: values.project_code || '',
           client_id: client_id,
-          status: status,
+          project_type_id: values.project_type || null,
+          account_type_id: values.account_type,
+          account_manager_id: values.account_manager || null,
+          account_reg_sales_owner: values.account_reg_sales_owner || '',
+          team_size: values.team_size || 1,
+          billing_status_id: values.billing_type || null,
+          budget: values.budget || 0,
+          status_id: values.status,
+          project_start_date: values.start_date ? values.start_date.format('YYYY-MM-DD') : null,
+          project_end_date: values.end_date ? values.end_date.format('YYYY-MM-DD') : null,
           description: values.description || '',
         };
+
+        // Clean up payload - remove empty optional fields
+        const cleanedPayload = { ...updatePayload };
+        if (!cleanedPayload.project_code || cleanedPayload.project_code === '') {
+          delete cleanedPayload.project_code;
+        }
+        if (!cleanedPayload.account_reg_sales_owner || cleanedPayload.account_reg_sales_owner === '') {
+          delete cleanedPayload.account_reg_sales_owner;
+        }
+        if (!cleanedPayload.description || cleanedPayload.description === '') {
+          delete cleanedPayload.description;
+        }
+        if (!cleanedPayload.project_start_date) {
+          delete cleanedPayload.project_start_date;
+        }
+        if (!cleanedPayload.project_end_date) {
+          delete cleanedPayload.project_end_date;
+        }
+        // Remove client_id if Internal project
+        const accountTypeObj = accountTypesForModal?.find(at => at.id === values.account_type);
+        if (accountTypeObj?.name === 'Internal') {
+          delete cleanedPayload.client_id;
+        }
 
         const response = await projectsService.update(selectedItem.id, updatePayload);
         if (response && (response.success !== false || response.data)) {
@@ -81,23 +117,20 @@ export const useProjectForm = ({
           showErrorToast(response?.message || 'Failed to update project');
         }
       } else {
-        const billingTypeObj = billingStatusesForModal.find(bs => bs.id === values.billing_type);
-        const billing_type = billingTypeObj?.name || 'Billing';
-
         const projectPayload = {
           project_name: values.project_name,
           project_code: values.project_code || '',
           client_id: client_id,
-          project_type: project_type,
-          account_type: accountType || 'External',
-          account_manager: values.account_manager,
+          project_type_id: values.project_type, // ID from form
+          account_type_id: values.account_type, // ID from form
+          account_manager_id: values.account_manager, // ID from form
           account_reg_sales_owner: values.account_reg_sales_owner || '',
           team_size: values.team_size || 1,
-          billing_type: billing_type,
+          billing_status_id: values.billing_type, // ID from form
           budget: values.budget || 0,
-          status: status,
-          start_date: values.start_date ? values.start_date.format('YYYY-MM-DD') : null,
-          end_date: values.end_date ? values.end_date.format('YYYY-MM-DD') : null,
+          status_id: values.status, // ID from form
+          project_start_date: values.start_date ? values.start_date.format('YYYY-MM-DD') : null,
+          project_end_date: values.end_date ? values.end_date.format('YYYY-MM-DD') : null,
           description: values.description || '',
         };
 
@@ -112,13 +145,15 @@ export const useProjectForm = ({
         if (!cleanedPayload.description || cleanedPayload.description === '') {
           delete cleanedPayload.description;
         }
-        if (!cleanedPayload.start_date) {
-          delete cleanedPayload.start_date;
+        if (!cleanedPayload.project_start_date) {
+          delete cleanedPayload.project_start_date;
         }
-        if (!cleanedPayload.end_date) {
-          delete cleanedPayload.end_date;
+        if (!cleanedPayload.project_end_date) {
+          delete cleanedPayload.project_end_date;
         }
-        if (accountType === 'Internal') {
+        // Check if account type is Internal to remove client_id
+        const accountTypeObj = accountTypesForModal?.find(at => at.id === values.account_type);
+        if (accountTypeObj?.name === 'Internal') {
           delete cleanedPayload.client_id;
         }
 
@@ -139,8 +174,8 @@ export const useProjectForm = ({
   };
 
   return {
-    accountType,
-    setAccountType,
+    accountType: accountTypeId,
+    setAccountType: setAccountTypeId,
     handleSubmit,
   };
 };

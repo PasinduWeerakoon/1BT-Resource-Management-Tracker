@@ -45,7 +45,7 @@ export const useConfigCRUD = (options = {}) => {
   const handleEdit = useCallback((record) => {
     setIsEditMode(true);
     setSelectedItem(record);
-    form.setFieldsValue(record);
+    // Don't set form values here - let the custom handler do it
     setIsModalVisible(true);
   }, [form]);
 

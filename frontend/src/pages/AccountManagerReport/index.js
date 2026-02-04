@@ -25,11 +25,11 @@ import { FilterSection, ReportHeader, SummaryCards } from '@components/ReportLay
 import AccountManagerFilters from './components/AccountManagerFilters';
 import ChartsSection from './components/ChartsSection';
 import ProjectsTable from './components/ProjectsTable';
-import ProjectModal from './components/ProjectModal';
+import ProjectForm from '@pages/Configurations/Tabs/ProjectsTab/components/ProjectForm';
 import { useReportFilters } from '@hooks/reports';
 import { useSelector } from 'react-redux';
 import { projectsService, clientsService, allocationsService, resourcesService, accountManagersService, reportsService } from '@api';
-import { selectProjectTypes, selectBillingStatuses, selectTiers, selectTracks } from '@redux/slices/configSlice';
+import { selectProjectTypes, selectBillingStatuses, selectTiers, selectTracks, selectAccountTypes, selectProjectStatuses } from '@redux/slices/configSlice';
 import { showErrorToast, showSuccessToast, showWarningToast } from '@utils/toast.utils';
 import logger from '@utils/logger';
 import '@styles/pages/AccountManagerReport.scss';
@@ -40,7 +40,6 @@ const AccountManagerReport = () => {
     const { message } = App.useApp();
     const [form] = Form.useForm();
     const [billingType, setBillingType] = useState(null);
-    const [accountType, setAccountType] = useState('External');
     const [billingStatusExpanded, setBillingStatusExpanded] = useState(true);
     const [employeesByTierExpanded, setEmployeesByTierExpanded] = useState(true);
     const [projectOverviewExpanded, setProjectOverviewExpanded] = useState(true);
@@ -191,18 +190,12 @@ const AccountManagerReport = () => {
     const billingStatusesList = useSelector(selectBillingStatuses);
     const tiersList = useSelector(selectTiers);
     const tracksList = useSelector(selectTracks);
+    const accountTypesList = useSelector(selectAccountTypes);
+    const projectStatusesList = useSelector(selectProjectStatuses);
 
-    // Hardcoded values for Account Types and Project Statuses (no longer fetched from API)
-    const accountTypesList = [
-        { id: 'External', name: 'External' },
-        { id: 'Internal', name: 'Internal' },
-    ];
-    const projectStatusesList = [
-        { id: 'Active', name: 'Active' },
-        { id: 'On Hold', name: 'On Hold' },
-        { id: 'Completed', name: 'Completed' },
-        { id: 'Cancelled', name: 'Cancelled' },
-    ];
+    // Initialize account type with External ID (id: 2)
+    const defaultAccountTypeId = accountTypesList?.find(at => at.name === 'External')?.id || 2;
+    const [accountType, setAccountType] = useState(defaultAccountTypeId);
 
     const [reportData, setReportData] = useState({
         summary: {
@@ -762,14 +755,18 @@ const AccountManagerReport = () => {
             ? filters.accountManager
             : undefined;
 
+        const externalAccountTypeId = accountTypesList.find(at => at.name === 'External')?.id;
+        const activeStatusId = projectStatusesList.find(ps => ps.name === 'Active')?.id;
+
         form.setFieldsValue({
-            accountManager: accountManagerValue,
-            status: 'Active',
-            billingType: undefined,
-            accountType: 'External',
+            account_manager: accountManagerValue,
+            status: activeStatusId,
+            billing_type: billingStatusesList.find(bs => bs.name === 'Billing')?.id,
+            account_type: externalAccountTypeId,
+            team_size: 1,
         });
         setBillingType(null);
-        setAccountType('External');
+        setAccountType(externalAccountTypeId);
         setIsCreateProjectModalVisible(true);
     };
 
@@ -779,7 +776,7 @@ const AccountManagerReport = () => {
         setSelectedProject(null);
         form.resetFields();
         setBillingType(null);
-        setAccountType('External');
+        setAccountType(accountTypesList.find(at => at.name === 'External')?.id || null);
     };
 
     // Handle edit project
@@ -787,42 +784,39 @@ const AccountManagerReport = () => {
         setSelectedProject(project);
         setIsEditMode(true);
 
-        // Determine account type based on project_type
-        let accountType = 'External';
-        let projectType = project.projectType;
+        // Convert account_type string to ID
+        const accountTypeId = accountTypesList.find(at => at.name === project.account_type || project.project_type === 'Internal' ? 'Internal' : 'External')?.id ||
+            accountTypesList.find(at => at.name === 'External')?.id;
+        // Convert status string to ID
+        const statusId = projectStatusesList.find(ps => ps.name === project.status)?.id ||
+            projectStatusesList.find(ps => ps.name === 'Active')?.id;
+        // Find billing status ID
+        const billingStatusId = billingStatusesList.find(bs => bs.name === (project.is_billable ? 'Billing' : 'Non-Billing'))?.id;
 
-        if (project.project_type === 'Internal') {
-            accountType = 'Internal';
-            projectType = 'Internal';
-        } else {
-            // Map project_type back to form projectType
-            const projectTypeReverseMap = {
-                'Client': 'Client',
-                'Bench': 'Bench',
-                'Training': 'Training',
-                'Pre-Sales': 'Presale',
-            };
-            projectType = projectTypeReverseMap[project.project_type] || project.projectType;
-        }
-
-        // Map project data to form fields
+        // Map project data to ProjectForm field names
         const formValues = {
-            projectName: project.project_name || project.project,
-            status: project.status || 'Active',
-            projectType: projectType,
-            accountType: accountType,
-            clientName: project.customer || '',
-            projectStartDate: project.start_date ? dayjs(project.start_date) : undefined,
-            projectEndDate: project.end_date ? dayjs(project.end_date) : undefined,
-            accountManager: filters.accountManager,
-            billingType: project.is_billable ? 'Billing' : 'Non-Billing',
-            teamSize: project.teamSize || 0,
+            project_name: project.project_name || project.project || '',
+            project_code: project.project_code || '',
+            client_id: project.client_id || null,
+            project_type: project.project_type_id || null,
+            account_type: accountTypeId,
+            status: statusId,
+            account_manager: project.account_manager_id || filters.accountManager || null,
+            billing_type: billingStatusId || null,
+            team_size: project.team_size !== undefined && project.team_size !== null ? project.team_size : (project.teamSize || 1),
+            account_reg_sales_owner: project.account_reg_sales_owner || '',
+            budget: project.budget !== undefined && project.budget !== null ? parseFloat(project.budget) : 0,
+            start_date: project.project_start_date ? dayjs(project.project_start_date) : (project.start_date ? dayjs(project.start_date) : null),
+            end_date: project.project_end_date ? dayjs(project.project_end_date) : (project.end_date ? dayjs(project.end_date) : null),
             description: project.description || '',
         };
 
-        form.setFieldsValue(formValues);
-        setBillingType(formValues.billingType);
-        setAccountType(formValues.accountType);
+        form.resetFields();
+        setTimeout(() => {
+            form.setFieldsValue(formValues);
+        }, 100);
+        setBillingType(billingStatusId);
+        setAccountType(accountTypeId);
         setIsCreateProjectModalVisible(true);
     };
 
@@ -1223,13 +1217,13 @@ const AccountManagerReport = () => {
             setIsSubmittingProject(true);
 
             // Validate required fields
-            if (!values.projectName) {
+            if (!values.project_name) {
                 showErrorToast('Project name is required');
                 setIsSubmittingProject(false);
                 return;
             }
 
-            if (!values.accountManager) {
+            if (!values.account_manager) {
                 showErrorToast('Account manager is required');
                 setIsSubmittingProject(false);
                 return;
@@ -1238,11 +1232,10 @@ const AccountManagerReport = () => {
             // Handle client_id - required only for External projects
             let client_id = null;
             // Find the account type to check if it's External
-            const selectedAccountType = accountTypesList.find(t => t.id === values.accountType);
+            const selectedAccountType = accountTypesList.find(t => t.id === values.account_type);
             if (selectedAccountType?.name === 'External') {
-                if (values.clientName) {
-                    // clientName is now the client ID from the dropdown
-                    client_id = values.clientName;
+                if (values.client_id) {
+                    client_id = values.client_id;
 
                     // Verify client exists in the list
                     const selectedClient = clientsList.find(client => client.id === client_id);
@@ -1258,23 +1251,21 @@ const AccountManagerReport = () => {
                 }
             }
 
-            // Prepare API payload
-            // Account Type and Status are now hardcoded strings, not IDs
-            // Project Type and Billing Status use IDs from Redux data
+            // Prepare API payload - all IDs now (using ProjectForm field names)
             const projectPayload = {
-                project_name: values.projectName,
-                project_code: values.projectCode || '', // Optional
+                project_name: values.project_name,
+                project_code: values.project_code || '', // Optional
                 client_id: client_id, // Required only for External projects
-                project_type_id: values.projectType, // ID from Redux (projectTypesList)
-                account_type: values.accountType, // String value: 'External' or 'Internal'
-                account_manager: values.accountManager, // Required string
-                account_reg_sales_owner: values.accountRegSalesOwner || '', // Optional string
-                team_size: values.teamSize || 1, // Number, default 1
-                billing_status_id: values.billingType, // ID from Redux (billingStatusesList)
+                project_type_id: values.project_type, // ID from Redux (projectTypesList)
+                account_type_id: values.account_type, // ID from form
+                account_manager_id: values.account_manager, // ID from form
+                account_reg_sales_owner: values.account_reg_sales_owner || '', // Optional string
+                team_size: values.team_size || 1, // Number, default 1
+                billing_status_id: values.billing_type, // ID from Redux (billingStatusesList)
                 budget: values.budget || 0, // Number, default 0
-                status: values.status, // String value: 'Active', 'On Hold', 'Completed', 'Cancelled'
-                project_start_date: values.projectStartDate ? values.projectStartDate.format('YYYY-MM-DD') : null,
-                project_end_date: values.projectEndDate ? values.projectEndDate.format('YYYY-MM-DD') : null,
+                status_id: values.status, // ID from form
+                project_start_date: values.start_date ? values.start_date.format('YYYY-MM-DD') : null,
+                project_end_date: values.end_date ? values.end_date.format('YYYY-MM-DD') : null,
                 description: values.description || '',
             };
 
@@ -1303,7 +1294,8 @@ const AccountManagerReport = () => {
             }
 
             // Remove client_id if Internal project
-            if (selectedAccountType?.name === 'Internal') {
+            const accountTypeObj = accountTypesList.find(at => at.id === values.account_type);
+            if (accountTypeObj?.name === 'Internal') {
                 delete cleanedPayload.client_id;
             }
 
@@ -1311,11 +1303,21 @@ const AccountManagerReport = () => {
             const finalPayload = cleanedPayload;
 
             if (isEditMode && selectedProject) {
-                // Update existing project
+                // Update existing project (using ProjectForm field names)
                 const updatePayload = {
-                    project_name: values.projectName,
+                    project_name: values.project_name,
+                    project_code: values.project_code || '',
                     client_id: client_id,
-                    status: values.status === 'Active' ? 'Active' : 'On Hold',
+                    project_type_id: values.project_type,
+                    account_type_id: values.account_type,
+                    account_manager_id: values.account_manager,
+                    account_reg_sales_owner: values.account_reg_sales_owner || '',
+                    team_size: values.team_size || 1,
+                    billing_status_id: values.billing_type,
+                    budget: values.budget || 0,
+                    status_id: values.status,
+                    project_start_date: values.start_date ? values.start_date.format('YYYY-MM-DD') : null,
+                    project_end_date: values.end_date ? values.end_date.format('YYYY-MM-DD') : null,
                     description: values.description || '',
                 };
 
@@ -1329,7 +1331,7 @@ const AccountManagerReport = () => {
                     setSelectedProject(null);
                     form.resetFields();
                     setBillingType(null);
-                    setAccountType('External');
+                    setAccountType(accountTypesList.find(at => at.name === 'External')?.id || null);
                     // Refresh comprehensive report
                     await fetchAccountManagerReport();
                 } else {
@@ -1347,7 +1349,7 @@ const AccountManagerReport = () => {
                     setSelectedProject(null);
                     form.resetFields();
                     setBillingType(null);
-                    setAccountType('External');
+                    setAccountType(accountTypesList.find(at => at.name === 'External')?.id || null);
                     // Refresh comprehensive report
                     await fetchAccountManagerReport();
                 } else {
@@ -2439,25 +2441,51 @@ const AccountManagerReport = () => {
             </Card>
 
             {/* Create/Edit Project Modal */}
-            <ProjectModal
-                visible={isCreateProjectModalVisible}
-                isEditMode={isEditMode}
-                form={form}
-                onCancel={handleCreateProjectCancel}
-                onSubmit={handleCreateProjectSubmit}
-                loading={isSubmittingProject}
-                filters={filters}
-                projectStatusesList={projectStatusesList}
-                projectTypesList={projectTypesList}
-                accountTypesList={accountTypesList}
-                billingStatusesList={billingStatusesList}
-                clientsList={clientsList}
-                accountManagersList={accountManagersList}
-                loadingAccountManagers={loadingAccountManagers}
-                accountType={accountType}
-                setAccountType={setAccountType}
-                setBillingType={setBillingType}
-            />
+            <CustomModal
+                title={isEditMode ? "Edit Project Details" : "Create New Project"}
+                open={isCreateProjectModalVisible}
+                onClose={handleCreateProjectCancel}
+                width={800}
+                buttons={[
+                    {
+                        text: 'Cancel',
+                        type: 'default',
+                        onClick: handleCreateProjectCancel,
+                    },
+                    {
+                        text: isEditMode ? 'Update Details' : 'Create Project',
+                        type: 'primary',
+                        onClick: () => {
+                            form.submit();
+                        },
+                        loading: isSubmittingProject,
+                    },
+                ]}
+            >
+                <Form
+                    form={form}
+                    layout="vertical"
+                    onFinish={handleCreateProjectSubmit}
+                >
+                    <ProjectForm
+                        form={form}
+                        isEditMode={isEditMode}
+                        accountTypeId={accountType}
+                        setAccountTypeId={setAccountType}
+                        clients={clientsList.map(client => ({
+                            id: client.id,
+                            name: client.client_name || client.name,
+                        }))}
+                        accountManagersList={accountManagersList}
+                        projectTypesForModal={projectTypesList}
+                        billingStatusesForModal={billingStatusesList}
+                        accountTypesForModal={accountTypesList}
+                        projectStatusesForModal={projectStatusesList}
+                        loadingConfigForModal={false}
+                        loadingAccountManagers={loadingAccountManagers}
+                    />
+                </Form>
+            </CustomModal>
 
             {/* Add Team Members Modal */}
             <CustomModal

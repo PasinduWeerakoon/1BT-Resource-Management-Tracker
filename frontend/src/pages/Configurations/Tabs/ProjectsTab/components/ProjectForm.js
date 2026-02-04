@@ -5,7 +5,6 @@
 
 import React from 'react';
 import { Form, Input, Select, DatePicker, InputNumber, Row, Col } from 'antd';
-import dayjs from 'dayjs';
 import PropTypes from 'prop-types';
 
 const { Option } = Select;
@@ -15,24 +14,28 @@ const { Option } = Select;
  * @param {Object} props
  * @param {Object} props.form - Form instance
  * @param {boolean} props.isEditMode - Whether in edit mode
- * @param {string} props.accountType - Current account type
- * @param {Function} props.setAccountType - Set account type handler
+ * @param {number} props.accountTypeId - Current account type ID
+ * @param {Function} props.setAccountTypeId - Set account type ID handler
  * @param {Array} props.clients - Clients list
  * @param {Array} props.accountManagersList - Account managers list
  * @param {Array} props.projectTypesForModal - Project types list
  * @param {Array} props.billingStatusesForModal - Billing statuses list
+ * @param {Array} props.accountTypesForModal - Account types list from Redux
+ * @param {Array} props.projectStatusesForModal - Project statuses list from Redux
  * @param {boolean} props.loadingConfigForModal - Loading state for config
  * @param {boolean} props.loadingAccountManagers - Loading state for account managers
  */
 const ProjectForm = ({
   form,
   isEditMode,
-  accountType,
-  setAccountType,
+  accountTypeId,
+  setAccountTypeId,
   clients,
   accountManagersList,
   projectTypesForModal,
   billingStatusesForModal,
+  accountTypesForModal,
+  projectStatusesForModal,
   loadingConfigForModal,
   loadingAccountManagers,
 }) => {
@@ -48,16 +51,14 @@ const ProjectForm = ({
             <Input placeholder="Enter project name" />
           </Form.Item>
         </Col>
-        {!isEditMode && (
-          <Col xs={24} sm={12}>
-            <Form.Item
-              label="Project Code"
-              name="project_code"
-            >
-              <Input placeholder="Enter project code (optional)" />
-            </Form.Item>
-          </Col>
-        )}
+        <Col xs={24} sm={12}>
+          <Form.Item
+            label="Project Code"
+            name="project_code"
+          >
+            <Input placeholder="Enter project code (optional)" />
+          </Form.Item>
+        </Col>
       </Row>
 
       <Row gutter={16}>
@@ -81,16 +82,23 @@ const ProjectForm = ({
             label="Account Type"
             name="account_type"
             rules={[{ required: true, message: 'Account type is required' }]}
-            initialValue="External"
           >
             <Select
               placeholder="Select account type"
+              loading={loadingConfigForModal}
               onChange={(value) => {
-                setAccountType(value || 'External');
+                const selectedType = accountTypesForModal.find(at => at.id === value);
+                setAccountTypeId(value);
+                // Update client field disabled state based on account type
+                const isInternal = selectedType?.name === 'Internal';
+                form.setFieldsValue({ client_id: isInternal ? undefined : form.getFieldValue('client_id') });
               }}
             >
-              <Option value="External">External</Option>
-              <Option value="Internal">Internal</Option>
+              {accountTypesForModal.map((type) => (
+                <Option key={type.id} value={type.id}>
+                  {type.name}
+                </Option>
+              ))}
             </Select>
           </Form.Item>
         </Col>
@@ -104,8 +112,9 @@ const ProjectForm = ({
             rules={[
               ({ getFieldValue }) => ({
                 validator(_, value) {
-                  const accountType = getFieldValue('account_type');
-                  if (accountType === 'External' && !value) {
+                  const accountTypeId = getFieldValue('account_type');
+                  const accountType = accountTypesForModal.find(at => at.id === accountTypeId);
+                  if (accountType?.name === 'External' && !value) {
                     return Promise.reject(new Error('Client is required for External projects'));
                   }
                   return Promise.resolve();
@@ -113,21 +122,31 @@ const ProjectForm = ({
               }),
             ]}
           >
-            <Select
-              placeholder="Select client"
-              showSearch
-              allowClear
-              disabled={accountType === 'Internal'}
-              filterOption={(input, option) =>
-                (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
-              }
-            >
-              {clients.map((client) => (
-                <Option key={client.id} value={client.id} label={client.name}>
-                  {client.name}
-                </Option>
-              ))}
-            </Select>
+            <Form.Item shouldUpdate={(prevValues, currentValues) => prevValues.account_type !== currentValues.account_type} noStyle>
+              {({ getFieldValue }) => {
+                const accountTypeId = getFieldValue('account_type');
+                const accountType = accountTypesForModal.find(at => at.id === accountTypeId);
+                const isInternal = accountType?.name === 'Internal';
+
+                return (
+                  <Select
+                    placeholder="Select client"
+                    showSearch
+                    allowClear
+                    disabled={isInternal}
+                    filterOption={(input, option) =>
+                      (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                    }
+                  >
+                    {clients.map((client) => (
+                      <Option key={client.id} value={client.id} label={client.name}>
+                        {client.name}
+                      </Option>
+                    ))}
+                  </Select>
+                );
+              }}
+            </Form.Item>
           </Form.Item>
         </Col>
         <Col xs={24} sm={12}>
@@ -135,13 +154,13 @@ const ProjectForm = ({
             label="Status"
             name="status"
             rules={[{ required: true, message: 'Status is required' }]}
-            initialValue="Active"
           >
-            <Select placeholder="Select status">
-              <Option value="Active">Active</Option>
-              <Option value="On Hold">On Hold</Option>
-              <Option value="Completed">Completed</Option>
-              <Option value="Cancelled">Cancelled</Option>
+            <Select placeholder="Select status" loading={loadingConfigForModal}>
+              {projectStatusesForModal.map((status) => (
+                <Option key={status.id} value={status.id}>
+                  {status.name}
+                </Option>
+              ))}
             </Select>
           </Form.Item>
         </Col>
@@ -171,23 +190,21 @@ const ProjectForm = ({
             </Select>
           </Form.Item>
         </Col>
-        {!isEditMode && (
-          <Col xs={24} sm={12}>
-            <Form.Item
-              label="Billing Type"
-              name="billing_type"
-              rules={[{ required: true, message: 'Billing type is required' }]}
-            >
-              <Select placeholder="Select billing type" loading={loadingConfigForModal}>
-                {billingStatusesForModal.map((billing) => (
-                  <Option key={billing.id} value={billing.id}>
-                    {billing.name}
-                  </Option>
-                ))}
-              </Select>
-            </Form.Item>
-          </Col>
-        )}
+        <Col xs={24} sm={12}>
+          <Form.Item
+            label="Billing Type"
+            name="billing_type"
+            rules={[{ required: true, message: 'Billing type is required' }]}
+          >
+            <Select placeholder="Select billing type" loading={loadingConfigForModal}>
+              {billingStatusesForModal.map((billing) => (
+                <Option key={billing.id} value={billing.id}>
+                  {billing.name}
+                </Option>
+              ))}
+            </Select>
+          </Form.Item>
+        </Col>
       </Row>
 
       <Row gutter={16}>
@@ -207,39 +224,35 @@ const ProjectForm = ({
             />
           </Form.Item>
         </Col>
-        {!isEditMode && (
-          <Col xs={24} sm={12}>
-            <Form.Item
-              label="Budget"
-              name="budget"
-              rules={[
-                { type: 'number', min: 0, message: 'Budget must be 0 or greater' },
-              ]}
-            >
-              <InputNumber
-                style={{ width: '100%' }}
-                placeholder="Enter budget (optional)"
-                min={0}
-                formatter={value => `$ ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-                parser={value => value.replace(/\$\s?|(,*)/g, '')}
-              />
-            </Form.Item>
-          </Col>
-        )}
+        <Col xs={24} sm={12}>
+          <Form.Item
+            label="Budget"
+            name="budget"
+            rules={[
+              { type: 'number', min: 0, message: 'Budget must be 0 or greater' },
+            ]}
+          >
+            <InputNumber
+              style={{ width: '100%' }}
+              placeholder="Enter budget (optional)"
+              min={0}
+              formatter={value => `$ ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+              parser={value => value.replace(/\$\s?|(,*)/g, '')}
+            />
+          </Form.Item>
+        </Col>
       </Row>
 
-      {!isEditMode && (
-        <Row gutter={16}>
-          <Col xs={24} sm={12}>
-            <Form.Item
-              label="Account Reg/Sales Owner"
-              name="account_reg_sales_owner"
-            >
-              <Input placeholder="Enter account reg/sales owner (optional)" />
-            </Form.Item>
-          </Col>
-        </Row>
-      )}
+      <Row gutter={16}>
+        <Col xs={24} sm={12}>
+          <Form.Item
+            label="Account Reg/Sales Owner"
+            name="account_reg_sales_owner"
+          >
+            <Input placeholder="Enter account reg/sales owner (optional)" />
+          </Form.Item>
+        </Col>
+      </Row>
 
       <Row gutter={16}>
         <Col xs={24} sm={12}>
@@ -289,12 +302,14 @@ const ProjectForm = ({
 ProjectForm.propTypes = {
   form: PropTypes.object.isRequired,
   isEditMode: PropTypes.bool.isRequired,
-  accountType: PropTypes.string.isRequired,
-  setAccountType: PropTypes.func.isRequired,
+  accountTypeId: PropTypes.number,
+  setAccountTypeId: PropTypes.func.isRequired,
   clients: PropTypes.array.isRequired,
   accountManagersList: PropTypes.array.isRequired,
   projectTypesForModal: PropTypes.array.isRequired,
   billingStatusesForModal: PropTypes.array.isRequired,
+  accountTypesForModal: PropTypes.array.isRequired,
+  projectStatusesForModal: PropTypes.array.isRequired,
   loadingConfigForModal: PropTypes.bool,
   loadingAccountManagers: PropTypes.bool,
 };
