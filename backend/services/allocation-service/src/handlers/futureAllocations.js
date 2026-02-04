@@ -65,10 +65,10 @@ export const list = async (event) => {
             SELECT fa.*, 
                    r.name as resource_name,
                    r.epf_no,
-                   p.name as project_name,
+                   p.project_name,
                    p.project_code,
                    p.is_bench_project,
-                   u.name as created_by_name
+                   u.username as created_by_name
             FROM future_allocations fa
             JOIN employees r ON fa.employee_id = r.id
             JOIN projects p ON fa.project_id = p.id

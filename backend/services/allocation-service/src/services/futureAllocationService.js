@@ -147,7 +147,7 @@ export const getFutureAllocationsByResource = async (resourceId, options = {}) =
     let query = `
         SELECT fa.*, 
                r.name as resource_name,
-               p.name as project_name,
+               p.project_name,
                p.project_code
         FROM future_allocations fa
         JOIN employees r ON fa.employee_id = r.id
@@ -181,7 +181,7 @@ export const getScheduledAllocations = async (options = {}) => {
     let query = `
         SELECT fa.*, 
                r.name as resource_name,
-               p.name as project_name,
+               p.project_name,
                p.project_code,
                p.is_bench_project
         FROM future_allocations fa
@@ -220,7 +220,7 @@ export const getAllocationsToActivateToday = async () => {
     const query = `
         SELECT fa.*, 
                r.name as resource_name,
-               p.name as project_name,
+               p.project_name,
                p.project_code,
                p.is_bench_project
         FROM future_allocations fa
@@ -255,7 +255,7 @@ export const getFutureAllocationById = async (id) => {
     const query = `
         SELECT fa.*, 
                r.name as resource_name,
-               p.name as project_name,
+               p.project_name,
                p.project_code
         FROM future_allocations fa
         JOIN employees r ON fa.employee_id = r.id
