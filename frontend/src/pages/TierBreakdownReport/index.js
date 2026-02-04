@@ -121,6 +121,12 @@ const TierBreakdownReport = () => {
       width: 200,
     },
     {
+      title: 'Tier',
+      dataIndex: 'tier',
+      key: 'tier',
+      width: 120,
+    },
+    {
       title: 'Project',
       dataIndex: 'project',
       key: 'project',
