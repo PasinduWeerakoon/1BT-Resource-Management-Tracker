@@ -90,6 +90,101 @@ const AccountManagerReport = () => {
     const [loadingAccountManagers, setLoadingAccountManagers] = useState(false);
     const [projectsForFilter, setProjectsForFilter] = useState([]);
     const [loadingProjectsForFilter, setLoadingProjectsForFilter] = useState(false);
+    const resourcesById = useMemo(() => {
+        const map = new Map();
+        resourcesList.forEach((resource) => {
+            if (resource?.id !== undefined) {
+                map.set(resource.id, resource);
+            }
+        });
+        return map;
+    }, [resourcesList]);
+
+    useEffect(() => {
+        if (!allocationData.length) return;
+        let changed = false;
+        const nextAllocations = allocationData.map((item) => {
+            const resourceInfo = resourcesById.get(item.resource_id);
+            if (!resourceInfo) return item;
+
+            const newTotalAllocation = `${(parseFloat(resourceInfo.total_allocation) || 0).toFixed(2)}%`;
+            const newTotalBilling = `${(parseFloat(resourceInfo.total_resource_billing) || 0).toFixed(2)}%`;
+            const newLastUpdated = resourceInfo.updated_at
+                ? dayjs(resourceInfo.updated_at).format('DD MMM YYYY')
+                : '';
+
+            if (
+                item.totalAllocation !== newTotalAllocation ||
+                item.totalBilling !== newTotalBilling ||
+                item.lastUpdated !== newLastUpdated
+            ) {
+                changed = true;
+                return {
+                    ...item,
+                    totalAllocation: newTotalAllocation,
+                    totalBilling: newTotalBilling,
+                    lastUpdated: newLastUpdated,
+                };
+            }
+
+            return item;
+        });
+
+        if (changed) {
+            setAllocationData(nextAllocations);
+        }
+    }, [resourcesById, allocationData]);
+
+    useEffect(() => {
+        const loadMissingResources = async () => {
+            if (!allocationData.length) return;
+            const missingIds = Array.from(new Set(
+                allocationData
+                    .filter(item => item.resource_id && !resourcesById.has(item.resource_id))
+                    .map(item => item.resource_id)
+            ));
+            if (!missingIds.length) return;
+
+            try {
+                const fetched = await Promise.all(missingIds.map(async (id) => {
+                    try {
+                        const res = await resourcesService.getById(id);
+                        const resource = res?.data || res;
+                        if (resource?.id) return resource;
+                    } catch (error) {
+                        logger.error('Failed to fetch resource by id:', error);
+                    }
+                    return null;
+                }));
+
+                const newResources = fetched.filter(Boolean);
+                if (!newResources.length) return;
+
+                setResourcesList(prev => {
+                    const existingIds = new Set(prev.map(r => r.id));
+                    const merged = [...prev];
+                    newResources.forEach((resource) => {
+                        if (!existingIds.has(resource.id)) {
+                            merged.push({
+                                id: resource.id,
+                                name: resource.name,
+                                email: resource.email,
+                                status: resource.status,
+                                updated_at: resource.updated_at,
+                                total_allocation: resource.total_allocation,
+                                total_resource_billing: resource.total_resource_billing,
+                            });
+                        }
+                    });
+                    return merged;
+                });
+            } catch (error) {
+                logger.error('Failed to load missing resources:', error);
+            }
+        };
+
+        loadMissingResources();
+    }, [allocationData, resourcesById]);
 
     // Get configuration data from Redux (cached on login)
     const projectTypesList = useSelector(selectProjectTypes);
@@ -449,6 +544,10 @@ const AccountManagerReport = () => {
                         const allocationPercentage = parseFloat(allocation.allocation_percentage || allocation.project_allocation) || 0;
                         const billingPercentage = parseFloat(allocation.billing_percentage) || 0;
                         const billingStatus = billingPercentage > 0 ? 'Billing' : 'Non-Billing';
+                        const resourceInfo = resourcesById.get(allocation.resource_id);
+                        const totalAllocation = parseFloat(resourceInfo?.total_allocation ?? allocation.total_allocation) || 0;
+                        const totalBilling = parseFloat(resourceInfo?.total_resource_billing ?? allocation.total_resource_billing) || 0;
+                        const lastUpdatedSource = resourceInfo?.updated_at || allocation.updated_at;
 
                         return {
                             key: allocation.id,
@@ -468,6 +567,9 @@ const AccountManagerReport = () => {
                             billingStatus: billingStatus,
                             billingPercentage: billingPercentage ? `${billingPercentage.toFixed(2)}%` : '0.00%',
                             projectAllocation: allocationPercentage ? `${allocationPercentage.toFixed(2)}%` : '0.00%',
+                            totalAllocation: `${totalAllocation.toFixed(2)}%`,
+                            totalBilling: `${totalBilling.toFixed(2)}%`,
+                            lastUpdated: lastUpdatedSource ? dayjs(lastUpdatedSource).format('DD MMM YYYY') : '',
                             duration: allocation.duration || allocation.duration_days || 0,
                             status: allocation.is_active ? 'Active' : 'Inactive',
                         };
@@ -1389,6 +1491,9 @@ const AccountManagerReport = () => {
                     name: resource.name, // API returns 'name' field
                     email: resource.email,
                     status: resource.status,
+                    updated_at: resource.updated_at,
+                    total_allocation: resource.total_allocation,
+                    total_resource_billing: resource.total_resource_billing,
                 })).filter(resource => resource.id && resource.name); // Filter out invalid entries
 
                 setResourcesList(formattedResources);
@@ -1827,9 +1932,21 @@ const AccountManagerReport = () => {
             width: 140,
         },
         {
+            title: 'Total Billing',
+            dataIndex: 'totalBilling',
+            key: 'totalBilling',
+            width: 140,
+        },
+        {
             title: 'Project Allocation',
             dataIndex: 'projectAllocation',
             key: 'projectAllocation',
+            width: 140,
+        },
+        {
+            title: 'Total Allocation',
+            dataIndex: 'totalAllocation',
+            key: 'totalAllocation',
             width: 140,
         },
         {
@@ -1839,11 +1956,17 @@ const AccountManagerReport = () => {
             width: 100,
         },
         {
+            title: 'Last Updated',
+            dataIndex: 'lastUpdated',
+            key: 'lastUpdated',
+            width: 140,
+        },
+        {
             title: 'Actions',
             key: 'actions',
             width: 120,
-            fixed: 'right',
             align: 'center',
+            fixed: 'right',
             render: (_, record) => (
                 <Space size="small" style={{ justifyContent: 'center', width: '100%' }}>
                     <Tooltip title="View Allocations">
@@ -1886,11 +2009,14 @@ const AccountManagerReport = () => {
                 </Space>
             ),
         },
+  
     ];
 
     // Fetch allocations for a project
     const fetchProjectAllocations = async (projectId, page = 1, limit = 10) => {
-        if (!projectId) return;
+        const effectiveProjectId = projectId
+            ?? selectedProjectId
+            ?? (filters.projectName && filters.projectName !== 'All' ? filters.projectName : null);
 
         // Prevent duplicate calls
         if (fetchAllocationsInProgressRef.current) {
@@ -1902,11 +2028,28 @@ const AccountManagerReport = () => {
             setLoadingAllocations(true);
             // Note: projectsService.getAllocations doesn't support pagination directly
             // We'll fetch all and paginate client-side, or use allocationsService.getAll with project_id filter
-            const response = await allocationsService.getAll({
-                project_id: projectId,
+            const params = {
                 page: page || allocationPagination.current,
                 limit: limit || allocationPagination.pageSize,
-            });
+            };
+
+            if (effectiveProjectId) {
+                params.project_id = effectiveProjectId;
+            }
+            if (filters.accountManager && filters.accountManager !== 'All') {
+                params.account_manager_id = filters.accountManager;
+            }
+            if (filters.projectStatus && filters.projectStatus !== 'All') {
+                params.project_status_id = filters.projectStatus;
+            }
+            if (filters.clientName && filters.clientName !== 'All') {
+                params.client_id = filters.clientName;
+            }
+            if (filters.billingStatus && filters.billingStatus !== 'All') {
+                params.billing_status_id = filters.billingStatus;
+            }
+
+            const response = await allocationsService.getAll(params);
 
             logger.debug('Allocations API response:', response);
 
@@ -2015,6 +2158,10 @@ const AccountManagerReport = () => {
                 const billingPercentage = typeof allocation.billing_percentage === 'string'
                     ? parseFloat(allocation.billing_percentage)
                     : (allocation.billing_percentage || 0);
+                const resourceInfo = resourcesById.get(allocation.resource_id);
+                const totalAllocation = parseFloat(resourceInfo?.total_allocation ?? allocation.total_allocation) || 0;
+                const totalBilling = parseFloat(resourceInfo?.total_resource_billing ?? allocation.total_resource_billing) || 0;
+                const lastUpdatedSource = resourceInfo?.updated_at || allocation.updated_at;
 
                 return {
                     key: allocation.id || `allocation-${index}`,
@@ -2026,6 +2173,9 @@ const AccountManagerReport = () => {
                     billingStatus: billingStatus,
                     billingPercentage: billingPercentage ? `${billingPercentage.toFixed(2)}%` : '0.00%',
                     projectAllocation: allocationPercentage ? `${allocationPercentage.toFixed(2)}%` : '0.00%',
+                    totalAllocation: `${totalAllocation.toFixed(2)}%`,
+                    totalBilling: `${totalBilling.toFixed(2)}%`,
+                    lastUpdated: lastUpdatedSource ? dayjs(lastUpdatedSource).format('DD MMM YYYY') : '',
                     duration: duration,
                     status: allocation.is_active !== undefined ? (allocation.is_active ? 'Active' : 'Inactive') : (allocation.status || 'Active'),
                     resource_id: allocation.resource_id,
@@ -2269,16 +2419,12 @@ const AccountManagerReport = () => {
                             onChange: (page, pageSize) => {
                                 setAllocationPagination(prev => ({ ...prev, current: page, pageSize }));
                                 // Fetch allocations directly when pagination changes
-                                if (selectedProjectId) {
-                                    fetchProjectAllocations(selectedProjectId, page, pageSize);
-                                }
+                                fetchProjectAllocations(undefined, page, pageSize);
                             },
                             onShowSizeChange: (current, size) => {
                                 setAllocationPagination(prev => ({ ...prev, current: 1, pageSize: size }));
                                 // Fetch allocations directly when page size changes
-                                if (selectedProjectId) {
-                                    fetchProjectAllocations(selectedProjectId, 1, size);
-                                }
+                                fetchProjectAllocations(undefined, 1, size);
                             },
                         }}
                         scroll={{ x: 1200 }}
