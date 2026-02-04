@@ -1423,14 +1423,19 @@ const AccountManagerReport = () => {
         // Find the resource ID from the resource name
         const resource = resourcesList.find(r => r.name === record.employeeName);
 
+        // Find the project ID by matching project_name from the allocation record
+        const project = projectsForFilter.find(p => p.project_name === record.project_name || p.name === record.project_name);
+        const projectId = project?.id;
+
         allocationForm.setFieldsValue({
             resource_id: resource?.id,
-            project_id: selectedProjectId,
+            project_id: projectId,
             allocation_percentage: parseFloat(record.projectAllocation?.replace('%', '') || '0'),
             billing_percentage: parseFloat(record.billingPercentage?.replace('%', '') || '0'),
             start_date: record.allocatedDate ? dayjs(record.allocatedDate, 'DD MMM YYYY') : null,
             end_date: record.deallocatedDate ? dayjs(record.deallocatedDate, 'DD MMM YYYY') : null,
             is_active: record.status === 'Active',
+            billing_status_id: undefined, // Empty initially as requested
             notes: '',
         });
         setIsAllocationModalVisible(true);
@@ -1507,6 +1512,7 @@ const AccountManagerReport = () => {
                 project_id: values.project_id,
                 allocation_percentage: values.allocation_percentage,
                 billing_percentage: values.billing_percentage,
+                billing_status_id: values.billing_status_id || undefined,
                 start_date: values.start_date ? values.start_date.format('YYYY-MM-DD') : null,
                 end_date: values.end_date ? values.end_date.format('YYYY-MM-DD') : null,
                 notes: values.notes || '',
@@ -1517,11 +1523,19 @@ const AccountManagerReport = () => {
                 const updatePayload = {
                     allocation_percentage: values.allocation_percentage,
                     billing_percentage: values.billing_percentage,
+                    billing_status_id: values.billing_status_id || undefined,
                     start_date: values.start_date ? values.start_date.format('YYYY-MM-DD') : null,
                     end_date: values.end_date ? values.end_date.format('YYYY-MM-DD') : null,
                     is_active: values.is_active !== undefined ? values.is_active : true,
                     notes: values.notes || '',
                 };
+
+                // Clean up undefined values
+                Object.keys(updatePayload).forEach(key => {
+                    if (updatePayload[key] === undefined) {
+                        delete updatePayload[key];
+                    }
+                });
 
                 const response = await allocationsService.update(selectedAllocation.id, updatePayload);
 
@@ -1537,6 +1551,13 @@ const AccountManagerReport = () => {
                     showErrorToast(response?.message || 'Failed to update allocation');
                 }
             } else {
+                // Clean up undefined values from create payload
+                Object.keys(allocationPayload).forEach(key => {
+                    if (allocationPayload[key] === undefined) {
+                        delete allocationPayload[key];
+                    }
+                });
+
                 // Create allocation
                 const response = await allocationsService.create(allocationPayload);
 
@@ -1810,12 +1831,6 @@ const AccountManagerReport = () => {
             dataIndex: 'projectAllocation',
             key: 'projectAllocation',
             width: 140,
-        },
-        {
-            title: 'Duration (Days)',
-            dataIndex: 'duration',
-            key: 'duration',
-            width: 130,
         },
         {
             title: 'Status',
@@ -2213,24 +2228,24 @@ const AccountManagerReport = () => {
                 title={
                     <div className="project-overview-header">
                         <span className="project-overview-title">
-                                BY ALLOCATION
-                                {displayProjectName && (
-                                    <span style={{ marginLeft: '8px', color: '#1890ff', fontWeight: 'normal' }}>
-                                        - {displayProjectName}
-                                    </span>
-                                )}
-                            </span>
+                            BY ALLOCATION
+                            {displayProjectName && (
+                                <span style={{ marginLeft: '8px', color: '#1890ff', fontWeight: 'normal' }}>
+                                    - {displayProjectName}
+                                </span>
+                            )}
+                        </span>
                         <div className="project-overview-actions">
-                        {byAllocationExpanded && (
-                            <Button
-                                type="primary"
-                                icon={<PlusOutlined />}
-                                onClick={handleAddAllocation}
+                            {byAllocationExpanded && (
+                                <Button
+                                    type="primary"
+                                    icon={<PlusOutlined />}
+                                    onClick={handleAddAllocation}
                                     className="create-project-btn"
-                            >
-                                Add Allocation
-                            </Button>
-                        )}
+                                >
+                                    Add Allocation
+                                </Button>
+                            )}
                             <div
                                 className="collapsible-icon"
                                 onClick={() => setByAllocationExpanded(!byAllocationExpanded)}
@@ -2281,7 +2296,7 @@ const AccountManagerReport = () => {
             <ProjectModal
                 visible={isCreateProjectModalVisible}
                 isEditMode={isEditMode}
-                    form={form}
+                form={form}
                 onCancel={handleCreateProjectCancel}
                 onSubmit={handleCreateProjectSubmit}
                 loading={isSubmittingProject}
@@ -2802,10 +2817,10 @@ const AccountManagerReport = () => {
                                         (option?.children ?? '').toLowerCase().includes(input.toLowerCase())
                                     }
                                 >
-                                    {projectData.length > 0 ? (
-                                        projectData.map((project) => (
+                                    {projectsForFilter.length > 0 ? (
+                                        projectsForFilter.map((project) => (
                                             <Option key={project.id} value={project.id}>
-                                                {project.project_name || project.project}
+                                                {project.project_name || project.name}
                                             </Option>
                                         ))
                                     ) : (
@@ -2852,6 +2867,28 @@ const AccountManagerReport = () => {
                                     formatter={value => `${value}%`}
                                     parser={value => value.replace('%', '')}
                                 />
+                            </Form.Item>
+                        </Col>
+                        <Col xs={24} sm={12}>
+                            <Form.Item
+                                label="Billing Status"
+                                name="billing_status_id"
+                            >
+                                <Select
+                                    placeholder="Select billing status"
+                                    showSearch
+                                    optionFilterProp="children"
+                                    allowClear
+                                    filterOption={(input, option) =>
+                                        (option?.children ?? '').toLowerCase().includes(input.toLowerCase())
+                                    }
+                                >
+                                    {billingStatusesList.map((status) => (
+                                        <Option key={status.id} value={status.id}>
+                                            {status.name}
+                                        </Option>
+                                    ))}
+                                </Select>
                             </Form.Item>
                         </Col>
                         <Col xs={24} sm={12}>
