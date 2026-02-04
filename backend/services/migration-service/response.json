@@ -1,1 +1,0 @@
-{"statusCode":200,"headers":{"Access-Control-Allow-Origin":"*","Access-Control-Allow-Credentials":true,"Content-Type":"application/json"},"body":"{\"success\":true,\"data\":{\"message\":\"Successfully ran 1 migration(s)\",\"migrations\":[{\"id\":\"006_audit_logs\",\"name\":\"Audit Logs Table - Industry-grade audit trail\",\"status\":\"success\"}]}}"}

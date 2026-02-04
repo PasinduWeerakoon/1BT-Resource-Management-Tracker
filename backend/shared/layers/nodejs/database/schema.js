@@ -336,6 +336,7 @@ export const futureAllocations = pgTable('future_allocations', {
     projectId: integer('project_id').notNull().references(() => projects.id, { onDelete: 'restrict' }),
     allocationPercentage: smallint('allocation_percentage').notNull(),
     billingPercentage: smallint('billing_percentage').notNull().default(100),
+    billingStatusId: integer('billing_status_id').references(() => billingStatuses.id, { onDelete: 'restrict' }),
     effectiveDate: date('effective_date').notNull(),
     allocatedDate: date('allocated_date').notNull(),
     deallocatedDate: date('deallocated_date'),
@@ -351,6 +352,7 @@ export const futureAllocations = pgTable('future_allocations', {
     employeeIdx: index('idx_future_alloc_employee').on(table.employeeId),
     projectIdx: index('idx_future_alloc_project').on(table.projectId),
     scheduledIdx: index('idx_future_alloc_scheduled').on(table.effectiveDate, table.status).where(sql`status = 'scheduled'`),
+    billingStatusIdx: index('idx_future_alloc_billing_status').on(table.billingStatusId),
 }));
 
 // ============ HISTORY TABLES ============

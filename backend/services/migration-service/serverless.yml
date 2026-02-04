@@ -40,7 +40,7 @@ provider:
           Resource: !ImportValue onebt-${self:provider.stage}-AuditQueueArn
 
   layers:
-    - arn:aws:lambda:ap-southeast-1:550586832874:layer:onebt-shared-libs-dev:73
+    - arn:aws:lambda:ap-southeast-1:550586832874:layer:onebt-shared-libs-dev:75
 
 plugins:
   - serverless-offline
@@ -53,6 +53,8 @@ package:
     - "!*.md"
     - "!tests/**"
     - "src/**"
+    - "migrations/**"
+    - "seeds/**"
     - "drizzle/**"
 
 functions:

@@ -109,7 +109,24 @@ export const create = async (event) => {
     try {
         const body = JSON.parse(event.body || '{}');
         const validated = validate(body, clientSchemas.create);
-        const userId = event.requestContext?.authorizer?.jwt?.claims?.sub;
+
+        // Get user ID from Cognito sub - need to look up in users table
+        const cognitoSub = event.requestContext?.authorizer?.jwt?.claims?.sub;
+        let userId = null;
+
+        if (cognitoSub) {
+            const userResult = await db.query(
+                'SELECT id FROM users WHERE cognito_user_id = $1',
+                [cognitoSub]
+            );
+            if (userResult.rows.length > 0) {
+                userId = userResult.rows[0].id;
+            }
+        }
+        // Use system user as fallback
+        if (!userId) {
+            userId = 1;
+        }
 
         log.info('Creating client', { name: validated.client_name, userId });
 
@@ -174,7 +191,20 @@ export const update = async (event) => {
     try {
         const body = JSON.parse(event.body || '{}');
         const validated = validate(body, clientSchemas.update);
-        const userId = event.requestContext?.authorizer?.jwt?.claims?.sub;
+
+        // Get user ID from Cognito sub - need to look up in users table
+        const cognitoSub = event.requestContext?.authorizer?.jwt?.claims?.sub;
+        let userId = null;
+
+        if (cognitoSub) {
+            const userResult = await db.query(
+                'SELECT id FROM users WHERE cognito_user_id = $1',
+                [cognitoSub]
+            );
+            if (userResult.rows.length > 0) {
+                userId = userResult.rows[0].id;
+            }
+        }
 
         log.info('Updating client', { id, userId });
 
@@ -258,7 +288,20 @@ export const update = async (event) => {
 export const remove = async (event) => {
     const log = logger.child({ handler: 'clients.remove' });
     const { id } = event.pathParameters;
-    const userId = event.requestContext?.authorizer?.jwt?.claims?.sub;
+
+    // Get user ID from Cognito sub - need to look up in users table
+    const cognitoSub = event.requestContext?.authorizer?.jwt?.claims?.sub;
+    let userId = null;
+
+    if (cognitoSub) {
+        const userResult = await db.query(
+            'SELECT id FROM users WHERE cognito_user_id = $1',
+            [cognitoSub]
+        );
+        if (userResult.rows.length > 0) {
+            userId = userResult.rows[0].id;
+        }
+    }
 
     try {
         log.info('Deleting client', { id, userId });

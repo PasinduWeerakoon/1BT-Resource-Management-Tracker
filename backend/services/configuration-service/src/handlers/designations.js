@@ -22,6 +22,7 @@ const transformRow = (row) => ({
     isActive: row.is_active,
     displayOrder: row.display_order || row.level || row.id,
     ...(row.level !== undefined && { level: row.level }),
+    ...(row.tier_id !== undefined && { tierId: row.tier_id }),
     ...(row.is_intern_role !== undefined && { isInternRole: row.is_intern_role }),
     ...(row.category && { category: row.category }),
     ...(row.is_default !== undefined && { isDefault: row.is_default }),
@@ -92,15 +93,17 @@ export const create = async (event) => {
         log.info('Creating designation', { name: validated.name });
 
         const query = `
-            INSERT INTO designations (name, level, is_intern_role, is_active, created_by)
-            VALUES ($1, $2, $3, $4, $5)
+            INSERT INTO designations (name, level, tier_id, is_intern_role, category, is_active, created_by)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             RETURNING *
         `;
 
         const params = [
             validated.name,
             validated.level,
+            validated.tier_id,
             validated.is_intern_role ?? false,
+            validated.category || null,
             validated.is_active ?? true,
             createdBy
         ];

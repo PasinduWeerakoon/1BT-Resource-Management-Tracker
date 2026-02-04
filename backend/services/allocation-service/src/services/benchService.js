@@ -61,7 +61,7 @@ export const getBenchAllocation = async (resourceId) => {
     // Get any bench allocation for this resource (active or inactive)
     const result = await db.query(`
         SELECT * FROM allocations 
-        WHERE resource_id = $1 
+        WHERE employee_id = $1 
         AND project_id = $2 
         ORDER BY is_active DESC, updated_at DESC
         LIMIT 1
@@ -81,7 +81,7 @@ export const calculateNonBenchTotal = async (resourceId, excludeAllocationId, al
     let query = `
         SELECT COALESCE(SUM(allocation_percentage), 0) as total
         FROM allocations
-        WHERE resource_id = $1
+        WHERE employee_id = $1
         AND project_id != $2
         AND is_active = true
         AND (deallocated_date IS NULL OR deallocated_date >= $3::date)
@@ -112,7 +112,7 @@ export const isShortStayBench = async (resourceId, thresholdHours, log) => {
     const benchResult = await db.query(`
         SELECT id, created_at, allocated_date
         FROM allocations
-        WHERE resource_id = $1
+        WHERE employee_id = $1
         AND project_id = $2
         AND is_active = true
         ORDER BY created_at DESC
@@ -138,7 +138,7 @@ export const isShortStayBench = async (resourceId, thresholdHours, log) => {
         SELECT COUNT(*) as change_count
         FROM allocation_change_history
         WHERE allocation_id IN (
-            SELECT id FROM allocations WHERE resource_id = $1 AND project_id != $2
+            SELECT id FROM allocations WHERE employee_id = $1 AND project_id != $2
         )
         AND changed_at > $3
     `, [resourceId, benchProjectId, benchCreatedAt.toISOString()]);
@@ -204,7 +204,7 @@ export const adjustBenchAllocation = async (resourceId, userId, log) => {
                 UPDATE allocations 
                 SET is_active = false, allocation_percentage = 0, updated_by = $2, updated_at = CURRENT_TIMESTAMP
                 WHERE id = $1
-            `, [benchAllocation.id, userId || '00000000-0000-0000-0000-000000000000']);
+            `, [benchAllocation.id, userId || 1]);
             log.info('Bench allocation deactivated', { resourceId, previousPercentage: benchAllocation.allocation_percentage });
         } else if (benchAllocation.allocation_percentage !== newBenchPercentage) {
             // Update bench allocation percentage
@@ -212,7 +212,7 @@ export const adjustBenchAllocation = async (resourceId, userId, log) => {
                 UPDATE allocations 
                 SET allocation_percentage = $2, is_active = true, updated_by = $3, updated_at = CURRENT_TIMESTAMP
                 WHERE id = $1
-            `, [benchAllocation.id, newBenchPercentage, userId || '00000000-0000-0000-0000-000000000000']);
+            `, [benchAllocation.id, newBenchPercentage, userId || 1]);
             log.info('Bench allocation adjusted', {
                 resourceId,
                 previousPercentage: benchAllocation.allocation_percentage,
@@ -221,11 +221,11 @@ export const adjustBenchAllocation = async (resourceId, userId, log) => {
         }
     } else if (newBenchPercentage > 0) {
         // Create bench allocation if it doesn't exist and should have a value
-        // Bench allocations have 0% billing
+        // Bench allocations have 0% billing and billing_status_id = 3 (Bench)
         await db.query(`
-            INSERT INTO allocations (resource_id, project_id, allocation_percentage, billing_percentage, allocated_date, is_active, notes, created_by, change_type)
-            VALUES ($1, $2, $3, 0, CURRENT_DATE, true, 'Auto-created bench allocation', $4, 'NEW_ALLOCATION')
-        `, [resourceId, benchProjectId, newBenchPercentage, userId || '00000000-0000-0000-0000-000000000000']);
+            INSERT INTO allocations (employee_id, project_id, allocation_percentage, billing_percentage, billing_status_id, allocated_date, is_active, notes, created_by, change_type)
+            VALUES ($1, $2, $3, 0, 3, CURRENT_DATE, true, 'Auto-created bench allocation', $4, 'NEW_ALLOCATION')
+        `, [resourceId, benchProjectId, newBenchPercentage, userId || 1]);
         log.info('Bench allocation created', { resourceId, percentage: newBenchPercentage });
     }
 
@@ -243,7 +243,7 @@ export const detectAndFillGaps = async (resourceId, userId, log) => {
     const totalQuery = `
         SELECT COALESCE(SUM(allocation_percentage), 0) as total
         FROM allocations
-        WHERE resource_id = $1
+        WHERE employee_id = $1
         AND project_id != $2
         AND is_active = true
         AND (deallocated_date IS NULL OR deallocated_date >= CURRENT_DATE)
@@ -271,7 +271,7 @@ export const detectAndFillGaps = async (resourceId, userId, log) => {
             SET allocation_percentage = $2, is_active = true, updated_by = $3, updated_at = CURRENT_TIMESTAMP,
                 notes = COALESCE(notes, '') || E'\n[Auto-filled gap on ' || CURRENT_TIMESTAMP || ']'
             WHERE id = $1
-        `, [benchAllocation.id, gapPercentage, userId || '00000000-0000-0000-0000-000000000000']);
+        `, [benchAllocation.id, gapPercentage, userId || 1]);
 
         log.info('Reactivated Bench allocation to fill gap', {
             resourceId,
@@ -281,9 +281,9 @@ export const detectAndFillGaps = async (resourceId, userId, log) => {
     } else {
         // Create new Bench allocation
         await db.query(`
-            INSERT INTO allocations (resource_id, project_id, allocation_percentage, billing_percentage, allocated_date, is_active, notes, created_by, change_type)
-            VALUES ($1, $2, $3, 0, CURRENT_DATE, true, 'Auto-created to fill allocation gap', $4, 'AUTO_BENCH_ADJUSTMENT')
-        `, [resourceId, benchProjectId, gapPercentage, userId || '00000000-0000-0000-0000-000000000000']);
+            INSERT INTO allocations (employee_id, project_id, allocation_percentage, billing_percentage, billing_status_id, allocated_date, is_active, notes, created_by, change_type)
+            VALUES ($1, $2, $3, 0, 3, CURRENT_DATE, true, 'Auto-created to fill allocation gap', $4, 'AUTO_BENCH_ADJUSTMENT')
+        `, [resourceId, benchProjectId, gapPercentage, userId || 1]);
 
         log.info('Created new Bench allocation to fill gap', { resourceId, gapPercentage });
     }

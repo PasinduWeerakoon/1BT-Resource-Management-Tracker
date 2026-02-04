@@ -31,7 +31,7 @@ export const archiveAllocation = async (allocation, archiveReason, archivedBy = 
 
     const insertQuery = `
         INSERT INTO allocation_history_archive (
-            original_allocation_id, resource_id, project_id,
+            original_allocation_id, employee_id, project_id,
             allocation_percentage, billing_percentage,
             effective_date, allocated_date, deallocated_date, original_allocated_date,
             change_type, notes, is_active,
@@ -44,7 +44,7 @@ export const archiveAllocation = async (allocation, archiveReason, archivedBy = 
 
     const params = [
         allocation.id,
-        allocation.resource_id,
+        allocation.employee_id,
         allocation.project_id,
         allocation.allocation_percentage,
         allocation.billing_percentage,
@@ -116,7 +116,7 @@ export const archiveEndedAllocations = async () => {
             archived.push({
                 id: archivedRecord.id,
                 originalId: allocation.id,
-                resourceId: allocation.resource_id
+                resourceId: allocation.employee_id
             });
         } catch (err) {
             log.error('Failed to archive allocation', {
@@ -402,7 +402,7 @@ export const getArchiveStats = async () => {
     const query = `
         SELECT 
             COUNT(*) as total_archived,
-            COUNT(DISTINCT resource_id) as unique_resources,
+            COUNT(DISTINCT employee_id) as unique_resources,
             COUNT(DISTINCT project_id) as unique_projects,
             MIN(archived_at) as earliest_archive,
             MAX(archived_at) as latest_archive,
