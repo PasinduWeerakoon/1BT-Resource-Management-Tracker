@@ -109,9 +109,11 @@ export const useResourceData = ({ filters, debouncedSearch, pagination, setPagin
           ? `Tier ${String(employee.designation_level).padStart(2, '0')}`
           : null);
 
-        const joinDate = employee.date_of_joining
-          ? dayjs(employee.date_of_joining).format('YYYY-MM-DD')
-          : null;
+        const joinDate = employee.joined_date
+          ? dayjs(employee.joined_date).format('YYYY-MM-DD')
+          : (employee.date_of_joining
+            ? dayjs(employee.date_of_joining).format('YYYY-MM-DD')
+            : null);
 
         return {
           key: employee.id || employee.employee_number,
@@ -131,6 +133,7 @@ export const useResourceData = ({ filters, debouncedSearch, pagination, setPagin
           track_id: employee.track_id,
           track_name: employee.track_name,
           joinDate: joinDate,
+          joined_date: employee.joined_date,
           status: employee.status,
           photo: employee.photo,
           photo_url: employee.photo_url || employee.photo,
@@ -143,6 +146,7 @@ export const useResourceData = ({ filters, debouncedSearch, pagination, setPagin
           tech_stack: employee.tech_stack,
           skills: employee.skills || [],
           employee_type: employee.employee_type || 'Internal',
+          is_external: employee.is_external !== undefined ? employee.is_external : false,
           is_account_manager: employee.is_account_manager || false,
           tags: employee.tags || [],
           notice_period_end_date: employee.notice_period_end_date,

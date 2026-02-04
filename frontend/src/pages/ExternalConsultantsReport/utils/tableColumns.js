@@ -2,6 +2,7 @@
  * Table Column Definitions for External Consultants Report
  */
 
+import React from 'react';
 import { Badge } from 'antd';
 
 /**

@@ -9,7 +9,7 @@ import { UserOutlined } from '@ant-design/icons';
 import CustomModal from '@components/Modal';
 import CustomTable from '@components/Table';
 import ResourceCharts from './ResourceCharts';
-import { resourcesService } from '@api';
+import { resourcesService, allocationHistoryService } from '@api';
 import { showErrorToast } from '@utils/toast.utils';
 import logger from '@utils/logger';
 import dayjs from 'dayjs';
@@ -22,6 +22,8 @@ const ResourceProfile = ({
   const [activeTab, setActiveTab] = useState('overview');
   const [employeeAllocations, setEmployeeAllocations] = useState([]);
   const [loadingAllocations, setLoadingAllocations] = useState(false);
+  const [projectsHistory, setProjectsHistory] = useState([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
 
   // Fetch employee allocations
   const fetchEmployeeAllocations = async (employeeId) => {
@@ -104,11 +106,91 @@ const ResourceProfile = ({
     }
   };
 
+  // Fetch allocation history (archived)
+  const fetchProjectsHistory = async (employeeId) => {
+    if (!employeeId) {
+      setProjectsHistory([]);
+      return;
+    }
+
+    try {
+      setLoadingHistory(true);
+      const response = await allocationHistoryService.getByResource(employeeId);
+
+      let historyData = [];
+
+      if (response) {
+        if (response.history && Array.isArray(response.history)) {
+          historyData = response.history;
+        } else if (response.data && response.data.history && Array.isArray(response.data.history)) {
+          historyData = response.data.history;
+        } else if (Array.isArray(response.data)) {
+          historyData = response.data;
+        } else if (Array.isArray(response)) {
+          historyData = response;
+        }
+      }
+
+      // Transform history data
+      const transformedHistory = historyData.map((allocation, index) => {
+        let duration = 0;
+        if (allocation.allocated_date) {
+          const startDate = dayjs(allocation.allocated_date);
+          const endDate = allocation.deallocated_date ? dayjs(allocation.deallocated_date) : dayjs();
+          duration = endDate.diff(startDate, 'day');
+        }
+
+        const allocationPercentage = typeof allocation.allocation_percentage === 'string'
+          ? parseFloat(allocation.allocation_percentage)
+          : (allocation.allocation_percentage || 0);
+        const billingPercentage = typeof allocation.billing_percentage === 'string'
+          ? parseFloat(allocation.billing_percentage)
+          : (allocation.billing_percentage || 0);
+
+        // Determine billing status from project type or billing status field
+        let billingStatus = 'Non-Billing';
+        if (allocation.billing_status) {
+          billingStatus = allocation.billing_status;
+        } else if (allocation.project_type === 'Client' || allocation.is_billable) {
+          billingStatus = 'Billing';
+        } else if (allocation.project_type === 'Bench') {
+          billingStatus = 'Bench';
+        } else if (allocation.project_type === 'Pre-Sales' || allocation.project_type === 'Presale' || allocation.project_type === 'Pre-Sale') {
+          billingStatus = 'Presale';
+        } else if (allocation.project_type === 'Training') {
+          billingStatus = 'Training';
+        }
+
+        return {
+          key: allocation.id || `history-${index}`,
+          id: allocation.id,
+          project: allocation.project_name || 'N/A',
+          allocatedDate: allocation.allocated_date ? dayjs(allocation.allocated_date).format('YYYY-MM-DD') : '-',
+          deallocatedDate: allocation.deallocated_date ? dayjs(allocation.deallocated_date).format('YYYY-MM-DD') : '-',
+          billingStatus: billingStatus,
+          billingPercentage: billingPercentage ? `${billingPercentage.toFixed(0)}%` : '0%',
+          projectAllocation: allocationPercentage ? `${allocationPercentage.toFixed(0)}%` : '0%',
+          duration: duration,
+        };
+      });
+
+      setProjectsHistory(transformedHistory);
+    } catch (error) {
+      logger.error('Failed to fetch projects history', error);
+      showErrorToast(error?.response?.data?.message || error?.message || 'Failed to load projects history');
+      setProjectsHistory([]);
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
+
   // Handle tab change
   const handleTabChange = (key) => {
     setActiveTab(key);
     if (key === 'allocations' && selectedEmployee?.id) {
       fetchEmployeeAllocations(selectedEmployee.id);
+    } else if (key === 'history' && selectedEmployee?.id) {
+      fetchProjectsHistory(selectedEmployee.id);
     }
   };
 
@@ -117,6 +199,7 @@ const ResourceProfile = ({
     if (!isVisible) {
       setActiveTab('overview');
       setEmployeeAllocations([]);
+      setProjectsHistory([]);
     }
   }, [isVisible]);
 
@@ -132,39 +215,6 @@ const ResourceProfile = ({
     { title: 'Duration (Days)', dataIndex: 'duration', key: 'duration', width: 130 },
   ];
 
-  // Mock history data (replace with API data)
-  const historyData = [
-    {
-      key: '1',
-      project: 'Project A',
-      allocatedDate: '2024-01-15',
-      deallocatedDate: '2024-06-30',
-      billingStatus: 'Billing',
-      billingPercentage: '50%',
-      projectAllocation: '50%',
-      duration: '165',
-    },
-    {
-      key: '2',
-      project: 'Project B',
-      allocatedDate: '2024-02-01',
-      deallocatedDate: '2024-05-31',
-      billingStatus: 'Billing',
-      billingPercentage: '30%',
-      projectAllocation: '30%',
-      duration: '120',
-    },
-    {
-      key: '3',
-      project: 'Project C',
-      allocatedDate: '2023-06-01',
-      deallocatedDate: '2023-12-31',
-      billingStatus: 'Billing',
-      billingPercentage: '100%',
-      projectAllocation: '100%',
-      duration: '214',
-    },
-  ];
 
   return (
     <CustomModal
@@ -239,9 +289,10 @@ const ResourceProfile = ({
               <div style={{ maxHeight: '500px', overflowY: 'auto' }}>
                 <CustomTable
                   columns={allocationColumns}
-                  dataSource={historyData}
+                  dataSource={projectsHistory}
                   scroll={{ x: 1000 }}
                   pagination={false}
+                  loading={loadingHistory}
                 />
               </div>
             ),

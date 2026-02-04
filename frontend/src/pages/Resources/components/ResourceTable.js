@@ -52,20 +52,23 @@ const ResourceTable = ({
     },
     {
       title: 'Employee Type',
-      dataIndex: 'employee_type',
+      dataIndex: 'is_external',
       key: 'employee_type',
       width: 120,
-      render: (type) => (
-        <Badge
-          status={type === 'Internal' ? 'success' : 'warning'}
-          text={type || 'Internal'}
-        />
-      ),
+      render: (isExternal) => {
+        const type = isExternal ? 'External' : 'Internal';
+        return (
+          <Badge
+            status={isExternal ? 'warning' : 'success'}
+            text={type}
+          />
+        );
+      },
       filters: [
-        { text: 'Internal', value: 'Internal' },
-        { text: 'External', value: 'External' },
+        { text: 'Internal', value: false },
+        { text: 'External', value: true },
       ],
-      onFilter: (value, record) => record.employee_type === value,
+      onFilter: (value, record) => record.is_external === value,
     },
     {
       title: 'Join Date',
