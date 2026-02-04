@@ -167,6 +167,16 @@ const EmploymentDetailsStep = ({
           <DatePicker style={{ width: '100%' }} placeholder="Select last promotion date" />
         </Form.Item>
       </Col>
+      <Col xs={24} sm={12}>
+        <Form.Item
+          label="Is External Employee"
+          name="is_external"
+          valuePropName="checked"
+          initialValue={false}
+        >
+          <Switch checkedChildren="External" unCheckedChildren="Internal" />
+        </Form.Item>
+      </Col>
       {isEditMode && (
         <Col xs={24} sm={12}>
           <Form.Item
