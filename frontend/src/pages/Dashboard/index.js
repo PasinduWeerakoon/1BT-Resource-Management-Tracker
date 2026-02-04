@@ -1,12 +1,13 @@
 import React, { useState, useMemo } from 'react';
 import { Card } from 'antd';
+import { DownOutlined, UpOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { commonOptions, colors } from '@utils/chartConfig';
 import { futureAllocationsService, reportsService, summaryService } from '@api';
 import { showErrorToast } from '@utils/toast.utils';
 import logger from '@utils/logger';
 import { COLUMN_WIDTHS, LABELS } from '@constants/dashboard';
-import { COMMON, UI } from '@constants/app';
+import { COMMON, TABLE, UI } from '@constants/app';
 import { ReportHeader } from '@components/ReportLayout';
 import CustomTable from '@components/Table';
 import { useFetchData } from '@hooks';
@@ -41,6 +42,8 @@ const Dashboard = () => {
     },
   });
   const [futureAllocations, setFutureAllocations] = useState([]);
+  const [designationExpanded, setDesignationExpanded] = useState(true);
+  const [futureAllocationsExpanded, setFutureAllocationsExpanded] = useState(true);
 
   const tracksList = useSelector(selectTracks);
   const techStacksList = useSelector(selectTechStacks);
@@ -395,9 +398,6 @@ const Dashboard = () => {
         <PercentagesSection percentages={summaryData.percentages} labels={LABELS} />
 
         <BottomSection
-          designationColumns={designationColumns}
-          designationData={designationData}
-          loading={reportLoading || summaryLoading}
           trackDonutData={trackDonutData}
           trackDonutOptions={trackDonutOptions}
           techStackBarData={techStackBarData}
@@ -406,15 +406,62 @@ const Dashboard = () => {
         />
 
         <div className="dashboard-section">
-          <Card className="table-card" title="By Future Allocation">
-            <CustomTable
-              emptyText="No data"
-              columns={futureAllocationColumns}
-              dataSource={futureAllocationData}
-              pagination={false}
-              size="small"
-              loading={futureAllocationsLoading}
-            />
+          <Card
+            className="table-card"
+            title={(
+              <div className="project-overview-header">
+                <span className="project-overview-title">{LABELS.BY_DESIGNATION}</span>
+                <div className="project-overview-actions">
+                  <div
+                    className="collapsible-icon"
+                    onClick={() => setDesignationExpanded(!designationExpanded)}
+                  >
+                    {designationExpanded ? <UpOutlined /> : <DownOutlined />}
+                  </div>
+                </div>
+              </div>
+            )}
+          >
+            {designationExpanded && (
+              <CustomTable
+                columns={designationColumns}
+                dataSource={designationData}
+                pagination={false}
+                size={TABLE.SIZE_SMALL}
+                scroll={{ x: TABLE.DEFAULT_SCROLL_X }}
+                loading={reportLoading || summaryLoading}
+              />
+            )}
+          </Card>
+        </div>
+
+        <div className="dashboard-section">
+          <Card
+            className="table-card"
+            title={(
+              <div className="project-overview-header">
+                <span className="project-overview-title">By Future Allocation</span>
+                <div className="project-overview-actions">
+                  <div
+                    className="collapsible-icon"
+                    onClick={() => setFutureAllocationsExpanded(!futureAllocationsExpanded)}
+                  >
+                    {futureAllocationsExpanded ? <UpOutlined /> : <DownOutlined />}
+                  </div>
+                </div>
+              </div>
+            )}
+          >
+            {futureAllocationsExpanded && (
+              <CustomTable
+                emptyText="No data"
+                columns={futureAllocationColumns}
+                dataSource={futureAllocationData}
+                pagination={false}
+                size="small"
+                loading={futureAllocationsLoading}
+              />
+            )}
           </Card>
         </div>
       </div>

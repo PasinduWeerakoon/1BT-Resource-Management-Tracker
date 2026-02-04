@@ -248,4 +248,46 @@
       }
     }
   }
+
+  .table-card {
+    .project-overview-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      width: 100%;
+
+      .project-overview-title {
+        font-family: "Poppins", sans-serif;
+        font-weight: 600;
+        font-size: 14px;
+        color: #262626;
+      }
+
+      .project-overview-actions {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+
+        .collapsible-icon {
+          display: flex;
+          align-items: center;
+          cursor: pointer;
+          user-select: none;
+          transition: all 0.2s ease;
+          padding: 4px;
+
+          &:hover {
+            opacity: 0.8;
+          }
+
+          .anticon {
+            font-size: 12px;
+            color: #595959;
+            transition: transform 0.3s ease;
+          }
+        }
+      }
+    }
+  }
 }

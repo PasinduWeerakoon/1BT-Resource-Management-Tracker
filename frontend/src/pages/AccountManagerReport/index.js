@@ -2014,7 +2014,9 @@ const AccountManagerReport = () => {
 
     // Fetch allocations for a project
     const fetchProjectAllocations = async (projectId, page = 1, limit = 10) => {
-        if (!projectId) return;
+        const effectiveProjectId = projectId
+            ?? selectedProjectId
+            ?? (filters.projectName && filters.projectName !== 'All' ? filters.projectName : null);
 
         // Prevent duplicate calls
         if (fetchAllocationsInProgressRef.current) {
@@ -2026,11 +2028,28 @@ const AccountManagerReport = () => {
             setLoadingAllocations(true);
             // Note: projectsService.getAllocations doesn't support pagination directly
             // We'll fetch all and paginate client-side, or use allocationsService.getAll with project_id filter
-            const response = await allocationsService.getAll({
-                project_id: projectId,
+            const params = {
                 page: page || allocationPagination.current,
                 limit: limit || allocationPagination.pageSize,
-            });
+            };
+
+            if (effectiveProjectId) {
+                params.project_id = effectiveProjectId;
+            }
+            if (filters.accountManager && filters.accountManager !== 'All') {
+                params.account_manager_id = filters.accountManager;
+            }
+            if (filters.projectStatus && filters.projectStatus !== 'All') {
+                params.project_status_id = filters.projectStatus;
+            }
+            if (filters.clientName && filters.clientName !== 'All') {
+                params.client_id = filters.clientName;
+            }
+            if (filters.billingStatus && filters.billingStatus !== 'All') {
+                params.billing_status_id = filters.billingStatus;
+            }
+
+            const response = await allocationsService.getAll(params);
 
             logger.debug('Allocations API response:', response);
 
@@ -2400,16 +2419,12 @@ const AccountManagerReport = () => {
                             onChange: (page, pageSize) => {
                                 setAllocationPagination(prev => ({ ...prev, current: page, pageSize }));
                                 // Fetch allocations directly when pagination changes
-                                if (selectedProjectId) {
-                                    fetchProjectAllocations(selectedProjectId, page, pageSize);
-                                }
+                                fetchProjectAllocations(undefined, page, pageSize);
                             },
                             onShowSizeChange: (current, size) => {
                                 setAllocationPagination(prev => ({ ...prev, current: 1, pageSize: size }));
                                 // Fetch allocations directly when page size changes
-                                if (selectedProjectId) {
-                                    fetchProjectAllocations(selectedProjectId, 1, size);
-                                }
+                                fetchProjectAllocations(undefined, 1, size);
                             },
                         }}
                         scroll={{ x: 1200 }}
