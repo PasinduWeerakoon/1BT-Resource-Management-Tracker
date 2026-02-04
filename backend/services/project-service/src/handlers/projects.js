@@ -227,7 +227,20 @@ export const create = async (event) => {
     try {
         const body = JSON.parse(event.body || '{}');
         const validated = validate(body, projectSchemas.create);
-        const userId = event.requestContext?.authorizer?.jwt?.claims?.sub || 1;
+
+        // Get user ID from Cognito sub - need to look up in users table
+        const cognitoSub = event.requestContext?.authorizer?.jwt?.claims?.sub;
+        let userId = 1; // Default to system user
+
+        if (cognitoSub) {
+            const userResult = await db.query(
+                'SELECT id FROM users WHERE cognito_user_id = $1',
+                [cognitoSub]
+            );
+            if (userResult.rows.length > 0) {
+                userId = userResult.rows[0].id;
+            }
+        }
 
         log.info('Creating project', { name: validated.project_name, userId });
 
@@ -338,7 +351,20 @@ export const update = async (event) => {
     try {
         const body = JSON.parse(event.body || '{}');
         const validated = validate(body, projectSchemas.update);
-        const userId = event.requestContext?.authorizer?.jwt?.claims?.sub || 1;
+
+        // Get user ID from Cognito sub - need to look up in users table
+        const cognitoSub = event.requestContext?.authorizer?.jwt?.claims?.sub;
+        let userId = null;
+
+        if (cognitoSub) {
+            const userResult = await db.query(
+                'SELECT id FROM users WHERE cognito_user_id = $1',
+                [cognitoSub]
+            );
+            if (userResult.rows.length > 0) {
+                userId = userResult.rows[0].id;
+            }
+        }
 
         log.info('Updating project', { id, userId });
 
@@ -486,7 +512,20 @@ export const update = async (event) => {
 export const remove = async (event) => {
     const log = logger.child({ handler: 'projects.remove' });
     const { id } = event.pathParameters;
-    const userId = event.requestContext?.authorizer?.jwt?.claims?.sub;
+
+    // Get user ID from Cognito sub - need to look up in users table
+    const cognitoSub = event.requestContext?.authorizer?.jwt?.claims?.sub;
+    let userId = null;
+
+    if (cognitoSub) {
+        const userResult = await db.query(
+            'SELECT id FROM users WHERE cognito_user_id = $1',
+            [cognitoSub]
+        );
+        if (userResult.rows.length > 0) {
+            userId = userResult.rows[0].id;
+        }
+    }
 
     try {
         log.info('Deleting project', { id, userId });
@@ -502,6 +541,11 @@ export const remove = async (event) => {
         }
 
         const existing = existingResult.rows[0];
+
+        // Prevent deletion of default projects (e.g., Bench)
+        if (existing.is_default) {
+            return error('Cannot delete default system project', 400);
+        }
 
         await db.query(
             `UPDATE projects 

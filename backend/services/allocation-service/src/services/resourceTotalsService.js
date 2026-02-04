@@ -28,10 +28,11 @@ export const updateResourceTotals = async (resourceId, log) => {
                     SELECT COALESCE(SUM(a.billing_percentage), 0)
                     FROM allocations a
                     JOIN projects p ON a.project_id = p.id
+                    JOIN billing_statuses bs ON p.billing_status_id = bs.id
                     WHERE a.employee_id = $1
                     AND a.is_active = true
                     AND a.deleted_at IS NULL
-                    AND p.billing_status = 'Billing'
+                    AND bs.name = 'Billing'
                     AND p.is_bench_project = false
                 ),
                 updated_at = CURRENT_TIMESTAMP

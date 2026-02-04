@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS projects (
     status project_status NOT NULL DEFAULT 'Active',
     description TEXT,
     is_bench_project BOOLEAN NOT NULL DEFAULT false,
+    is_default BOOLEAN NOT NULL DEFAULT false,
     deleted_at TIMESTAMPTZ,
     version INTEGER NOT NULL DEFAULT 1,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -53,5 +54,6 @@ CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status) WHERE deleted
 CREATE INDEX IF NOT EXISTS idx_projects_manager ON projects(account_manager_id) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_projects_client ON projects(client_id) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_projects_bench ON projects(is_bench_project) WHERE is_bench_project = true AND deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_projects_default ON projects(is_default) WHERE is_default = true AND deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_projects_type ON projects(project_type_id) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_projects_billing ON projects(billing_status_id) WHERE deleted_at IS NULL;

@@ -61,6 +61,7 @@ const processScheduledAllocation = async (futureAllocation, log) => {
         project_id,
         allocation_percentage,
         billing_percentage,
+        billing_status_id,
         effective_date,
         allocated_date,
         deallocated_date,
@@ -78,20 +79,20 @@ const processScheduledAllocation = async (futureAllocation, log) => {
         project_id
     });
 
-    const systemUserId = '00000000-0000-0000-0000-000000000000';
+    const systemUserId = 1;  // System user ID (INTEGER)
     const effectiveUserId = created_by || systemUserId;
 
     switch (change_type) {
         case 'NEW_ALLOCATION': {
-            // Create new allocation in allocations table
+            // Create new allocation in allocations table (include billing_status_id)
             const insertQuery = `
                 INSERT INTO allocations (
-                    resource_id, project_id, allocation_percentage, billing_percentage,
+                    employee_id, project_id, allocation_percentage, billing_percentage, billing_status_id,
                     allocated_date, deallocated_date, effective_date, allocation_changed_on,
                     original_allocated_date, change_type, source_future_id,
                     is_active, notes, created_by
                 )
-                VALUES ($1, $2, $3, $4, $5::date, $6::date, $7::date, CURRENT_TIMESTAMP, $5::date, $8, $9, true, $10, $11)
+                VALUES ($1, $2, $3, $4, $5, $6::date, $7::date, $8::date, CURRENT_TIMESTAMP, $6::date, $9, $10, true, $11, $12)
                 RETURNING *
             `;
 
@@ -100,6 +101,7 @@ const processScheduledAllocation = async (futureAllocation, log) => {
                 project_id,
                 allocation_percentage,
                 billing_percentage,
+                billing_status_id, // Include billing_status_id from future allocation
                 allocated_date,
                 deallocated_date,
                 effective_date,
@@ -262,7 +264,7 @@ const processScheduledAllocation = async (futureAllocation, log) => {
             // Check if resource already has a bench allocation
             const existingBench = await db.query(`
                 SELECT * FROM allocations 
-                WHERE resource_id = $1 
+                WHERE employee_id = $1 
                 AND project_id = $2 
                 AND is_active = true
             `, [resource_id, benchProjectId]);
@@ -300,15 +302,15 @@ const processScheduledAllocation = async (futureAllocation, log) => {
                     newPercentage: allocation_percentage
                 });
             } else if (allocation_percentage > 0) {
-                // Create new bench allocation
+                // Create new bench allocation (billing_status_id = 3 for Bench)
                 await db.query(`
                     INSERT INTO allocations (
-                        resource_id, project_id, allocation_percentage, billing_percentage,
+                        employee_id, project_id, allocation_percentage, billing_percentage, billing_status_id,
                         allocated_date, effective_date, allocation_changed_on,
                         original_allocated_date, change_type, source_future_id,
                         is_active, notes, created_by
                     )
-                    VALUES ($1, $2, $3, 0, $4::date, $4::date, CURRENT_TIMESTAMP, $4::date, 'AUTO_BENCH_ADJUSTMENT', $5, true, 'Auto bench adjustment', $6)
+                    VALUES ($1, $2, $3, 0, 3, $4::date, $4::date, CURRENT_TIMESTAMP, $4::date, 'AUTO_BENCH_ADJUSTMENT', $5, true, 'Auto bench adjustment', $6)
                 `, [
                     resource_id,
                     benchProjectId,

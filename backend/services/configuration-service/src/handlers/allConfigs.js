@@ -37,6 +37,7 @@ const transformDbRow = (row) => ({
     displayOrder: row.display_order || row.level || row.id,
     // Include additional fields if they exist
     ...(row.level !== undefined && { level: row.level }),
+    ...(row.tier_id !== undefined && { tierId: row.tier_id }),
     ...(row.is_intern_role !== undefined && { isInternRole: row.is_intern_role }),
     ...(row.category && { category: row.category }),
     ...(row.is_default !== undefined && { isDefault: row.is_default }),

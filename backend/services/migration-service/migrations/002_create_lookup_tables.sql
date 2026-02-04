@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS designations (
     id SERIAL PRIMARY KEY,
     name VARCHAR(100) NOT NULL UNIQUE,
     level SMALLINT NOT NULL DEFAULT 1,
+    tier_id INTEGER NOT NULL DEFAULT 6, -- FK to TIERS config: 1=Tier-1, 2=Tier-2, 3=Tier-3, 4=Tier-4, 5=Intern, 6=None, 7=Synergy
     is_intern_role BOOLEAN NOT NULL DEFAULT false,
     category VARCHAR(50),
     is_active BOOLEAN NOT NULL DEFAULT true,
