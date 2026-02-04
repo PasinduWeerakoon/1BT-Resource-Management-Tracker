@@ -3,7 +3,7 @@
  * Most complex tab with pagination, filters, and complex form
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useSelector } from 'react-redux';
 import { useConfigCRUD } from '../hooks/useConfigCRUD';
 import ConfigTable from '../components/ConfigTable';
@@ -17,7 +17,7 @@ import { PAGINATION } from '@constants/app';
 import useProjectData from './ProjectsTab/hooks/useProjectData';
 import useProjectForm from './ProjectsTab/hooks/useProjectForm';
 import { getProjectColumns } from './ProjectsTab/utils/tableColumns';
-import { selectProjectTypes, selectBillingStatuses } from '@redux/slices/configSlice';
+import { selectProjectTypes, selectBillingStatuses, selectAccountTypes, selectProjectStatuses } from '@redux/slices/configSlice';
 
 const ProjectsTab = () => {
     const [pagination, setPagination] = useState({
@@ -29,6 +29,8 @@ const ProjectsTab = () => {
     // Get config data from Redux
     const projectTypesForModal = useSelector(selectProjectTypes);
     const billingStatusesForModal = useSelector(selectBillingStatuses);
+    const accountTypesForModal = useSelector(selectAccountTypes);
+    const projectStatusesForModal = useSelector(selectProjectStatuses);
 
     // Use project data hook
     const {
@@ -119,8 +121,64 @@ const ProjectsTab = () => {
         },
         projectTypesForModal,
         billingStatusesForModal,
+        accountTypesForModal,
+        projectStatusesForModal,
         onCloseModal: handleCloseModal,
     });
+
+    // Store the record to edit in a ref so we can access it in useEffect
+    const recordToEditRef = useRef(null);
+
+    // Set form values when modal opens and we have a record to edit
+    useEffect(() => {
+        if (isModalVisible && isEditMode && recordToEditRef.current) {
+            const record = recordToEditRef.current;
+
+            // Wait for all required options to be loaded (accountManagersList is optional)
+            if (accountTypesForModal.length === 0 ||
+                projectStatusesForModal.length === 0 ||
+                projectTypesForModal.length === 0) {
+                return; // Options not loaded yet, wait for next render
+            }
+
+            // Convert account_type string to ID
+            const accountTypeId = accountTypesForModal.find(at => at.name === record.account_type)?.id ||
+                accountTypesForModal.find(at => at.name === 'External')?.id;
+            // Convert status string to ID
+            const statusId = projectStatusesForModal.find(ps => ps.name === record.status)?.id ||
+                projectStatusesForModal.find(ps => ps.name === 'Active')?.id;
+
+            setAccountType(accountTypeId);
+
+            // Reset form first to clear any previous values
+            form.resetFields();
+
+            // Set form values after a delay to ensure form and all Select options are ready
+            const timer = setTimeout(() => {
+                const formValues = {
+                    project_name: record.project_name || '',
+                    project_code: record.project_code || '',
+                    client_id: record.client_id || null,
+                    project_type: record.project_type_id || null,
+                    account_type: accountTypeId,
+                    status: statusId,
+                    account_manager: record.account_manager_id || null,
+                    billing_type: record.billing_status_id || null,
+                    team_size: record.team_size !== undefined && record.team_size !== null ? record.team_size : 1,
+                    account_reg_sales_owner: record.account_reg_sales_owner || '',
+                    budget: record.budget !== undefined && record.budget !== null ? record.budget : 0,
+                    start_date: record.project_start_date ? dayjs(record.project_start_date) : null,
+                    end_date: record.project_end_date ? dayjs(record.project_end_date) : null,
+                    description: record.description || '',
+                };
+
+                // Set form values
+                form.setFieldsValue(formValues);
+            }, 400);
+
+            return () => clearTimeout(timer);
+        }
+    }, [isModalVisible, isEditMode, accountTypesForModal, projectStatusesForModal, projectTypesForModal, form, setAccountType]);
 
     // Custom submit handler
     const handleSubmit = () => {
@@ -129,11 +187,15 @@ const ProjectsTab = () => {
 
     // Custom add handler
     const handleAddProject = () => {
-        setAccountType('External');
+        // Clear the edit record ref
+        recordToEditRef.current = null;
+        const externalAccountTypeId = accountTypesForModal.find(at => at.name === 'External')?.id;
+        const activeStatusId = projectStatusesForModal.find(ps => ps.name === 'Active')?.id;
+        setAccountType(externalAccountTypeId);
         form.resetFields();
         form.setFieldsValue({
-            account_type: 'External',
-            status: 'Active',
+            account_type: externalAccountTypeId,
+            status: activeStatusId,
             billing_type: billingStatusesForModal.find(bs => bs.name === 'Billing')?.id,
             team_size: 1,
         });
@@ -142,21 +204,12 @@ const ProjectsTab = () => {
 
     // Custom edit handler
     const handleEditProject = (record) => {
-        setAccountType(record.account_type || 'External');
-
-        form.setFieldsValue({
-            project_name: record.project_name,
-            project_code: record.project_code,
-            client_id: record.client_id,
-            project_type: projectTypesForModal.find(pt => pt.name === record.project_type)?.id,
-            is_billable: record.is_billable !== undefined ? record.is_billable : true,
-            account_type: record.account_type || 'External',
-            status: record.status || 'Active',
-            start_date: record.start_date ? dayjs(record.start_date) : null,
-            end_date: record.end_date ? dayjs(record.end_date) : null,
-            description: record.description,
-        });
+        // Store the record in ref for useEffect to use
+        recordToEditRef.current = record;
+        // Open the modal first
         handleEdit(record);
+        // Reset form after modal opens to clear any previous values
+        // The useEffect will set the new values after options are loaded
     };
 
     // Table columns
@@ -209,12 +262,15 @@ const ProjectsTab = () => {
                 <ProjectForm
                     form={form}
                     isEditMode={isEditMode}
-                    accountType={accountType}
-                    setAccountType={setAccountType}
+                    accountTypeId={accountType}
+                    setAccountTypeId={setAccountType}
                     clients={clients}
                     accountManagersList={accountManagersList}
                     projectTypesForModal={projectTypesForModal}
                     billingStatusesForModal={billingStatusesForModal}
+                    accountTypesForModal={accountTypesForModal}
+                    projectStatusesForModal={projectStatusesForModal}
+                    loadingConfigForModal={false}
                     loadingAccountManagers={loadingAccountManagers}
                 />
             </ConfigModal>

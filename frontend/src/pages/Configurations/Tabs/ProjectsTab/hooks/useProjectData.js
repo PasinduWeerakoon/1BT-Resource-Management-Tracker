@@ -131,13 +131,24 @@ export const useProjectData = (pagination) => {
         project_code: project.project_code,
         client_id: project.client_id,
         client_name: project.client_name,
-        project_type: project.project_type,
+        // For table display (keep existing fields)
+        project_type: project.project_type || project.project_type_name,
         is_billable: project.is_billable,
         status: project.status,
-        start_date: project.start_date,
-        end_date: project.end_date,
+        start_date: project.start_date || project.project_start_date,
+        end_date: project.end_date || project.project_end_date,
         description: project.description,
-        is_default: project.isDefault !== undefined ? project.isDefault : (project.is_default !== undefined ? project.is_default : false),
+        is_default: project.isDefault ?? project.is_default ?? false,
+        // For form editing (add new fields)
+        project_type_id: project.project_type_id || null,
+        account_type: project.account_type || project.accountType || null,
+        account_manager_id: project.account_manager_id || project.accountManagerId || null,
+        billing_status_id: project.billing_status_id || project.billingStatusId || null,
+        team_size: project.team_size !== undefined && project.team_size !== null ? project.team_size : (project.teamSize !== undefined && project.teamSize !== null ? project.teamSize : 1),
+        account_reg_sales_owner: project.account_reg_sales_owner || project.accountRegSalesOwner || '',
+        budget: project.budget !== undefined && project.budget !== null ? parseFloat(project.budget) : 0,
+        project_start_date: project.project_start_date || project.projectStartDate || project.start_date || null,
+        project_end_date: project.project_end_date || project.projectEndDate || project.end_date || null,
       }));
 
       setProjects(transformed);
