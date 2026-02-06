@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from 'react';
-import { Card } from 'antd';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { Card, Spin } from 'antd';
 import { DownOutlined, UpOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { commonOptions, colors } from '@utils/chartConfig';
@@ -7,18 +7,13 @@ import { futureAllocationsService, reportsService, summaryService } from '@api';
 import { showErrorToast } from '@utils/toast.utils';
 import logger from '@utils/logger';
 import { COLUMN_WIDTHS, LABELS } from '@constants/dashboard';
-import { COMMON, TABLE, UI } from '@constants/app';
+import { COMMON, PAGINATION, TABLE, UI } from '@constants/app';
 import { ReportHeader } from '@components/ReportLayout';
 import CustomTable from '@components/Table';
 import { useFetchData } from '@hooks';
 import { useSelector } from 'react-redux';
 import { selectDesignations, selectTechStacks, selectTiers, selectTracks } from '@redux/slices/configSlice';
-import {
-  buildAllocationsByEmployeeName,
-  buildAllocationsByResourceId,
-  buildIdLabelMap,
-  getLabelFromMap,
-} from '@utils/configMappings';
+import { buildIdLabelMap, getLabelFromMap } from '@utils/configMappings';
 import BottomSection from './components/BottomSection';
 import ResourceCountsSection from './components/ResourceCountsSection';
 import PercentagesSection from './components/PercentagesSection';
@@ -44,29 +39,54 @@ const Dashboard = () => {
   const [futureAllocations, setFutureAllocations] = useState([]);
   const [designationExpanded, setDesignationExpanded] = useState(true);
   const [futureAllocationsExpanded, setFutureAllocationsExpanded] = useState(true);
+  const [allocationPagination, setAllocationPagination] = useState({
+    current: PAGINATION.DEFAULT_PAGE,
+    pageSize: PAGINATION.DEFAULT_PAGE_SIZE_SMALL,
+    total: 0,
+  });
 
   const tracksList = useSelector(selectTracks);
   const techStacksList = useSelector(selectTechStacks);
   const tiersList = useSelector(selectTiers);
   const designationsList = useSelector(selectDesignations);
 
+  const fetchAccountManagerReport = useCallback(() => {
+    return reportsService.getAccountManager({
+      page: allocationPagination.current,
+      limit: allocationPagination.pageSize,
+    });
+  }, [allocationPagination.current, allocationPagination.pageSize]);
+
   const {
     loading: reportLoading,
   } = useFetchData(
-    () => reportsService.getAccountManager({}),
+    fetchAccountManagerReport,
     {
       autoFetch: true,
+      dependencies: [allocationPagination.current, allocationPagination.pageSize],
       onSuccess: (response) => {
         if (!response) return;
         const data = response.data || response;
+        const designationsPayload = data.designations || { data: [] };
+        const allocationsPayload = data.allocations || { data: [] };
+        const allocationsPagination = allocationsPayload.pagination || {};
+
         setReportData({
           charts: data.charts || {
             employeesByTrack: {},
             employeesByTechStack: {},
           },
-          designations: data.designations || { data: [] },
-          allocations: data.allocations || { data: [] },
+          designations: designationsPayload,
+          allocations: allocationsPayload,
         });
+
+        setAllocationPagination((prev) => ({
+          current: allocationsPagination.page ?? prev.current,
+          pageSize: allocationsPagination.limit ?? prev.pageSize,
+          total: allocationsPagination.total
+            ?? allocationsPayload.total
+            ?? (allocationsPayload.data ? allocationsPayload.data.length : 0),
+        }));
       },
       onError: (error) => {
         logger.error('Failed to fetch account manager report', error);
@@ -229,14 +249,26 @@ const Dashboard = () => {
   const tierIdToLabel = useMemo(() => buildIdLabelMap(tiersList), [tiersList]);
   const designationIdToLabel = useMemo(() => buildIdLabelMap(designationsList), [designationsList]);
 
-  const allocationsByResourceId = useMemo(
-    () => buildAllocationsByResourceId(reportData.allocations.data || []),
-    [reportData.allocations.data]
-  );
-  const allocationsByEmployeeName = useMemo(
-    () => buildAllocationsByEmployeeName(reportData.allocations.data || []),
-    [reportData.allocations.data]
-  );
+  const designationsByResourceId = useMemo(() => {
+    const map = new Map();
+    (reportData.designations.data || []).forEach((item) => {
+      const key = item.resource_id ?? item.id;
+      if (key !== undefined && key !== null) {
+        map.set(key, item);
+      }
+    });
+    return map;
+  }, [reportData.designations.data]);
+
+  const designationsByEmployeeName = useMemo(() => {
+    const map = new Map();
+    (reportData.designations.data || []).forEach((item) => {
+      if (item?.employee_name) {
+        map.set(item.employee_name, item);
+      }
+    });
+    return map;
+  }, [reportData.designations.data]);
 
   // Designation columns
   const designationColumns = [
@@ -278,51 +310,52 @@ const Dashboard = () => {
     },
   ];
 
-  // Designation data
+  // Designation table data (from allocations, enriched by designations lookup)
   const designationData = useMemo(() => {
-    const designations = reportData.designations.data || [];
-    return designations.map((item, index) => {
-      // Create a unique key using id if available, otherwise use a combination of properties and index
-      const uniqueKey = item.id
-        ? `designation-${item.id}`
-        : `designation-${index}-${item.employee_name || item.name || ''}-${item.track || ''}`;
+    const allocations = reportData.allocations.data || [];
+    return allocations.map((allocation, index) => {
+      const resourceId = allocation.resource_id ?? allocation.id;
+      const designationRecord = (resourceId !== undefined && designationsByResourceId.get(resourceId))
+        || designationsByEmployeeName.get(allocation.employee_name);
 
-      const trackLabel = getLabelFromMap(trackIdToLabel, item.track_id)
-        || item.track
-        || item.track_name;
-      const techStackLabel = getLabelFromMap(techStackIdToLabel, item.tech_stack_id)
-        || item.tech_stack
-        || item.tech_stack_name;
-      const tierLabel = getLabelFromMap(tierIdToLabel, item.tier_id)
-        || item.tier
-        || item.tier_name;
-      const designationLabel = getLabelFromMap(designationIdToLabel, item.id)
-        || item.designation
-        || item.designation_name;
-
-      const resourceId = item.resource_id ?? item.id;
-      const allocation = (resourceId !== undefined && allocationsByResourceId.get(resourceId))
-        || allocationsByEmployeeName.get(item.employee_name);
+      const trackLabel = getLabelFromMap(trackIdToLabel, designationRecord?.track_id)
+        || designationRecord?.track
+        || designationRecord?.track_name;
+      const techStackLabel = getLabelFromMap(techStackIdToLabel, designationRecord?.tech_stack_id)
+        || designationRecord?.tech_stack
+        || designationRecord?.tech_stack_name;
+      const tierLabel = getLabelFromMap(tierIdToLabel, designationRecord?.tier_id)
+        || designationRecord?.tier
+        || designationRecord?.tier_name;
+      const designationLabel = getLabelFromMap(designationIdToLabel, designationRecord?.designation_id)
+        || designationRecord?.designation
+        || designationRecord?.designation_name;
 
       return {
-        key: uniqueKey,
-        employeeName: item.employee_name || item.name || COMMON.N_A_LABEL,
+        key: allocation.id || `allocation-${index}`,
+        employeeName: allocation.employee_name || allocation.resource_name || COMMON.N_A_LABEL,
         track: trackLabel || COMMON.N_A_LABEL,
         techStack: techStackLabel || COMMON.N_A_LABEL,
         tier: tierLabel || COMMON.N_A_LABEL,
         designation: designationLabel || COMMON.N_A_LABEL,
-        allocationCount: allocation?.total_allocation ?? 0,
+        allocationCount: allocation.total_allocation ?? allocation.project_allocation ?? 0,
       };
     });
   }, [
-    reportData.designations.data,
+    reportData.allocations.data,
+    designationsByResourceId,
+    designationsByEmployeeName,
     trackIdToLabel,
     techStackIdToLabel,
     tierIdToLabel,
     designationIdToLabel,
-    allocationsByResourceId,
-    allocationsByEmployeeName,
   ]);
+
+  useEffect(() => {
+    if (allocationPagination.current > 1 && designationData.length === 0) {
+      setAllocationPagination((prev) => ({ ...prev, current: 1 }));
+    }
+  }, [designationData.length, allocationPagination.current]);
 
   const futureAllocationColumns = [
     {
@@ -393,9 +426,13 @@ const Dashboard = () => {
       <ReportHeader title={LABELS.SUMMARY_VIEW} className="dashboard-header" />
 
       <div className="dashboard-content">
-        <ResourceCountsSection counts={summaryData.resourceCounts} labels={LABELS} />
+        <Spin spinning={summaryLoading}>
+          <ResourceCountsSection counts={summaryData.resourceCounts} labels={LABELS} />
+        </Spin>
 
-        <PercentagesSection percentages={summaryData.percentages} labels={LABELS} />
+        <Spin spinning={summaryLoading}>
+          <PercentagesSection percentages={summaryData.percentages} labels={LABELS} />
+        </Spin>
 
         <BottomSection
           trackDonutData={trackDonutData}
@@ -426,7 +463,26 @@ const Dashboard = () => {
               <CustomTable
                 columns={designationColumns}
                 dataSource={designationData}
-                pagination={false}
+                pagination={{
+                  current: allocationPagination.current,
+                  pageSize: allocationPagination.pageSize,
+                  total: allocationPagination.total,
+                  showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} allocations`,
+                  onChange: (page, pageSize) => {
+                    setAllocationPagination((prev) => ({
+                      ...prev,
+                      current: page,
+                      pageSize,
+                    }));
+                  },
+                  onShowSizeChange: (_, size) => {
+                    setAllocationPagination((prev) => ({
+                      ...prev,
+                      current: 1,
+                      pageSize: size,
+                    }));
+                  },
+                }}
                 size={TABLE.SIZE_SMALL}
                 scroll={{ x: TABLE.DEFAULT_SCROLL_X }}
                 loading={reportLoading || summaryLoading}

@@ -411,7 +411,6 @@ const AccountManagerReport = () => {
             fetchReportInProgressRef.current = true;
             setLoadingReport(true);
             setLoadingProjects(true);
-            setLoadingAllocations(true);
 
             // Build query parameters from filters
             const queryParams = {};
@@ -530,59 +529,9 @@ const AccountManagerReport = () => {
                     });
                 }
 
-                // Update allocation data - show all allocations (filtered by account manager)
-                // When a project is selected, it will be further filtered on the backend
-                if (data.allocations && data.allocations.data) {
-                    const transformedAllocations = data.allocations.data.map((allocation) => {
-                        const allocationPercentage = parseFloat(allocation.allocation_percentage || allocation.project_allocation) || 0;
-                        const billingPercentage = parseFloat(allocation.billing_percentage) || 0;
-                        const billingStatus = billingPercentage > 0 ? 'Billing' : 'Non-Billing';
-                        const resourceInfo = resourcesById.get(allocation.resource_id);
-                        const totalAllocation = parseFloat(resourceInfo?.total_allocation ?? allocation.total_allocation) || 0;
-                        const totalBilling = parseFloat(resourceInfo?.total_resource_billing ?? allocation.total_resource_billing) || 0;
-                        const lastUpdatedSource = resourceInfo?.updated_at || allocation.updated_at;
-
-                        return {
-                            key: allocation.id,
-                            id: allocation.id,
-                            resource_id: allocation.resource_id,
-                            resource_name: allocation.resource_name || allocation.employee_name || 'N/A',
-                            employeeName: allocation.resource_name || allocation.employee_name || 'N/A',
-                            project_id: allocation.project_id,
-                            project_name: allocation.project_name || allocation.project || 'N/A',
-                            project: allocation.project_name || allocation.project || 'N/A',
-                            allocatedDate: allocation.allocated_date
-                                ? dayjs(allocation.allocated_date).format('DD MMM YYYY')
-                                : (allocation.project_allocated_date || ''),
-                            deallocatedDate: allocation.deallocated_date
-                                ? dayjs(allocation.deallocated_date).format('DD MMM YYYY')
-                                : (allocation.project_deallocated_date || ''),
-                            billingStatus: billingStatus,
-                            billingPercentage: billingPercentage ? `${billingPercentage.toFixed(2)}%` : '0.00%',
-                            projectAllocation: allocationPercentage ? `${allocationPercentage.toFixed(2)}%` : '0.00%',
-                            totalAllocation: `${totalAllocation.toFixed(2)}%`,
-                            totalBilling: `${totalBilling.toFixed(2)}%`,
-                            lastUpdated: lastUpdatedSource ? dayjs(lastUpdatedSource).format('DD MMM YYYY') : '',
-                            duration: allocation.duration || allocation.duration_days || 0,
-                            status: allocation.is_active ? 'Active' : 'Inactive',
-                        };
-                    });
-
-                    setAllocationData(transformedAllocations);
-                    setAllocationPagination({
-                        current: data.allocations.pagination?.page || allocationPagination.current,
-                        pageSize: data.allocations.pagination?.limit || allocationPagination.pageSize,
-                        total: data.allocations.pagination?.total || 0,
-                    });
-                } else {
-                    // Clear allocation data if no data available
-                    setAllocationData([]);
-                    setAllocationPagination({
-                        current: 1,
-                        pageSize: allocationPagination.pageSize,
-                        total: 0,
-                    });
-                }
+                // Initial allocation table data should come from allocations API
+                setAllocationPagination(prev => ({ ...prev, current: 1 }));
+                fetchProjectAllocations(undefined, 1, allocationPagination.pageSize);
             }
         } catch (error) {
             logger.error('Failed to fetch account manager report:', error);
@@ -590,7 +539,6 @@ const AccountManagerReport = () => {
         } finally {
             setLoadingReport(false);
             setLoadingProjects(false);
-            setLoadingAllocations(false);
             fetchReportInProgressRef.current = false;
         }
     };
@@ -1995,7 +1943,7 @@ const AccountManagerReport = () => {
                             size="small"
                         />
                     </Tooltip>
-                    <Tooltip title="Delete">
+                    {/* <Tooltip title="Delete">
                         <Button
                             type="text"
                             icon={<DeleteOutlined />}
@@ -2007,7 +1955,7 @@ const AccountManagerReport = () => {
                             danger
                             size="small"
                         />
-                    </Tooltip>
+                    </Tooltip> */}
                 </Space>
             ),
         },
@@ -2103,16 +2051,18 @@ const AccountManagerReport = () => {
                     duration = endDate.diff(startDate, 'day');
                 }
 
+                const resourceId = allocation.resource_id ?? allocation.employee_id;
+
                 // Get resource name if not provided
                 let resourceName = allocation.resource_name || allocation.employee_name || 'N/A';
-                if (!resourceName && allocation.resource_id) {
-                    const resource = resourcesList.find(r => r.id === allocation.resource_id);
+                if (!resourceName && resourceId) {
+                    const resource = resourcesList.find(r => r.id === resourceId);
                     if (resource) {
                         resourceName = resource.name;
                     } else {
                         // Try to fetch resource if not in list
                         try {
-                            const resourceResponse = await resourcesService.getById(allocation.resource_id);
+                            const resourceResponse = await resourcesService.getById(resourceId);
                             if (resourceResponse && resourceResponse.data) {
                                 resourceName = resourceResponse.data.name || 'N/A';
                             }
@@ -2160,7 +2110,7 @@ const AccountManagerReport = () => {
                 const billingPercentage = typeof allocation.billing_percentage === 'string'
                     ? parseFloat(allocation.billing_percentage)
                     : (allocation.billing_percentage || 0);
-                const resourceInfo = resourcesById.get(allocation.resource_id);
+                const resourceInfo = resourceId ? resourcesById.get(resourceId) : null;
                 const totalAllocation = parseFloat(resourceInfo?.total_allocation ?? allocation.total_allocation) || 0;
                 const totalBilling = parseFloat(resourceInfo?.total_resource_billing ?? allocation.total_resource_billing) || 0;
                 const lastUpdatedSource = resourceInfo?.updated_at || allocation.updated_at;
@@ -2180,7 +2130,7 @@ const AccountManagerReport = () => {
                     lastUpdated: lastUpdatedSource ? dayjs(lastUpdatedSource).format('DD MMM YYYY') : '',
                     duration: duration,
                     status: allocation.is_active !== undefined ? (allocation.is_active ? 'Active' : 'Inactive') : (allocation.status || 'Active'),
-                    resource_id: allocation.resource_id,
+                    resource_id: resourceId,
                     project_id: allocation.project_id,
                 };
             }));

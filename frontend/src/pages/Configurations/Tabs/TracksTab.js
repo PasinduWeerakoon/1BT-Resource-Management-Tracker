@@ -97,18 +97,18 @@ const TracksTab = () => {
         columns={columns}
         dataSource={tracks}
         loading={loadingTracks}
-        onEdit={handleEdit}
-        onDelete={(record) => handleDelete(record, {
-          title: 'Delete Track',
-          content: `Are you sure you want to delete "${record.name}"? This action cannot be undone.`,
-        })}
+        // onEdit={handleEdit}
+        // onDelete={(record) => handleDelete(record, {
+        //   title: 'Delete Track',
+        //   content: `Are you sure you want to delete "${record.name}"? This action cannot be undone.`,
+        // })}
         isEditDisabled={(record) => record.is_default === true || record.isDefault === true}
         isDeleteDisabled={(record) => record.is_default === true || record.isDefault === true}
         pagination={{ pageSize: 20 }}
         scroll={{ x: 600 }}
         title="Tracks"
         addButtonText="Add Track"
-        onAdd={handleAdd}
+        // onAdd={handleAdd}
       />
 
       <ConfigModal

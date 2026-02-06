@@ -122,15 +122,15 @@ const TiersTab = () => {
         columns={columns}
         dataSource={tiers}
         loading={loadingTiers}
-        onEdit={handleEditTier}
-        onDelete={handleDeleteTier}
+        // onEdit={handleEditTier}
+        // onDelete={handleDeleteTier}
         isEditDisabled={(record) => record.is_default === true || record.isDefault === true}
         isDeleteDisabled={(record) => record.is_default === true || record.isDefault === true}
         pagination={{ pageSize: 20 }}
         scroll={{ x: 700 }}
         title="Tiers"
         addButtonText="Add Tier"
-        onAdd={handleAdd}
+        // onAdd={handleAdd}
       />
 
       <ConfigModal

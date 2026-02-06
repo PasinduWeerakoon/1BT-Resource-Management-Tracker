@@ -99,6 +99,13 @@ const ProjectsTab = () => {
     });
 
     // Use project form hook
+    const projectBillingStatusesForModal = useMemo(() => {
+        const filtered = billingStatusesForModal.filter((status) =>
+            status?.isProjectBilling === true || status?.is_project_billing === true
+        );
+        return filtered.length > 0 ? filtered : billingStatusesForModal;
+    }, [billingStatusesForModal]);
+
     const {
         accountType,
         setAccountType,
@@ -120,7 +127,7 @@ const ProjectsTab = () => {
             }
         },
         projectTypesForModal,
-        billingStatusesForModal,
+        billingStatusesForModal: projectBillingStatusesForModal,
         accountTypesForModal,
         projectStatusesForModal,
         onCloseModal: handleCloseModal,
@@ -196,7 +203,7 @@ const ProjectsTab = () => {
         form.setFieldsValue({
             account_type: externalAccountTypeId,
             status: activeStatusId,
-            billing_type: billingStatusesForModal.find(bs => bs.name === 'Billing')?.id,
+            billing_type: projectBillingStatusesForModal.find(bs => bs.name === 'Billing')?.id,
             team_size: 1,
         });
         handleAdd();
@@ -267,7 +274,7 @@ const ProjectsTab = () => {
                     clients={clients}
                     accountManagersList={accountManagersList}
                     projectTypesForModal={projectTypesForModal}
-                    billingStatusesForModal={billingStatusesForModal}
+                    billingStatusesForModal={projectBillingStatusesForModal}
                     accountTypesForModal={accountTypesForModal}
                     projectStatusesForModal={projectStatusesForModal}
                     loadingConfigForModal={false}
