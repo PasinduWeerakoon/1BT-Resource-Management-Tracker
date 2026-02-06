@@ -667,6 +667,33 @@ This document covers all requirements for managing resources (employees), projec
 
 Configurations are the main parameters of the application that control system behavior and data structure. All configuration data must be fetched when a user logs into the system and made available to populate dropdowns and other UI components throughout the application.
 
+**Important: Configuration Types**
+
+Configurations are divided into two types based on how they are managed:
+
+1. **Hardcoded Configurations (Read-Only)**: These are defined as JSON constants in the backend shared layer (`/opt/nodejs/configs/index.js`). They are **read-only** - users can only retrieve/view them, but **cannot create, update, or delete** them. Changes to these configs require code deployment.
+
+2. **Database-Managed Configurations (CRUD)**: These are stored in database tables and support full CRUD operations. Users can create, update, and manage these configurations through the UI.
+
+**Hardcoded Configurations (Read-Only)**:
+- **Tracks** - Resource tracks/departments (QA, Dev, UI, BA, PM, Support, UX, Execs, Delivery, Functional Consultant - MS Dynamics 365)
+- **Tiers** - Resource seniority levels (Tier-1, Tier-2, Tier-3, Tier-4, Intern, None, Synergy)
+- **Tech Stacks** - Technology specializations (.NET, Full Stack, Java, React, Data Science, etc.)
+- **Employee Statuses** - Resource employment status (Active, Inactive, Serving Notice Period, On Leave, Terminated)
+- **Project Statuses** - Project lifecycle status (Active, Inactive, Completed, On Hold)
+- **Account Types** - Project account classification (Internal, External)
+- **User Roles** - System access levels (Super User, Admin, User)
+- **User Statuses** - User account status (Active, Inactive, Suspended, Pending)
+
+**Database-Managed Configurations (CRUD)**:
+- **Designations** - Employee designations/job titles
+- **Tags** - Employee tags for categorization
+- **Clients** - Project clients
+- **Project Types** - Project classification types
+- **Billing Statuses** - Billing status for projects and resource allocations
+- **Employee Types** - Employee type classifications
+- **Universities** - University/institution information
+
 Configurations are divided into two main sections:
 1. **Employee Configs** - Configuration related to employees and their attributes
 2. **Project Configs** - Configuration related to projects and their attributes
@@ -978,45 +1005,36 @@ Default designations to be seeded (all with is_default = true):
 
 **Purpose**: Manage employee tier levels (seniority/experience levels) in the system. Tiers are used for reporting, statistics, and filtering resources. All tier-related queries and reports must use tier_id for accurate data retrieval.
 
+**IMPORTANT: Tiers are Hardcoded (Read-Only)**
+- Tiers are defined as JSON constants in the backend shared layer (`/opt/nodejs/configs/index.js`)
+- Tiers are **READ-ONLY** - users can only retrieve/view them
+- **CREATE, UPDATE, and DELETE operations are NOT supported** - these operations will return HTTP 405 (Method Not Allowed)
+- Changes to tiers require code deployment and backend update
+
 **Functional Requirements**:
 
-- **FR-CFG-007: View Tiers**
+- **FR-CFG-007: View Tiers (Read-Only)**
   - System shall display all tiers in a list/table view
   - System shall show tier name, level, description, and active status
-  - System shall distinguish between default and custom tiers
-  - Default tiers shall be clearly marked as non-editable
+  - System shall fetch tiers from hardcoded configuration (`TIERS` from `/opt/nodejs/configs/index.js`)
   - System shall display tiers in hierarchical order (None < Intern < Tier-4 < Tier-3 < Tier-2 < Tier-1 < Synergy)
+  - System shall filter by active status if requested
+  - System shall support search functionality (by name or description)
 
-- **FR-CFG-008: Create Tier**
-  - System shall allow authorized users to create new custom tiers
-  - Required fields:
-    - Tier Name (String, required, unique, 2-100 characters)
-    - Level (Integer, required) - Numeric level for hierarchy/sorting
-    - Description (Text, optional) - Description of the tier
-    - Active Status (Boolean, default: true)
-  - System shall validate tier name uniqueness
-  - System shall prevent creation of duplicate tiers
-  - System shall validate level is a positive integer
+- **FR-CFG-008: Create Tier (NOT SUPPORTED)**
+  - System shall **NOT** allow creation of new tiers
+  - API endpoint `POST /api/v1/tiers` shall return HTTP 405 (Method Not Allowed)
+  - Error message: "Tiers are hardcoded configs and cannot be created via API. Please update the shared configs module."
 
-- **FR-CFG-009: Update Tier**
-  - System shall allow authorized users to update custom tiers
-  - System shall NOT allow editing of default tiers (read-only)
-  - Editable fields for custom tiers:
-    - Tier Name (can be updated)
-    - Level (can be changed)
-    - Description (can be updated)
-    - Active Status (can be toggled)
-  - System shall validate tier name uniqueness on update
-  - System shall validate level is a positive integer
+- **FR-CFG-009: Update Tier (NOT SUPPORTED)**
+  - System shall **NOT** allow updating of tiers
+  - API endpoint `PUT /api/v1/tiers/:id` shall return HTTP 405 (Method Not Allowed)
+  - Error message: "Tiers are hardcoded configs and cannot be updated via API. Please update the shared configs module."
 
-- **FR-CFG-010: Delete/Deactivate Tier**
-  - System shall allow authorized users to set active status to false
-  - System shall NOT allow deletion of default tiers
-  - When active status is set to false:
-    - Tier shall not appear in any dropdowns throughout the system
-    - Tier shall not be available for selection when creating/editing designations or resources
-    - Existing resources with inactive tiers shall retain their tier_id (historical data preserved)
-  - System shall prevent setting active status to false if tier is in use by active designations or resources (with appropriate warning)
+- **FR-CFG-010: Delete Tier (NOT SUPPORTED)**
+  - System shall **NOT** allow deletion of tiers
+  - API endpoint `DELETE /api/v1/tiers/:id` shall return HTTP 405 (Method Not Allowed)
+  - Error message: "Tiers are hardcoded configs and cannot be deleted via API. Please update the shared configs module."
 
 - **FR-CFG-011: Fetch Configurations on Login**
   - System shall fetch all tier configurations when user logs in
@@ -1056,32 +1074,32 @@ Default designations to be seeded (all with is_default = true):
 
 **Data Model**:
 
+Tiers are **hardcoded JSON objects** in the backend shared layer, not database entities. The structure is:
+
 ```
-Tier {
-  id: SERIAL (Primary Key)
-  name: String (Required, Unique, 2-100 chars)
-  level: INTEGER (Required) - Numeric level for hierarchy (0=None, 1=Tier-1, 2=Tier-2, 3=Tier-3, 4=Tier-4, 5=Intern, 7=Synergy)
-  description: Text (Optional) - Description of the tier
-  is_active: Boolean (Default: true)
-  is_default: Boolean (Default: false) - Indicates if tier is a default tier
-  created_at: TIMESTAMPTZ (Default: NOW())
-  updated_at: TIMESTAMPTZ (Default: NOW())
+Tier (Hardcoded JSON Object) {
+  id: INTEGER (1-7) - Hardcoded tier ID
+  value: INTEGER (1-7) - Same as id, for compatibility
+  label: String (Required) - Display name (e.g., "Tier - 1", "Intern", "Synergy")
+  description: String (Optional) - Description of the tier
+  isActive: Boolean (Default: true) - Active status
+  displayOrder: INTEGER (Default: 1-7) - For sorting/ordering in UI
 }
 ```
 
+**Note**: Tiers are NOT stored in a database table. They are defined in `/opt/nodejs/configs/index.js` as the `TIERS` constant array.
+
 **Business Rules**:
 
-- **BR-CFG-009**: Default tiers (is_default = true) cannot be edited or deleted
-- **BR-CFG-010**: Tier name must be unique across all tiers
-- **BR-CFG-011**: Only active tiers (is_active = true) shall appear in dropdowns
-- **BR-CFG-012**: Tier level must be a positive integer
-- **BR-CFG-013**: Inactive tiers shall not be displayed in any selection UI
-- **BR-CFG-014**: Existing resources with inactive tiers retain their tier_id for historical purposes
-- **BR-CFG-015**: System shall prevent deactivating a tier if it is in use by active designations or resources
-- **BR-CFG-016**: All tier-based queries must use tier_id (INTEGER), not tier name
-- **BR-CFG-017**: Tier hierarchy: None (lowest) < Intern < Tier-4 < Tier-3 < Tier-2 < Tier-1 < Synergy (highest)
-- **BR-CFG-018**: When querying for synergy members, system must filter by tier_id = 7 (Synergy tier)
-- **BR-CFG-019**: When generating tier breakdown reports, system must group by tier_id and resolve to tier labels for display
+- **BR-CFG-009**: Tiers are hardcoded and **READ-ONLY** - cannot be created, updated, or deleted via API
+- **BR-CFG-010**: Only active tiers (isActive = true) shall appear in dropdowns
+- **BR-CFG-011**: All tier-based queries must use tier_id (INTEGER), not tier name
+- **BR-CFG-012**: Tier hierarchy: None (lowest, id: 6) < Intern (id: 5) < Tier-4 (id: 4) < Tier-3 (id: 3) < Tier-2 (id: 2) < Tier-1 (id: 1) < Synergy (highest, id: 7)
+- **BR-CFG-013**: When querying for synergy members, system must filter by tier_id = 7 (Synergy tier)
+- **BR-CFG-014**: When generating tier breakdown reports, system must group by tier_id and resolve to tier labels for display
+- **BR-CFG-015**: System shall fetch tiers from hardcoded configuration on user login
+- **BR-CFG-016**: System shall cache tier configurations for session duration
+- **BR-CFG-017**: Changes to tiers require code deployment (update `/opt/nodejs/configs/index.js`)
 
 **User Interface Requirements**:
 
@@ -1236,38 +1254,37 @@ Default tiers to be seeded:
 
 **Data Model**:
 
+Tracks are **hardcoded JSON objects** in the backend shared layer, not database entities. The structure is:
+
 ```
-Track {
-  id: SERIAL (Primary Key)
-  name: String (Required, Unique, 2-100 chars)
-  description: Text (Optional) - Description of the track/department
-  is_active: Boolean (Default: true)
-  is_default: Boolean (Default: false) - Indicates if track is a default track
-  consider_for_stats: Boolean (Default: true) - Flag indicating if track should be included in statistics calculations
-  created_at: TIMESTAMPTZ (Default: NOW())
-  updated_at: TIMESTAMPTZ (Default: NOW())
+Track (Hardcoded JSON Object) {
+  id: INTEGER (1-11) - Hardcoded track ID
+  value: INTEGER (1-11) - Same as id, for compatibility
+  label: String (Required) - Display name (e.g., "QA", "Dev", "UI", "BA", "PM", "Support", "UX", "Execs", "Delivery", "Functional Consultant - MS Dynamics 365")
+  description: String (Optional) - Description of the track/department
+  isActive: Boolean (Default: true) - Active status
+  displayOrder: INTEGER (Default: 1-11) - For sorting/ordering in UI
 }
 ```
 
+**Note**: Tracks are NOT stored in a database table. They are defined in `/opt/nodejs/configs/index.js` as the `TRACKS` constant array. The `consider_for_stats` flag is determined by the hardcoded track configuration (typically all tracks are considered for stats except Support, Delivery, Execs).
+
 **Business Rules**:
 
-- **BR-CFG-020**: Default tracks (is_default = true) cannot be edited or deleted
-- **BR-CFG-021**: Track name must be unique across all tracks
-- **BR-CFG-022**: Only active tracks (is_active = true) shall appear in dropdowns
-- **BR-CFG-023**: Inactive tracks shall not be displayed in any selection UI
-- **BR-CFG-024**: Existing resources with inactive tracks retain their track_id for historical purposes
-- **BR-CFG-025**: System shall prevent deactivating a track if it is in use by active resources
-- **BR-CFG-026**: All track-based queries must use track_id (INTEGER), not track name
-- **BR-CFG-027**: Billable resource counts must only include resources with billable track_ids
-- **BR-CFG-028**: Non-billable tracks (Support, Delivery, Execs) must be excluded from billable head count calculations
-- **BR-CFG-029**: Billable tracks are: QA, Dev, UI, BA, PM, UX, Functional Consultant - MS Dynamics 365
-- **BR-CFG-030**: Non-billable tracks are: Support, Delivery, Execs
-- **BR-CFG-031**: When calculating billable resource counts, system must filter by billable track_ids only
-- **BR-CFG-032**: When assigning tracks to employees, system must save track_id (not track name)
-- **BR-CFG-033**: All statistics and reports that consider track must use track_id for filtering and grouping
-- **BR-CFG-034**: System must check the "Consider for Stats" flag (consider_for_stats) before including a track in any statistics calculations
-- **BR-CFG-035**: Only tracks with consider_for_stats = true shall be included in statistics, head counts, and reports
-- **BR-CFG-036**: Tracks with consider_for_stats = false shall be excluded from all statistics calculations, regardless of billable status
+- **BR-CFG-020**: Tracks are hardcoded and **READ-ONLY** - cannot be created, updated, or deleted via API
+- **BR-CFG-021**: Only active tracks (isActive = true) shall appear in dropdowns
+- **BR-CFG-022**: All track-based queries must use track_id (INTEGER), not track name
+- **BR-CFG-023**: Billable resource counts must only include resources with billable track_ids
+- **BR-CFG-024**: Non-billable tracks (Support, Delivery, Execs) must be excluded from billable head count calculations
+- **BR-CFG-025**: Billable tracks are: QA (id: 1), Dev (id: 2), UI (id: 3), BA (id: 4), PM (id: 5), UX (id: 8), Functional Consultant - MS Dynamics 365 (id: 11)
+- **BR-CFG-026**: Non-billable tracks are: Support (id: 6), Delivery (id: 10), Execs (id: 9)
+- **BR-CFG-027**: When calculating billable resource counts, system must filter by billable track_ids only
+- **BR-CFG-028**: When assigning tracks to employees, system must save track_id (not track name)
+- **BR-CFG-029**: All statistics and reports that consider track must use track_id for filtering and grouping
+- **BR-CFG-030**: System must check the track's configuration to determine if it should be considered for statistics
+- **BR-CFG-031**: System shall fetch tracks from hardcoded configuration on user login
+- **BR-CFG-032**: System shall cache track configurations for session duration
+- **BR-CFG-033**: Changes to tracks require code deployment (update `/opt/nodejs/configs/index.js`)
 
 **User Interface Requirements**:
 
@@ -1288,13 +1305,12 @@ Track {
 
 **API Requirements**:
 
-- **API-CFG-013**: `GET /api/configurations/tracks` - Fetch all tracks
-- **API-CFG-014**: `GET /api/configurations/tracks/active` - Fetch only active tracks
-- **API-CFG-015**: `GET /api/configurations/tracks/billable` - Fetch only billable tracks
-- **API-CFG-016**: `POST /api/configurations/tracks` - Create new track
-- **API-CFG-017**: `PUT /api/configurations/tracks/:id` - Update track (only for custom tracks)
-- **API-CFG-018**: `PATCH /api/configurations/tracks/:id/active` - Toggle active status
-- **API-CFG-019**: `GET /api/configurations/tracks/:id` - Get track by ID
+- **API-CFG-013**: `GET /api/v1/tracks` - Fetch all tracks (read-only, from hardcoded config)
+- **API-CFG-014**: `GET /api/v1/tracks?is_active=true` - Fetch only active tracks (read-only)
+- **API-CFG-015**: `GET /api/v1/tracks/:id` - Get track by ID (read-only)
+- **API-CFG-016**: `POST /api/v1/tracks` - **NOT SUPPORTED** - Returns HTTP 405 (Method Not Allowed)
+- **API-CFG-017**: `PUT /api/v1/tracks/:id` - **NOT SUPPORTED** - Returns HTTP 405 (Method Not Allowed)
+- **API-CFG-018**: `DELETE /api/v1/tracks/:id` - **NOT SUPPORTED** - Returns HTTP 405 (Method Not Allowed)
 
 **Statistics and Reporting Requirements**:
 
@@ -1311,23 +1327,24 @@ Track {
 - **REP-CFG-016**: Tracks with consider_for_stats = false shall be excluded from all statistics calculations, even if they are billable tracks
 - **REP-CFG-017**: When calculating statistics, system must filter resources by both track_id and the track's consider_for_stats flag
 
-**Initial Seed Data (Migrations)**:
+**Hardcoded Track Configuration**:
 
-The following default tracks must be seeded in the database during initial migration. All default tracks shall have `is_default = true` and `is_active = true`.
+Tracks are defined in `/opt/nodejs/configs/index.js` as the `TRACKS` constant array. The following tracks are hardcoded:
 
-Default tracks to be seeded:
-- QA (description: "Quality Assurance", billable: true, consider_for_stats: true)
-- Dev (description: "Development", billable: true, consider_for_stats: true)
-- UI (description: "UI Development", billable: true, consider_for_stats: true)
-- BA (description: "Business Analysis", billable: true, consider_for_stats: true)
-- PM (description: "Project Management", billable: true, consider_for_stats: true)
-- Support (description: "Support Functions - Finance and HR", billable: false, consider_for_stats: false)
-- UX (description: "User Experience", billable: true, consider_for_stats: true)
-- Execs (description: "Executive Roles - CEO, COO, CTO", billable: false, consider_for_stats: false)
-- Delivery (description: "Delivery Management", billable: false, consider_for_stats: false)
-- Functional Consultant - MS Dynamics 365 (description: "MS Dynamics 365 Functional Consultant", billable: true, consider_for_stats: true)
+Default tracks (hardcoded in JSON):
+- QA (id: 1, description: "Quality Assurance", billable: true)
+- Dev (id: 2, description: "Development", billable: true)
+- UI (id: 3, description: "UI Development", billable: true)
+- BA (id: 4, description: "Business Analysis", billable: true)
+- PM (id: 5, description: "Project Management", billable: true)
+- Support (id: 6, description: "Support Functions - Finance and HR", billable: false)
+- Synergy (id: 7, description: "Synergy Program", billable: false)
+- UX (id: 8, description: "User Experience", billable: true)
+- Execs (id: 9, description: "Executive Roles - CEO, COO, CTO", billable: false)
+- Delivery (id: 10, description: "Delivery Management", billable: false)
+- Functional Consultant - MS Dynamics 365 (id: 11, description: "MS Dynamics 365 Functional Consultant", billable: true)
 
-**Note**: The seed migration script should use `ON CONFLICT (name) DO UPDATE` to handle re-runs safely. The track IDs are critical and must be consistent across the system for proper billable/non-billable filtering.
+**Note**: Track IDs (1-11) are critical and must match the track_id references in the employees table. Changes to tracks require updating the hardcoded configuration file and deploying the backend.
 
 ---
 
