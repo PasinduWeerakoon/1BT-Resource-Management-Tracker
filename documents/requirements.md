@@ -412,47 +412,428 @@ This document covers all requirements for managing resources (employees), projec
 
 #### FR-029: Account Manager Report
 **Priority**: High  
-**Description**: System shall display comprehensive account manager report with filters, KPIs, charts, and tables.
+**Description**: System shall display comprehensive account manager report with filters, KPIs, charts, and tables. This is the main functionality of the application for checking resource allocations for projects, changing resource allocations, viewing projects, and seeing statistics. All stats and details in the application depend on this report working correctly.
+
+**Business Context**:
+- This report is the primary interface for managing resource allocations to projects
+- All statistics and calculations throughout the application depend on accurate allocation data
+- Users can view and modify resource allocations directly from this report
+- Project creation and management is integrated into this report
 
 **Requirements**:
-- Filters Section (collapsible, collapsed by default):
-  - Account Manager (Select)
-  - Project Name (Select)
-  - Project Status (Select)
-  - Allocation Status (Select)
-  - Client Name (Select)
-  - Billing Status (Select)
-  - Year (Select)
-  - Month (Select)
-  - Employee Status (Select)
-  - Active filters badge showing count
-  - Reset filters button
-- KPI Cards (5 cards in single row):
-  - Total Projects
-  - Total Employees
-  - Total Allocations
-  - Average Allocation Percentage
-  - Average Billing Percentage
-- Charts Section (collapsible):
-  - No. of Allocations by Billing Status (Doughnut chart)
-  - No. of Employees by Tier (Horizontal Bar chart)
-  - No. of Employees by Track (Doughnut chart)
-  - No. of Employees by Tech Stack (Horizontal Bar chart)
-- Project Overview Table (collapsible):
-  - Columns: Project, Customer, Project Type, Team Size, Status
+
+**1. Filters Section (collapsible, collapsed by default)**:
+- All filter options are dropdowns (Select components)
+- Filter values are populated from backend data (fetched on login or when configs are updated)
+- All filter queries must use IDs (not names) when sending to backend
+- Initial state: All filters default to "ALL" (no specific filters applied)
+- When "ALL" is selected, no filter condition is applied for that field
+- Filter options:
+  - **Account Manager** (Select dropdown)
+    - Populated from employees where `is_account_manager = true`
+    - Send `account_manager_id` to backend
+    - Default: "ALL"
+  - **Project Name** (Select dropdown)
+    - Populated from all active projects
+    - Send `project_id` to backend
+    - Default: "ALL"
+  - **Project Status** (Select dropdown)
+    - Options: "ALL", "Active", "Inactive"
+    - Send status value to backend
+    - Default: "ALL"
+  - **Client Name** (Select dropdown)
+    - Populated from all active clients
+    - Send `client_id` to backend
+    - Default: "ALL"
+  - **Project Billing Status** (Select dropdown)
+    - Populated from billing statuses where `is_for_project = true`
+    - Send `billing_status_id` to backend
+    - Default: "ALL"
+  - **Tech Stack** (Select dropdown)
+    - Populated from tech stacks configuration
+    - Send `tech_stack_id` to backend
+    - Default: "ALL"
+- Active filters badge showing count of applied filters (excluding "ALL" selections)
+- Reset filters button to restore all filters to "ALL"
+
+**2. Initial Data Load**:
+- On page load, fetch all projects (no filters applied initially)
+- All projects are displayed regardless of filters until user applies filters
+
+**3. Billable Resources Definition**:
+- **Billable Tracks** (for fetching resources in Account Manager Report):
+  - Dev
+  - QA
+  - BA
+  - PM
+  - UI
+  - UX
+  - Synergy
+  - Delivery
+  - Functional Consultant - MS Dynamics 365
+- **Billable Resource Count Calculation** (for KPI display):
+  - Include resources from billable tracks EXCEPT:
+    - Exclude Synergy track resources
+    - Exclude Delivery track resources
+    - Exclude Interns (employees where `employee_type` is "Intern")
+  - Formula: Count of resources where:
+    - `track_id` IN (Dev, QA, BA, PM, UI, UX, Functional Consultant - MS Dynamics 365)
+    - AND `employee_type` != "Intern"
+    - AND `status` = "Active"
+    - AND `is_external` = false (for company-wide stats)
+
+**4. KPI Cards (5 cards in single row)**:
+
+**4.0 Filter Application to Stats**:
+- All KPI calculations must apply ALL selected filter options
+- Filter conditions applied to stats:
+  - Account Manager filter: Filter by `project.account_manager_id`
+  - Project Name filter: Filter by `project.id`
+  - Project Status filter: Filter by `project.status`
+  - Client Name filter: Filter by `project.client_id`
+  - Project Billing Status filter: Filter by `project.billing_status_id`
+  - Tech Stack filter: Filter by `employee.tech_stack_id`
+- When "ALL" is selected for a filter, that filter condition is not applied
+- Stats update in real-time when any filter is changed
+- All stat calculations are performed on the backend based on all active filters
+
+**4.1 Billable Resource Count**:
+- Definition: Count of resources allocated to billable tracks (excluding Synergy, Delivery, and Interns)
+- Calculation:
+  ```
+  COUNT(DISTINCT employees.id)
+  WHERE employees.track_id IN (billable_track_ids)
+    AND employees.employee_type != 'Intern'
+    AND employees.status = 'Active'
+    AND employees.is_external = false
+    AND employees.track_id NOT IN (Synergy, Delivery)
+  ```
+- Excludes: Bench project allocations are not considered for this count
+
+**4.2 Allocated Count**:
+- Definition: Number of resources allocated to projects (excluding Bench)
+- Calculation:
+  ```
+  SUM(allocation_percentage) / 100
+  WHERE project.is_bench_project = false
+    AND allocation.is_active = true
+    AND (allocation.deallocated_date IS NULL OR allocation.deallocated_date >= CURRENT_DATE)
+  ```
+- Formula: Sum of all allocation percentages for non-bench projects, divided by 100
+- Example: If total allocation percentage is 850%, allocated count = 8.5 resources
+
+**4.3 Billable Count**:
+- Definition: Number of billable resources based on billing percentage (excluding Bench)
+- Calculation:
+  ```
+  SUM(billing_percentage) / 100
+  WHERE project.is_bench_project = false
+    AND allocation.is_active = true
+    AND (allocation.deallocated_date IS NULL OR allocation.deallocated_date >= CURRENT_DATE)
+  ```
+- Formula: Sum of all billing percentages for non-bench projects, divided by 100
+- Example: If total billing percentage is 650%, billable count = 6.5 resources
+
+**4.4 Average Project Allocation**:
+- Definition: Average allocation percentage across all projects per billable resource
+- Calculation:
+  ```
+  (SUM of allocated_count for each project) / billable_resource_head_count
+  WHERE project.is_bench_project = false
+  ```
+- Steps:
+  1. For each project, calculate allocated count: `SUM(allocation_percentage) / 100` for that project
+  2. Sum all project allocated counts
+  3. Divide by billable resource head count (resources allocated to billable tracks, excluding Bench)
+- Excludes: Bench project allocations
+
+**4.5 Average Billing Percentage**:
+- Definition: Average billing percentage across all projects per billable resource
+- Calculation:
+  ```
+  (SUM of billing_count for each project) / billable_resource_head_count
+  WHERE project.is_bench_project = false
+  ```
+- Steps:
+  1. For each project, calculate billing count: `SUM(billing_percentage) / 100` for that project
+  2. Sum all project billing counts
+  3. Divide by billable resource head count (resources allocated to billable tracks, excluding Bench)
+- Excludes: Bench project allocations
+
+**5. Charts Section (collapsible)**:
+
+**5.1 No. of Allocations by Billing Status (Pie Chart)**:
+- Chart Type: Pie Chart (using Chart.js)
+- Initial Display: Shows two segments
+  - **All Allocated Count**: Total allocated count (sum of allocation percentages / 100, excluding Bench)
+  - **All Billable Count**: Total billable count (sum of billing percentages / 100, excluding Bench)
+- Data Source: Based on filtered allocation data
+- Calculation:
+  - All Allocated Count = `SUM(allocation_percentage) / 100` WHERE `project.is_bench_project = false` AND filters applied
+  - All Billable Count = `SUM(billing_percentage) / 100` WHERE `project.is_bench_project = false` AND filters applied
+- Updates: Chart updates automatically when filters are applied
+
+**5.2 No. of Employees by Tier (Horizontal Bar Chart)**:
+- Chart Type: Horizontal Bar Chart (using Chart.js)
+- Data Source: Unique resource list (distinct employees) matching applied filters
+- Calculation:
+  1. Get unique/distinct list of employees (resources) based on applied filters
+  2. Group employees by their `tier_id`
+  3. Count the number of employees in each tier
+  4. Display tier names on Y-axis and employee count on X-axis
+- Formula:
+  ```
+  SELECT tier_id, COUNT(DISTINCT employee_id) as employee_count
+  FROM employees
+  WHERE [filter conditions]
+  GROUP BY tier_id
+  ```
+- Updates: Chart updates automatically when filters are applied
+
+**5.3 No. of Employees by Track (Doughnut Chart)**:
+- Chart Type: Doughnut Chart (using Chart.js)
+- Data Source: Unique resource list (distinct employees) matching applied filters
+- Calculation:
+  1. Get unique/distinct list of employees (resources) based on applied filters
+  2. Group employees by their `track_id`
+  3. Count the number of employees in each track
+- Updates: Chart updates automatically when filters are applied
+
+**5.4 No. of Employees by Tech Stack (Horizontal Bar Chart)**:
+- Chart Type: Horizontal Bar Chart (using Chart.js)
+- Data Source: Unique resource list (distinct employees) matching applied filters
+- Calculation:
+  1. Get unique/distinct list of employees (resources) based on applied filters
+  2. Group employees by their `tech_stack_id`
+  3. Count the number of employees in each tech stack
+- Updates: Chart updates automatically when filters are applied
+
+**5.5 Chart Filter Application**:
+- All charts must apply ALL selected filter options when calculating/preparing data
+- Filter conditions applied to charts:
+  - Account Manager filter: Filter by `project.account_manager_id`
+  - Project Name filter: Filter by `project.id`
+  - Project Status filter: Filter by `project.status`
+  - Client Name filter: Filter by `project.client_id`
+  - Project Billing Status filter: Filter by `project.billing_status_id`
+  - Tech Stack filter: Filter by `employee.tech_stack_id`
+- When "ALL" is selected for a filter, that filter condition is not applied
+- Charts update in real-time when any filter is changed
+- Chart data is recalculated on the backend based on all active filters
+
+**6. Project Overview Table (collapsible)**:
+- **Purpose**: Display active projects based on applied filters
+- **Initial Load**: If no filters are applied, fetch all active projects
+- **Filter Application**: Table data filtered based on all applied filters:
+  - Account Manager filter
+  - Project Status filter
+  - Client Name filter
+  - Project Billing Status filter
+  - Other applicable filters
+- **Columns**:
+  - Project (project name)
+  - Customer (client name)
+  - Project Type
+  - Team Size
+  - Status
   - Actions column with Edit and Add Members icon buttons
-  - Create New Project button (before expand/collapse icon)
-- BY ALLOCATION Table (collapsible):
-  - Fixed first column (Employee Name)
+- **Project Selection**:
+  - User can click on any row to select a project
+  - Selected project row is highlighted (different background color)
+  - When a project is selected:
+    - `selectedProjectId` is set
+    - Tech Stack Pie Chart is displayed (if not already visible)
+    - BY ALLOCATION table updates to show allocations for selected project
+- **Actions**:
+  - **Edit Project**: Opens project edit modal with pre-filled data
+  - **Add Members**: Opens Add Team Members modal for the selected project
+- **Create New Project Button**: 
+  - Located before expand/collapse icon
+  - Opens Create Project modal
+  - Allows creating new projects directly from this report
+- **Pagination**: Supports pagination for large project lists
+- **Table Behavior**:
+  - Collapsible/expandable section
+  - Row click selects the project
+  - Selected project ID is stored in state
+
+**6.1 Tech Stack Pie Chart (Conditional Display)**:
+- **Display Condition**: 
+  - Only shown when a project is selected
+  - Project can be selected from:
+    - Project Overview Table (clicking a row)
+    - Project Name filter dropdown
+  - If no project is selected, this chart is NOT displayed
+- **Chart Type**: Pie Chart (using Chart.js)
+- **Data Source**: Resources allocated to the selected project
+- **Calculation**:
+  - Get all resources allocated to the selected project
+  - Group resources by their `tech_stack_id`
+  - Count the number of resources in each tech stack
+  - Display tech stack names with resource counts
+- **Formula**:
+  ```
+  SELECT tech_stack_id, COUNT(DISTINCT employee_id) as resource_count
+  FROM allocations a
+  JOIN employees e ON a.employee_id = e.id
+  WHERE a.project_id = [selected_project_id]
+    AND a.is_active = true
+    AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
+    AND project.is_bench_project = false
+  GROUP BY tech_stack_id
+  ```
+- **Updates**: 
+  - Chart updates when a different project is selected
+  - Chart updates when allocations change for the selected project
+  - Chart hides when project selection is cleared
+
+**7. BY ALLOCATION Table (collapsible)**:
+- **Purpose**: Display resource allocations with detailed allocation information
+- **Initial Display**: 
+  - Initially shows all resources (if no filters or project selected)
+  - If filters are applied, shows resources matching filter criteria
+  - If a project is selected, shows resources allocated to that project
+- **Filter Application**:
+  - If project is selected: Show allocations for that project only
+  - If filters are applied: Apply all filter conditions to resource/allocation data
+  - If both project selected and filters applied: Combine conditions (project selection takes precedence for allocation filtering)
+- **Columns** (in order):
+  1. **Employee Name** (fixed first column, width: 180px)
+  2. **Project** (width: 150px)
+  3. **Project Allocated Date** (width: 160px)
+  4. **Project Deallocated Date** (width: 180px)
+  5. **Billing Status** (width: 130px)
+  6. **Billing Percentage** (width: 140px)
+  7. **Total Billing** (width: 140px) - Employee's total billing percentage across all projects
+  8. **Project Allocation** (width: 140px) - Allocation percentage for this project
+  9. **Total Allocation** (width: 140px) - Employee's total allocation percentage across all projects
+  10. **Status** (width: 100px) - Allocation status (Active/Inactive)
+  11. **Last Updated** (width: 140px) - Last update timestamp
+  12. **Actions** (width: 120px, fixed right) - View and Edit buttons
+- **Table Features**:
+  - Fixed first column (Employee Name) for easy reference
   - Horizontal scrolling for remaining columns
-  - Row click opens User Allocation Modal
-  - Column dividers
-- BY DESIGNATION Table:
-  - Fixed first column
-  - Horizontal scrolling
-  - Column dividers
-- All tables use Chart.js for charts (Doughnut, Bar)
+  - Column dividers for visual separation
+  - Row click opens User Allocation Modal for viewing/editing allocations
+  - Pagination support for large datasets
+  - Loading state indicator
+- **Actions Column**:
+  - **View Allocations** (Eye icon): Opens User Allocation Modal in view mode
+  - **Edit** (Edit icon): Opens User Allocation Modal in edit mode for the specific allocation
+- **Add Allocation Button**:
+  - Located in table header (when table is expanded)
+  - Opens allocation creation modal
+  - Allows adding new resource allocation to selected project (if project is selected)
+  - Allows adding new resource allocation with project selection (if no project selected)
+- **Data Source**:
+  - If project selected: Fetches allocations for that specific project
+  - If no project selected: Fetches allocations based on applied filters
+  - All queries exclude Bench project allocations
+  - Only shows active allocations (`is_active = true`)
+  - Only shows current/future allocations (`deallocated_date IS NULL OR deallocated_date >= CURRENT_DATE`)
+- **Allocation Management**:
+  - **Add Resource to Project**: 
+    - If project is selected, can add resources to that project
+    - Opens allocation creation form with project pre-selected
+  - **Change Allocation**: 
+    - Click Edit button to modify allocation details
+    - Can update: allocation percentage, billing percentage, billing status, dates, status
+    - Changes are saved and table refreshes
+  - **View Allocations**: 
+    - Click View button or row to see all allocations for a resource
+    - Shows complete allocation history and current allocations
+
+**8. BY DESIGNATION Table**:
+- Fixed first column
+- Horizontal scrolling
+- Column dividers
+- Groups resources by designation
+- Shows aggregated allocation data by designation
+
+**8. BY DESIGNATION Table**:
+- Fixed first column
+- Horizontal scrolling
+- Column dividers
+- Groups resources by designation
+- Shows aggregated allocation data by designation
+- Filtered based on applied filters and selected project (if any)
+
+**9. Project Creation Feature**:
+- **Access**: "Create New Project" button in Project Overview Table header
+- **Modal**: Opens Create Project modal dialog
+- **Form Fields**: All project creation fields (see FR-007: Create Project)
+- **Integration**: 
+  - Newly created projects appear in Project Overview Table immediately
+  - Project can be selected immediately after creation
+  - Allocations can be added to new project right away
+- **Validation**: Same validation rules as standard project creation
+- **Success**: After successful creation, project list refreshes and new project is available for selection
+
+**10. User Allocation Modal Integration**:
+- **Access Methods**:
+  - Click any row in BY ALLOCATION table
+  - Click "View Allocations" button in Actions column
+  - Click "Edit" button in Actions column
+- **Functionality**:
+  - **View Mode**: Display all allocations for a resource
+  - **Edit Mode**: Modify existing allocation details
+  - **Add Mode**: Create new allocation (accessible via "Add Allocation" button)
+- **Supported Operations**:
+  - Viewing all resource allocations across projects
+  - Editing existing allocations (allocation %, billing %, billing status, dates, status)
+  - Adding new allocations to projects
+  - Removing allocations (with proper validation)
+- **Data Updates**:
+  - Changes in modal update the report data immediately
+  - BY ALLOCATION table refreshes after save
+  - Stats and charts recalculate if needed
+  - Tech Stack Pie Chart updates if selected project allocations changed
+
+**10. Filter Application Rules**:
+- **Critical Requirement**: All filter options must be applied when calculating or preparing data for:
+  - KPI Cards (all 5 stats)
+  - Charts (all 4 charts)
+  - Project Overview Table
+  - BY ALLOCATION Table
+  - BY DESIGNATION Table
+- Filter application logic:
+  - When a filter is set to a specific value (not "ALL"), add that condition to the query
+  - When a filter is set to "ALL", do not add any condition for that filter
+  - Multiple filters are combined with AND logic
+  - All filters are applied simultaneously to all data calculations
+- Backend query structure:
+  ```
+  SELECT ...
+  FROM allocations a
+  JOIN projects p ON a.project_id = p.id
+  JOIN employees e ON a.employee_id = e.id
+  WHERE p.is_bench_project = false
+    AND a.is_active = true
+    AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
+    AND (account_manager_id = ? OR ? IS NULL)  -- if filter applied
+    AND (project_id = ? OR ? IS NULL)          -- if filter applied
+    AND (project.status = ? OR ? IS NULL)      -- if filter applied
+    AND (client_id = ? OR ? IS NULL)           -- if filter applied
+    AND (project.billing_status_id = ? OR ? IS NULL)  -- if filter applied
+    AND (e.tech_stack_id = ? OR ? IS NULL)     -- if filter applied
+  ```
+- Frontend behavior:
+  - When any filter changes, trigger API call with all current filter values
+  - Backend recalculates all stats and chart data based on new filters
+  - Frontend updates all displayed data (KPIs, charts, tables) with new results
+  - Loading indicator shown during recalculation
+
+**11. Technical Requirements**:
+- All filter queries must use IDs (account_manager_id, project_id, client_id, billing_status_id, tech_stack_id)
+- Frontend must cache filter option data from login/config updates
+- Backend must validate all filter IDs before querying
+- All calculations must exclude Bench project allocations
+- All date-based queries must consider `deallocated_date` (NULL or >= CURRENT_DATE)
+- All queries must respect `is_active = true` for allocations
+- Performance: Report data should load within 2 seconds
 - All sections are collapsible/expandable
+- All charts use Chart.js library (Pie, Doughnut, Horizontal Bar)
+- Real-time updates: All stats and charts update immediately when filters change
 
 #### FR-030: Bench Report
 **Priority**: High  
@@ -3469,6 +3850,12 @@ BillingCalculation {
 - **BR-021**: Critical Shadow (CS) can be set per allocation
 - **BR-022**: CS% is required if Critical Shadow is Yes, must be 0-100
 - **BR-023**: Allocation changes must be logged
+- **BR-024**: Bench project allocations must be excluded from all allocation statistics and calculations
+- **BR-025**: All allocation calculations must only consider active allocations (`is_active = true`)
+- **BR-026**: All allocation calculations must only consider current/future allocations (`deallocated_date IS NULL OR deallocated_date >= CURRENT_DATE`)
+- **BR-027**: Billable resource count excludes Synergy track, Delivery track, and Intern employee types
+- **BR-028**: All filter queries in Account Manager Report must use IDs (not names) for database queries
+- **BR-029**: Account Manager Report is the primary source of truth for allocation data; all other reports depend on its accuracy
 
 ### 9.4 Billing Calculation Rules
 - **BR-024**: Billing calculated based on normalized allocation percentages
