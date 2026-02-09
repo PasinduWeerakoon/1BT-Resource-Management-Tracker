@@ -78,6 +78,7 @@ export { default as projectStatusesService } from './services/projectStatuses.se
 export { default as tiersService } from './services/tiers.service';
 export { default as configsService } from './services/configs.service';
 export { default as summaryService } from './services/summary.service';
+export { default as documentsService } from './services/documents.service';
 
 // Utilities
 export * from './utils';

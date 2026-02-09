@@ -204,6 +204,11 @@ export const ENDPOINTS = {
     CHARTS: `${BASE_URL}/dashboard/charts`,
   },
 
+  // Documents
+  DOCUMENTS: {
+    EXCEL_SUMMARY: `${BASE_URL}/documents/excel/summary`,
+  },
+
   // Audit Logs
   AUDIT_LOGS: {
     BASE: `${BASE_URL}/audit-logs`,

@@ -97,6 +97,15 @@ functions:
           method: POST
           authorizer: ${self:custom.authorizer}
 
+  generateSummaryExcel:
+    handler: src/handlers/documents.generate_summary_excel
+    description: Generate summary report Excel
+    events:
+      - httpApi:
+          path: /api/v1/documents/excel/summary
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
   getDocument:
     handler: src/handlers/documents.get_document
     description: Get a generated document

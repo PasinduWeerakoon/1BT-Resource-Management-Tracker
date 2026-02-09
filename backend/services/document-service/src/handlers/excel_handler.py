@@ -318,3 +318,326 @@ def generate_bench_report(event, context):
         return error(f"Failed to generate report: {str(e)}")
     finally:
         close_connection()
+
+
+def generate_summary_report(event, context):
+    """
+    Generate summary report in Excel format matching the dashboard view
+    POST /documents/excel/summary
+    """
+    try:
+        report_date = datetime.now().strftime('%Y-%m-%d')
+        
+        # Get resource counts from dashboard_stats table (summary table)
+        summary_query = """
+            SELECT resource_counts
+            FROM dashboard_stats
+            WHERE stats_type = 'resource_counts'
+            ORDER BY stats_date DESC
+            LIMIT 1
+        """
+        
+        summary_result = query(summary_query)
+        resource_counts = {}
+        
+        if summary_result and len(summary_result) > 0:
+            # resource_counts is stored as JSONB, psycopg2 with RealDictCursor returns it as dict
+            resource_counts_data = summary_result[0].get('resource_counts')
+            if resource_counts_data:
+                if isinstance(resource_counts_data, dict):
+                    resource_counts = resource_counts_data
+                elif isinstance(resource_counts_data, str):
+                    import json
+                    resource_counts = json.loads(resource_counts_data)
+        
+        # Extract values from summary table
+        billing_resource_count = float(resource_counts.get('billingResourceCount', 0) or 0)
+        billable_resource_count = float(resource_counts.get('billableResourceCount', 0) or 0)
+        bench_resource_count = float(resource_counts.get('benchResourceCount', 0) or 0)
+        shadow_count = float(resource_counts.get('shadowCount', 0) or 0)
+        intern_count = float(resource_counts.get('internsCount', 0) or 0)
+        
+        # Calculate billing utilization percentage
+        billing_utilization_percent = 0
+        if billable_resource_count > 0:
+            billing_utilization_percent = round((billing_resource_count / billable_resource_count) * 100, 0)
+        
+        # Calculate Allocated Utilization % using custom formula:
+        # 1. Sum of all allocation_percentage (excluding Bench project allocations)
+        # 2. Divide by 100 to convert to FTE count
+        # 3. Divide by total billable resource count
+        allocated_utilization_percent = 0
+        if billable_resource_count > 0:
+            allocation_util_query = """
+                WITH active_employees AS (
+                    SELECT e.id
+                    FROM employees e
+                    WHERE e.status = 'Active'
+                      AND e.deleted_at IS NULL
+                ),
+                employee_allocations AS (
+                    SELECT 
+                        a.employee_id,
+                        SUM(a.allocation_percentage) as total_allocation
+                    FROM allocations a
+                    JOIN projects p ON a.project_id = p.id
+                    WHERE a.is_active = true 
+                      AND a.deleted_at IS NULL
+                      AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
+                      AND (p.project_name IS NULL OR p.project_name <> 'Bench')
+                    GROUP BY a.employee_id
+                )
+                SELECT 
+                    COALESCE(SUM(COALESCE(ea.total_allocation, 0)), 0) as sum_allocation_non_bench
+                FROM active_employees ae
+                LEFT JOIN employee_allocations ea ON ae.id = ea.employee_id
+            """
+            
+            allocation_util_result = query(allocation_util_query)
+            if allocation_util_result and len(allocation_util_result) > 0:
+                sum_allocation_non_bench = float(allocation_util_result[0].get('sum_allocation_non_bench', 0) or 0)
+                # Convert total allocation percentage to FTE count
+                fte_non_bench = sum_allocation_non_bench / 100.0
+                if billable_resource_count > 0:
+                    allocated_utilization_percent = round((fte_non_bench / billable_resource_count) * 100, 0)
+        
+        # Prepare billing stats row
+        billing_row = {
+            'billable_resource_count': billable_resource_count,
+            'billing_resource_count': billing_resource_count,
+            'billing_utilization_percent': billing_utilization_percent
+        }
+        
+        # Prepare allocation stats row
+        allocation_row = {
+            'billing_resource_count': billing_resource_count,
+            'critical_shadow_count': shadow_count,
+            'allocated_utilization_percent': allocated_utilization_percent,
+            'bench_resources': bench_resource_count,
+            'intern_count': intern_count
+        }
+        
+        # Query Bench Analysis (Name, Tier, Focused Area, Allocation)
+        # Note: tier_id is stored on employees; we join tiers to get the tier name
+        bench_analysis_query = """
+            WITH bench_allocations AS (
+                SELECT 
+                    a.employee_id,
+                    SUM(a.allocation_percentage) as bench_allocation_percentage,
+                    STRING_AGG(DISTINCT p.project_name, ', ') as focused_areas
+                FROM allocations a
+                LEFT JOIN projects p ON a.project_id = p.id
+                WHERE a.is_active = true 
+                AND a.deleted_at IS NULL
+                AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
+                AND (a.billing_status_id = 3 OR p.is_bench_project = true)
+                GROUP BY a.employee_id
+            ),
+            total_allocations AS (
+                SELECT 
+                    employee_id,
+                    SUM(allocation_percentage) as total_allocation
+                FROM allocations
+                WHERE is_active = true 
+                AND deleted_at IS NULL
+                AND (deallocated_date IS NULL OR deallocated_date >= CURRENT_DATE)
+                GROUP BY employee_id
+            )
+            SELECT 
+                r.name,
+                tt.name as tier,
+                COALESCE(ba.focused_areas, 'Bench') as focused_area,
+                COALESCE(ta.total_allocation, 0) as total_allocation,
+                COALESCE(ba.bench_allocation_percentage, 0) as bench_allocation
+            FROM employees r
+            INNER JOIN bench_allocations ba ON r.id = ba.employee_id
+            LEFT JOIN total_allocations ta ON r.id = ta.employee_id
+            LEFT JOIN tiers tt ON r.tier_id = tt.id
+            WHERE r.status = 'Active'
+            AND r.deleted_at IS NULL
+            ORDER BY ba.bench_allocation_percentage DESC, r.name ASC
+        """
+        
+        bench_analysis = query(bench_analysis_query)
+        
+        # Query Role Summary - Get counts for all tracks
+        role_summary_query = """
+            WITH active_allocations AS (
+                SELECT 
+                    a.employee_id,
+                    a.allocation_percentage,
+                    e.track_id,
+                    t.name as track_name
+                FROM allocations a
+                JOIN employees e ON a.employee_id = e.id
+                LEFT JOIN tracks t ON e.track_id = t.id
+                WHERE a.is_active = true 
+                AND a.deleted_at IS NULL
+                AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
+                AND e.status = 'Active'
+                AND e.deleted_at IS NULL
+            )
+            SELECT
+                COALESCE(track_name, 'Unassigned') as track_name,
+                COALESCE(SUM(allocation_percentage) / 100.0, 0)::DECIMAL(10,2) as count
+            FROM active_allocations
+            GROUP BY track_id, track_name
+            ORDER BY track_name ASC
+        """
+        
+        role_summary = query(role_summary_query)
+        
+        # Create workbook
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Summary Report"
+        
+        current_row = 1
+        
+        # Title
+        ws.merge_cells(f'A{current_row}:D{current_row}')
+        title_cell = ws.cell(row=current_row, column=1, value="Resource Management Dashboard")
+        title_cell.font = Font(bold=True, size=16)
+        title_cell.alignment = Alignment(horizontal='center')
+        current_row += 1
+        
+        # Date
+        date_cell = ws.cell(row=current_row, column=1, value=f"Date: {report_date}")
+        date_cell.font = Font(bold=True, size=12)
+        current_row += 2
+        
+        # Note about exclusions
+        note_cell = ws.cell(row=current_row, column=1, value="(Excluding Synergy, Interns, Shared Services)")
+        note_cell.font = Font(italic=True, size=10)
+        current_row += 2
+        
+        # Resource Billing Stats
+        ws.cell(row=current_row, column=1, value="Resource Billing Stats").font = Font(bold=True, size=12)
+        current_row += 1
+        
+        billing_headers = ['Metric', 'Value']
+        for col, header in enumerate(billing_headers, 1):
+            cell = ws.cell(row=current_row, column=col, value=header)
+            apply_header_style(cell)
+        current_row += 1
+        
+        billing_data = [
+            ['Billable Resource Count', billing_row.get('billable_resource_count', 0)],
+            ['Billing Resource Count', billing_row.get('billing_resource_count', 0)],
+            ['Billing Utilization %', f"{billing_row.get('billing_utilization_percent', 0)}%"]
+        ]
+        
+        for row_data in billing_data:
+            for col_idx, value in enumerate(row_data, 1):
+                cell = ws.cell(row=current_row, column=col_idx, value=value)
+                apply_cell_style(cell)
+                # Highlight percentage in red if needed
+                if col_idx == 2 and isinstance(value, str) and '%' in value:
+                    cell.font = Font(color='FF0000', bold=True)
+            current_row += 1
+        
+        current_row += 1
+        
+        # Resource Allocation Stats
+        ws.cell(row=current_row, column=1, value="Resource Allocation Stats").font = Font(bold=True, size=12)
+        current_row += 1
+        
+        allocation_headers = ['Metric', 'Value']
+        for col, header in enumerate(allocation_headers, 1):
+            cell = ws.cell(row=current_row, column=col, value=header)
+            apply_header_style(cell)
+        current_row += 1
+        
+        allocation_data = [
+            ['Billing Resource Count', allocation_row.get('billing_resource_count', 0)],
+            ['Critical Shadow Count', allocation_row.get('critical_shadow_count', 0)],
+            ['Allocated Utilization %', f"{allocation_row.get('allocated_utilization_percent', 0)}%"],
+            ['Bench Resources', allocation_row.get('bench_resources', 0)],
+            ['Intern Count', allocation_row.get('intern_count', 0)]
+        ]
+        
+        for row_data in allocation_data:
+            for col_idx, value in enumerate(row_data, 1):
+                cell = ws.cell(row=current_row, column=col_idx, value=value)
+                apply_cell_style(cell)
+                # Highlight percentage in red if needed
+                if col_idx == 2 and isinstance(value, str) and '%' in value:
+                    cell.font = Font(color='FF0000', bold=True)
+            current_row += 1
+        
+        current_row += 1
+        
+        # Bench Analysis
+        ws.cell(row=current_row, column=1, value="Bench Analysis").font = Font(bold=True, size=12)
+        current_row += 1
+        
+        bench_headers = ['Name', 'Tier', 'Focused Area', 'Allocation']
+        for col, header in enumerate(bench_headers, 1):
+            cell = ws.cell(row=current_row, column=col, value=header)
+            apply_header_style(cell)
+        current_row += 1
+        
+        for row_data in bench_analysis:
+            cells = [
+                row_data.get('name', ''),
+                row_data.get('tier', ''),
+                row_data.get('focused_area', 'Bench'),
+                f"{row_data.get('bench_allocation', 0)}%"
+            ]
+            for col_idx, value in enumerate(cells, 1):
+                cell = ws.cell(row=current_row, column=col_idx, value=value)
+                apply_cell_style(cell)
+            current_row += 1
+        
+        current_row += 1
+        
+        # Role Summary
+        ws.cell(row=current_row, column=1, value="Role Summary").font = Font(bold=True, size=12)
+        current_row += 1
+        
+        role_headers = ['Role', 'Count']
+        for col, header in enumerate(role_headers, 1):
+            cell = ws.cell(row=current_row, column=col, value=header)
+            apply_header_style(cell)
+        current_row += 1
+        
+        # Use all tracks from the query result
+        if role_summary:
+            for track_row in role_summary:
+                track_name = track_row.get('track_name', 'Unassigned')
+                track_count = float(track_row.get('count', 0) or 0)
+                role_data = [track_name, track_count]
+                
+                for col_idx, value in enumerate(role_data, 1):
+                    cell = ws.cell(row=current_row, column=col_idx, value=value)
+                    apply_cell_style(cell)
+                current_row += 1
+        else:
+            # Fallback if no data
+            role_data = [['No data', 0]]
+            for row_data in role_data:
+                for col_idx, value in enumerate(row_data, 1):
+                    cell = ws.cell(row=current_row, column=col_idx, value=value)
+                    apply_cell_style(cell)
+                current_row += 1
+        
+        auto_column_width(ws)
+        
+        # Save to bytes
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+        
+        filename = f"summary_report_{datetime.now().strftime('%Y%m%d')}.xlsx"
+        
+        return file_response(
+            output.getvalue(),
+            filename,
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to generate summary report: {str(e)}", exc_info=True)
+        return error(f"Failed to generate summary report: {str(e)}")
+    finally:
+        close_connection()
