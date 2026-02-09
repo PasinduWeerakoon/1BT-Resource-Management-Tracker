@@ -3,13 +3,24 @@ Documents Handler
 Routes document generation requests to appropriate handlers
 """
 
-from .excel_handler import generate_report, generate_allocation_report, generate_bench_report, generate_summary_report
+from .excel_handler import (
+    generate_report, 
+    generate_allocation_report, 
+    generate_bench_report, 
+    generate_summary_report,
+    generate_non_billing_report
+)
 from .pdf_handler import generate_report as generate_pdf_report
 
 
 def generate_summary_excel(event, context):
     """Generate summary report Excel"""
     return generate_summary_report(event, context)
+
+
+def generate_non_billing_excel(event, context):
+    """Generate non-billing (critical shadows) report Excel"""
+    return generate_non_billing_report(event, context)
 
 # Excel handlers
 def generate_excel(event, context):

@@ -28,6 +28,41 @@ fileDownloadClient.interceptors.request.use(
   }
 );
 
+/**
+ * Helper function to download a file from blob
+ * @param {Blob} blob - File blob
+ * @param {Object} response - Axios response object
+ * @param {string} defaultFilename - Default filename if not in headers
+ */
+const downloadFileFromBlob = (blob, response, defaultFilename) => {
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  
+  // Extract filename from Content-Disposition header or use default
+  const contentDisposition = response.headers['content-disposition'];
+  let filename = defaultFilename;
+  
+  if (contentDisposition) {
+    const filenameMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+    if (filenameMatch && filenameMatch[1]) {
+      filename = filenameMatch[1].replace(/['"]/g, '');
+      // Decode URI if needed
+      try {
+        filename = decodeURIComponent(filename);
+      } catch (e) {
+        // If decode fails, use as is
+      }
+    }
+  }
+  
+  link.setAttribute('download', filename);
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
+};
+
 export const documentsService = {
   /**
    * Download summary report as Excel
@@ -38,36 +73,27 @@ export const documentsService = {
       responseType: 'blob',
     });
     
-    // Create blob URL and trigger download
     const blob = response.data;
-    
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    
-    // Extract filename from Content-Disposition header or use default
-    const contentDisposition = response.headers['content-disposition'];
     const today = new Date().toISOString().split('T')[0];
-    let filename = `summary_report_${today}.xlsx`;
+    downloadFileFromBlob(blob, response, `summary_report_${today}.xlsx`);
     
-    if (contentDisposition) {
-      const filenameMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
-      if (filenameMatch && filenameMatch[1]) {
-        filename = filenameMatch[1].replace(/['"]/g, '');
-        // Decode URI if needed
-        try {
-          filename = decodeURIComponent(filename);
-        } catch (e) {
-          // If decode fails, use as is
-        }
-      }
-    }
+    return blob;
+  },
+
+  /**
+   * Download non-billing (critical shadows) report as Excel
+   * @param {Object} params - Query parameters (e.g., { track_id: 1 })
+   * @returns {Promise<Blob>} Excel file blob
+   */
+  downloadNonBillingExcel: async (params = {}) => {
+    const response = await fileDownloadClient.get(ENDPOINTS.DOCUMENTS.EXCEL_NON_BILLING, {
+      responseType: 'blob',
+      params,
+    });
     
-    link.setAttribute('download', filename);
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    window.URL.revokeObjectURL(url);
+    const blob = response.data;
+    const today = new Date().toISOString().split('T')[0];
+    downloadFileFromBlob(blob, response, `critical_shadows_report_${today}.xlsx`);
     
     return blob;
   },

@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
-import { Row, Col, Card, Select } from 'antd';
+import { Row, Col, Card, Select, Button } from 'antd';
+import { DownloadOutlined } from '@ant-design/icons';
 import { useSelector } from 'react-redux';
 import CustomTable from '@components/Table';
-import { reportsService } from '@api';
+import { reportsService, documentsService } from '@api';
 import { selectTracks } from '@redux/slices/configSlice';
 import { useReportFilters, useReportData } from '@hooks/reports';
 import { FilterSection, ReportHeader, SummaryCards } from '@components/ReportLayout';
+import { showSuccessToast, showErrorToast } from '@utils/toast.utils';
 import NonBillingCharts from './components/NonBillingCharts';
 import '@styles/pages/NonBillingReport.scss';
 
@@ -185,9 +187,43 @@ const NonBillingReport = () => {
     { value: reportData.length, label: 'TOTAL NON-BILLING RESOURCES' },
   ];
 
+  // Excel download handler
+  const [isDownloading, setIsDownloading] = useState(false);
+
+  const handleDownloadExcel = async () => {
+    setIsDownloading(true);
+    try {
+      // Pass current filters to the download
+      const params = {};
+      if (filters.track_id) {
+        params.track_id = filters.track_id;
+      }
+      
+      await documentsService.downloadNonBillingExcel(params);
+      showSuccessToast('Excel report downloaded successfully');
+    } catch (error) {
+      console.error('Failed to download Excel:', error);
+      showErrorToast('Failed to download Excel report');
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
   return (
     <div className="non-billing-report-page">
-      <ReportHeader title="NON-BILLING REPORT" />
+      <ReportHeader 
+        title="NON-BILLING REPORT"
+        extra={
+          <Button
+            type="primary"
+            icon={<DownloadOutlined />}
+            onClick={handleDownloadExcel}
+            loading={isDownloading}
+          >
+            Download Excel
+          </Button>
+        }
+      />
 
       <FilterSection
         expanded={filtersExpanded}

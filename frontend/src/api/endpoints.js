@@ -207,6 +207,7 @@ export const ENDPOINTS = {
   // Documents
   DOCUMENTS: {
     EXCEL_SUMMARY: `${BASE_URL}/documents/excel/summary`,
+    EXCEL_NON_BILLING: `${BASE_URL}/documents/excel/non-billing`,
   },
 
   // Audit Logs

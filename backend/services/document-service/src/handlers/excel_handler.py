@@ -66,6 +66,7 @@ def _load_configs_from_file():
 
 # Load configs once at module level
 TRACKS, TIERS = _load_configs_from_file()
+logger.info(f"Loaded {len(TRACKS)} tracks and {len(TIERS)} tiers from configs")
 
 def get_track_name(track_id):
     """Get track name from track_id"""
@@ -382,6 +383,118 @@ def generate_bench_report(event, context):
         close_connection()
 
 
+def generate_non_billing_report(event, context):
+    """
+    Generate non-billing (Critical Shadows) report in Excel format
+    Critical Shadows are resources whose total billing percentage is less than 100%
+    GET /documents/excel/non-billing
+    """
+    try:
+        # Extract query parameters for filtering
+        query_params = event.get('queryStringParameters', {}) or {}
+        track_id = query_params.get('track_id')
+        
+        # Build WHERE clause for track filter
+        track_filter = ''
+        params = []
+        if track_id:
+            track_filter = 'AND e.track_id = %s'
+            params.append(int(track_id))
+        
+        # Query Critical Shadows: Resources whose total_resource_billing < 100%
+        # Using pre-calculated field from employees table for better performance
+        sql = f"""
+            SELECT 
+                e.name,
+                p.project_name,
+                a.allocation_percentage,
+                a.billing_percentage,
+                e.total_resource_billing,
+                e.track_id,
+                e.tier_id,
+                d.name as designation
+            FROM employees e
+            JOIN allocations a ON a.employee_id = e.id
+            JOIN projects p ON a.project_id = p.id
+            LEFT JOIN designations d ON e.designation_id = d.id
+            WHERE e.total_resource_billing < 100
+              AND e.status = 'Active'
+              AND a.is_active = true
+              AND a.deleted_at IS NULL
+              AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
+              AND e.deleted_at IS NULL
+              {track_filter}
+            ORDER BY e.total_resource_billing ASC, e.name ASC
+        """
+        
+        data = query(sql, params)
+        
+        # Create workbook
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Critical Shadows"
+        
+        # Title
+        ws.merge_cells('A1:E1')
+        title_cell = ws.cell(row=1, column=1, value="Critical Shadows (Resources with Total Billing < 100%)")
+        title_cell.font = Font(bold=True, size=14, color='FF0000')
+        title_cell.alignment = Alignment(horizontal='center')
+        
+        # Date and count
+        ws.cell(row=2, column=1, value=f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        ws.cell(row=2, column=4, value=f"Total Records: {len(data)}")
+        
+        # Headers
+        headers = ['Name', 'Project', 'Allocation %', 'Billing %', 'Total Billing %']
+        
+        for col, header in enumerate(headers, 1):
+            cell = ws.cell(row=4, column=col, value=header)
+            apply_header_style(cell)
+        
+        # Data
+        for row_idx, row in enumerate(data, 5):
+            allocation_pct = float(row.get('allocation_percentage', 0) or 0)
+            billing_pct = float(row.get('billing_percentage', 0) or 0)
+            total_billing_pct = float(row.get('total_resource_billing', 0) or 0)
+            
+            cells = [
+                row.get('name', ''),
+                row.get('project_name', ''),
+                f"{allocation_pct}%",
+                f"{billing_pct}%",
+                f"{total_billing_pct}%"
+            ]
+            
+            for col_idx, value in enumerate(cells, 1):
+                cell = ws.cell(row=row_idx, column=col_idx, value=value)
+                apply_cell_style(cell)
+                
+                # Highlight total billing percentage in red (since all are < 100%)
+                if col_idx == 5:
+                    cell.font = Font(color='FF0000', bold=True)
+        
+        auto_column_width(ws)
+        
+        # Save to bytes
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+        
+        filename = f"critical_shadows_report_{datetime.now().strftime('%Y%m%d')}.xlsx"
+        
+        return file_response(
+            output.getvalue(),
+            filename,
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to generate non-billing report: {str(e)}")
+        return error(f"Failed to generate report: {str(e)}")
+    finally:
+        close_connection()
+
+
 def generate_summary_report(event, context):
     """
     Generate summary report in Excel format matching the dashboard view
@@ -425,43 +538,24 @@ def generate_summary_report(event, context):
             billing_utilization_percent = round((billing_resource_count / billable_resource_count) * 100, 0)
         
         # Calculate Allocated Utilization % using custom formula:
-        # 1. Sum of all allocation_percentage (excluding Bench project allocations)
-        # 2. Divide by 100 to convert to FTE count
-        # 3. Divide by total billable resource count
+        # Sum of all allocation_percentage (excluding Bench) / 100 / billable_resource_count * 100
         allocated_utilization_percent = 0
         if billable_resource_count > 0:
             allocation_util_query = """
-                WITH active_employees AS (
-                    SELECT e.id
-                    FROM employees e
-                    WHERE e.status = 'Active'
-                      AND e.deleted_at IS NULL
-                ),
-                employee_allocations AS (
-                    SELECT 
-                        a.employee_id,
-                        SUM(a.allocation_percentage) as total_allocation
-                    FROM allocations a
-                    JOIN projects p ON a.project_id = p.id
-                    WHERE a.is_active = true 
-                      AND a.deleted_at IS NULL
-                      AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
-                      AND (p.project_name IS NULL OR p.project_name <> 'Bench')
-                    GROUP BY a.employee_id
-                )
-                SELECT 
-                    COALESCE(SUM(COALESCE(ea.total_allocation, 0)), 0) as sum_allocation_non_bench
-                FROM active_employees ae
-                LEFT JOIN employee_allocations ea ON ae.id = ea.employee_id
+                SELECT COALESCE(SUM(a.allocation_percentage), 0) as sum_allocation_non_bench
+                FROM allocations a
+                LEFT JOIN projects p ON a.project_id = p.id
+                WHERE a.is_active = true 
+                  AND a.deleted_at IS NULL
+                  AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
+                  AND (p.project_name IS NULL OR p.project_name <> 'Bench')
             """
             
             allocation_util_result = query(allocation_util_query)
             if allocation_util_result and len(allocation_util_result) > 0:
                 sum_allocation_non_bench = float(allocation_util_result[0].get('sum_allocation_non_bench', 0) or 0)
-                # Convert total allocation percentage to FTE count
-                fte_non_bench = sum_allocation_non_bench / 100.0
-                if billable_resource_count > 0:
-                    allocated_utilization_percent = round((fte_non_bench / billable_resource_count) * 100, 0)
+                # (Sum / 100) / billable_count * 100 = Sum / billable_count
+                allocated_utilization_percent = round((sum_allocation_non_bench / billable_resource_count), 0)
         
         # Prepare billing stats row
         billing_row = {
@@ -479,7 +573,7 @@ def generate_summary_report(event, context):
             'intern_count': intern_count
         }
         
-        # Query Bench Analysis (Name, Tier, Focused Area, Allocation)
+        # Query Bench Analysis (Name, Tier, Focused Area, Allocation, Track)
         # Note: tier_id and track_id are stored on employees as INTEGER config IDs (not DB table references)
         # Also includes track information for track-wise summary calculation
         bench_analysis_query = """
@@ -491,34 +585,22 @@ def generate_summary_report(event, context):
                 FROM allocations a
                 LEFT JOIN projects p ON a.project_id = p.id
                 WHERE a.is_active = true 
-                AND a.deleted_at IS NULL
-                AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
-                AND (a.billing_status_id = 3 OR p.is_bench_project = true)
+                  AND a.deleted_at IS NULL
+                  AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
+                  AND (a.billing_status_id = 3 OR p.is_bench_project = true)
                 GROUP BY a.employee_id
-            ),
-            total_allocations AS (
-                SELECT 
-                    employee_id,
-                    SUM(allocation_percentage) as total_allocation
-                FROM allocations
-                WHERE is_active = true 
-                AND deleted_at IS NULL
-                AND (deallocated_date IS NULL OR deallocated_date >= CURRENT_DATE)
-                GROUP BY employee_id
             )
             SELECT 
-                r.name,
-                r.tier_id,
+                e.name,
+                e.tier_id,
+                e.track_id,
                 COALESCE(ba.focused_areas, 'Bench') as focused_area,
-                COALESCE(ta.total_allocation, 0) as total_allocation,
-                COALESCE(ba.bench_allocation_percentage, 0) as bench_allocation,
-                r.track_id
-            FROM employees r
-            INNER JOIN bench_allocations ba ON r.id = ba.employee_id
-            LEFT JOIN total_allocations ta ON r.id = ta.employee_id
-            WHERE r.status = 'Active'
-            AND r.deleted_at IS NULL
-            ORDER BY ba.bench_allocation_percentage DESC, r.name ASC
+                COALESCE(ba.bench_allocation_percentage, 0) as bench_allocation
+            FROM employees e
+            INNER JOIN bench_allocations ba ON e.id = ba.employee_id
+            WHERE e.status = 'Active'
+              AND e.deleted_at IS NULL
+            ORDER BY ba.bench_allocation_percentage DESC, e.name ASC
         """
         
         bench_analysis = query(bench_analysis_query)

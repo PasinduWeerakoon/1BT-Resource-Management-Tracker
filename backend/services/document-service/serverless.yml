@@ -106,6 +106,15 @@ functions:
           method: GET
           authorizer: ${self:custom.authorizer}
 
+  generateNonBillingExcel:
+    handler: src/handlers/documents.generate_non_billing_excel
+    description: Generate non-billing (critical shadows) report Excel
+    events:
+      - httpApi:
+          path: /api/v1/documents/excel/non-billing
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
   getDocument:
     handler: src/handlers/documents.get_document
     description: Get a generated document
