@@ -25,11 +25,11 @@ import { FilterSection, ReportHeader, SummaryCards } from '@components/ReportLay
 import AccountManagerFilters from './components/AccountManagerFilters';
 import ChartsSection from './components/ChartsSection';
 import ProjectsTable from './components/ProjectsTable';
-import ProjectModal from './components/ProjectModal';
+import ProjectForm from '@pages/Configurations/Tabs/ProjectsTab/components/ProjectForm';
 import { useReportFilters } from '@hooks/reports';
 import { useSelector } from 'react-redux';
 import { projectsService, clientsService, allocationsService, resourcesService, accountManagersService, reportsService } from '@api';
-import { selectProjectTypes, selectBillingStatuses, selectTiers, selectTracks } from '@redux/slices/configSlice';
+import { selectProjectTypes, selectBillingStatuses, selectTiers, selectTracks, selectAccountTypes, selectProjectStatuses } from '@redux/slices/configSlice';
 import { showErrorToast, showSuccessToast, showWarningToast } from '@utils/toast.utils';
 import logger from '@utils/logger';
 import '@styles/pages/AccountManagerReport.scss';
@@ -40,7 +40,6 @@ const AccountManagerReport = () => {
     const { message } = App.useApp();
     const [form] = Form.useForm();
     const [billingType, setBillingType] = useState(null);
-    const [accountType, setAccountType] = useState('External');
     const [billingStatusExpanded, setBillingStatusExpanded] = useState(true);
     const [employeesByTierExpanded, setEmployeesByTierExpanded] = useState(true);
     const [projectOverviewExpanded, setProjectOverviewExpanded] = useState(true);
@@ -90,24 +89,113 @@ const AccountManagerReport = () => {
     const [loadingAccountManagers, setLoadingAccountManagers] = useState(false);
     const [projectsForFilter, setProjectsForFilter] = useState([]);
     const [loadingProjectsForFilter, setLoadingProjectsForFilter] = useState(false);
+    const resourcesById = useMemo(() => {
+        const map = new Map();
+        resourcesList.forEach((resource) => {
+            if (resource?.id !== undefined) {
+                map.set(resource.id, resource);
+            }
+        });
+        return map;
+    }, [resourcesList]);
+
+    useEffect(() => {
+        if (!allocationData.length) return;
+        let changed = false;
+        const nextAllocations = allocationData.map((item) => {
+            const resourceInfo = resourcesById.get(item.resource_id);
+            if (!resourceInfo) return item;
+
+            const newTotalAllocation = `${(parseFloat(resourceInfo.total_allocation) || 0).toFixed(2)}%`;
+            const newTotalBilling = `${(parseFloat(resourceInfo.total_resource_billing) || 0).toFixed(2)}%`;
+            const newLastUpdated = resourceInfo.updated_at
+                ? dayjs(resourceInfo.updated_at).format('DD MMM YYYY')
+                : '';
+
+            if (
+                item.totalAllocation !== newTotalAllocation ||
+                item.totalBilling !== newTotalBilling ||
+                item.lastUpdated !== newLastUpdated
+            ) {
+                changed = true;
+                return {
+                    ...item,
+                    totalAllocation: newTotalAllocation,
+                    totalBilling: newTotalBilling,
+                    lastUpdated: newLastUpdated,
+                };
+            }
+
+            return item;
+        });
+
+        if (changed) {
+            setAllocationData(nextAllocations);
+        }
+    }, [resourcesById, allocationData]);
+
+    useEffect(() => {
+        const loadMissingResources = async () => {
+            if (!allocationData.length) return;
+            const missingIds = Array.from(new Set(
+                allocationData
+                    .filter(item => item.resource_id && !resourcesById.has(item.resource_id))
+                    .map(item => item.resource_id)
+            ));
+            if (!missingIds.length) return;
+
+            try {
+                const fetched = await Promise.all(missingIds.map(async (id) => {
+                    try {
+                        const res = await resourcesService.getById(id);
+                        const resource = res?.data || res;
+                        if (resource?.id) return resource;
+                    } catch (error) {
+                        logger.error('Failed to fetch resource by id:', error);
+                    }
+                    return null;
+                }));
+
+                const newResources = fetched.filter(Boolean);
+                if (!newResources.length) return;
+
+                setResourcesList(prev => {
+                    const existingIds = new Set(prev.map(r => r.id));
+                    const merged = [...prev];
+                    newResources.forEach((resource) => {
+                        if (!existingIds.has(resource.id)) {
+                            merged.push({
+                                id: resource.id,
+                                name: resource.name,
+                                email: resource.email,
+                                status: resource.status,
+                                updated_at: resource.updated_at,
+                                total_allocation: resource.total_allocation,
+                                total_resource_billing: resource.total_resource_billing,
+                            });
+                        }
+                    });
+                    return merged;
+                });
+            } catch (error) {
+                logger.error('Failed to load missing resources:', error);
+            }
+        };
+
+        loadMissingResources();
+    }, [allocationData, resourcesById]);
 
     // Get configuration data from Redux (cached on login)
     const projectTypesList = useSelector(selectProjectTypes);
     const billingStatusesList = useSelector(selectBillingStatuses);
     const tiersList = useSelector(selectTiers);
     const tracksList = useSelector(selectTracks);
+    const accountTypesList = useSelector(selectAccountTypes);
+    const projectStatusesList = useSelector(selectProjectStatuses);
 
-    // Hardcoded values for Account Types and Project Statuses (no longer fetched from API)
-    const accountTypesList = [
-        { id: 'External', name: 'External' },
-        { id: 'Internal', name: 'Internal' },
-    ];
-    const projectStatusesList = [
-        { id: 'Active', name: 'Active' },
-        { id: 'On Hold', name: 'On Hold' },
-        { id: 'Completed', name: 'Completed' },
-        { id: 'Cancelled', name: 'Cancelled' },
-    ];
+    // Initialize account type with External ID (id: 2)
+    const defaultAccountTypeId = accountTypesList?.find(at => at.name === 'External')?.id || 2;
+    const [accountType, setAccountType] = useState(defaultAccountTypeId);
 
     const [reportData, setReportData] = useState({
         summary: {
@@ -449,6 +537,10 @@ const AccountManagerReport = () => {
                         const allocationPercentage = parseFloat(allocation.allocation_percentage || allocation.project_allocation) || 0;
                         const billingPercentage = parseFloat(allocation.billing_percentage) || 0;
                         const billingStatus = billingPercentage > 0 ? 'Billing' : 'Non-Billing';
+                        const resourceInfo = resourcesById.get(allocation.resource_id);
+                        const totalAllocation = parseFloat(resourceInfo?.total_allocation ?? allocation.total_allocation) || 0;
+                        const totalBilling = parseFloat(resourceInfo?.total_resource_billing ?? allocation.total_resource_billing) || 0;
+                        const lastUpdatedSource = resourceInfo?.updated_at || allocation.updated_at;
 
                         return {
                             key: allocation.id,
@@ -468,6 +560,9 @@ const AccountManagerReport = () => {
                             billingStatus: billingStatus,
                             billingPercentage: billingPercentage ? `${billingPercentage.toFixed(2)}%` : '0.00%',
                             projectAllocation: allocationPercentage ? `${allocationPercentage.toFixed(2)}%` : '0.00%',
+                            totalAllocation: `${totalAllocation.toFixed(2)}%`,
+                            totalBilling: `${totalBilling.toFixed(2)}%`,
+                            lastUpdated: lastUpdatedSource ? dayjs(lastUpdatedSource).format('DD MMM YYYY') : '',
                             duration: allocation.duration || allocation.duration_days || 0,
                             status: allocation.is_active ? 'Active' : 'Inactive',
                         };
@@ -660,14 +755,18 @@ const AccountManagerReport = () => {
             ? filters.accountManager
             : undefined;
 
+        const externalAccountTypeId = accountTypesList.find(at => at.name === 'External')?.id;
+        const activeStatusId = projectStatusesList.find(ps => ps.name === 'Active')?.id;
+
         form.setFieldsValue({
-            accountManager: accountManagerValue,
-            status: 'Active',
-            billingType: undefined,
-            accountType: 'External',
+            account_manager: accountManagerValue,
+            status: activeStatusId,
+            billing_type: billingStatusesList.find(bs => bs.name === 'Billing')?.id,
+            account_type: externalAccountTypeId,
+            team_size: 1,
         });
         setBillingType(null);
-        setAccountType('External');
+        setAccountType(externalAccountTypeId);
         setIsCreateProjectModalVisible(true);
     };
 
@@ -677,7 +776,7 @@ const AccountManagerReport = () => {
         setSelectedProject(null);
         form.resetFields();
         setBillingType(null);
-        setAccountType('External');
+        setAccountType(accountTypesList.find(at => at.name === 'External')?.id || null);
     };
 
     // Handle edit project
@@ -685,42 +784,39 @@ const AccountManagerReport = () => {
         setSelectedProject(project);
         setIsEditMode(true);
 
-        // Determine account type based on project_type
-        let accountType = 'External';
-        let projectType = project.projectType;
+        // Convert account_type string to ID
+        const accountTypeId = accountTypesList.find(at => at.name === project.account_type || project.project_type === 'Internal' ? 'Internal' : 'External')?.id ||
+            accountTypesList.find(at => at.name === 'External')?.id;
+        // Convert status string to ID
+        const statusId = projectStatusesList.find(ps => ps.name === project.status)?.id ||
+            projectStatusesList.find(ps => ps.name === 'Active')?.id;
+        // Find billing status ID
+        const billingStatusId = billingStatusesList.find(bs => bs.name === (project.is_billable ? 'Billing' : 'Non-Billing'))?.id;
 
-        if (project.project_type === 'Internal') {
-            accountType = 'Internal';
-            projectType = 'Internal';
-        } else {
-            // Map project_type back to form projectType
-            const projectTypeReverseMap = {
-                'Client': 'Client',
-                'Bench': 'Bench',
-                'Training': 'Training',
-                'Pre-Sales': 'Presale',
-            };
-            projectType = projectTypeReverseMap[project.project_type] || project.projectType;
-        }
-
-        // Map project data to form fields
+        // Map project data to ProjectForm field names
         const formValues = {
-            projectName: project.project_name || project.project,
-            status: project.status || 'Active',
-            projectType: projectType,
-            accountType: accountType,
-            clientName: project.customer || '',
-            projectStartDate: project.start_date ? dayjs(project.start_date) : undefined,
-            projectEndDate: project.end_date ? dayjs(project.end_date) : undefined,
-            accountManager: filters.accountManager,
-            billingType: project.is_billable ? 'Billing' : 'Non-Billing',
-            teamSize: project.teamSize || 0,
+            project_name: project.project_name || project.project || '',
+            project_code: project.project_code || '',
+            client_id: project.client_id || null,
+            project_type: project.project_type_id || null,
+            account_type: accountTypeId,
+            status: statusId,
+            account_manager: project.account_manager_id || filters.accountManager || null,
+            billing_type: billingStatusId || null,
+            team_size: project.team_size !== undefined && project.team_size !== null ? project.team_size : (project.teamSize || 1),
+            account_reg_sales_owner: project.account_reg_sales_owner || '',
+            budget: project.budget !== undefined && project.budget !== null ? parseFloat(project.budget) : 0,
+            start_date: project.project_start_date ? dayjs(project.project_start_date) : (project.start_date ? dayjs(project.start_date) : null),
+            end_date: project.project_end_date ? dayjs(project.project_end_date) : (project.end_date ? dayjs(project.end_date) : null),
             description: project.description || '',
         };
 
-        form.setFieldsValue(formValues);
-        setBillingType(formValues.billingType);
-        setAccountType(formValues.accountType);
+        form.resetFields();
+        setTimeout(() => {
+            form.setFieldsValue(formValues);
+        }, 100);
+        setBillingType(billingStatusId);
+        setAccountType(accountTypeId);
         setIsCreateProjectModalVisible(true);
     };
 
@@ -1121,13 +1217,13 @@ const AccountManagerReport = () => {
             setIsSubmittingProject(true);
 
             // Validate required fields
-            if (!values.projectName) {
+            if (!values.project_name) {
                 showErrorToast('Project name is required');
                 setIsSubmittingProject(false);
                 return;
             }
 
-            if (!values.accountManager) {
+            if (!values.account_manager) {
                 showErrorToast('Account manager is required');
                 setIsSubmittingProject(false);
                 return;
@@ -1136,11 +1232,10 @@ const AccountManagerReport = () => {
             // Handle client_id - required only for External projects
             let client_id = null;
             // Find the account type to check if it's External
-            const selectedAccountType = accountTypesList.find(t => t.id === values.accountType);
+            const selectedAccountType = accountTypesList.find(t => t.id === values.account_type);
             if (selectedAccountType?.name === 'External') {
-                if (values.clientName) {
-                    // clientName is now the client ID from the dropdown
-                    client_id = values.clientName;
+                if (values.client_id) {
+                    client_id = values.client_id;
 
                     // Verify client exists in the list
                     const selectedClient = clientsList.find(client => client.id === client_id);
@@ -1156,23 +1251,21 @@ const AccountManagerReport = () => {
                 }
             }
 
-            // Prepare API payload
-            // Account Type and Status are now hardcoded strings, not IDs
-            // Project Type and Billing Status use IDs from Redux data
+            // Prepare API payload - all IDs now (using ProjectForm field names)
             const projectPayload = {
-                project_name: values.projectName,
-                project_code: values.projectCode || '', // Optional
+                project_name: values.project_name,
+                project_code: values.project_code || '', // Optional
                 client_id: client_id, // Required only for External projects
-                project_type_id: values.projectType, // ID from Redux (projectTypesList)
-                account_type: values.accountType, // String value: 'External' or 'Internal'
-                account_manager: values.accountManager, // Required string
-                account_reg_sales_owner: values.accountRegSalesOwner || '', // Optional string
-                team_size: values.teamSize || 1, // Number, default 1
-                billing_status_id: values.billingType, // ID from Redux (billingStatusesList)
+                project_type_id: values.project_type, // ID from Redux (projectTypesList)
+                account_type_id: values.account_type, // ID from form
+                account_manager_id: values.account_manager, // ID from form
+                account_reg_sales_owner: values.account_reg_sales_owner || '', // Optional string
+                team_size: values.team_size || 1, // Number, default 1
+                billing_status_id: values.billing_type, // ID from Redux (billingStatusesList)
                 budget: values.budget || 0, // Number, default 0
-                status: values.status, // String value: 'Active', 'On Hold', 'Completed', 'Cancelled'
-                project_start_date: values.projectStartDate ? values.projectStartDate.format('YYYY-MM-DD') : null,
-                project_end_date: values.projectEndDate ? values.projectEndDate.format('YYYY-MM-DD') : null,
+                status_id: values.status, // ID from form
+                project_start_date: values.start_date ? values.start_date.format('YYYY-MM-DD') : null,
+                project_end_date: values.end_date ? values.end_date.format('YYYY-MM-DD') : null,
                 description: values.description || '',
             };
 
@@ -1201,7 +1294,8 @@ const AccountManagerReport = () => {
             }
 
             // Remove client_id if Internal project
-            if (selectedAccountType?.name === 'Internal') {
+            const accountTypeObj = accountTypesList.find(at => at.id === values.account_type);
+            if (accountTypeObj?.name === 'Internal') {
                 delete cleanedPayload.client_id;
             }
 
@@ -1209,11 +1303,21 @@ const AccountManagerReport = () => {
             const finalPayload = cleanedPayload;
 
             if (isEditMode && selectedProject) {
-                // Update existing project
+                // Update existing project (using ProjectForm field names)
                 const updatePayload = {
-                    project_name: values.projectName,
+                    project_name: values.project_name,
+                    project_code: values.project_code || '',
                     client_id: client_id,
-                    status: values.status === 'Active' ? 'Active' : 'On Hold',
+                    project_type_id: values.project_type,
+                    account_type_id: values.account_type,
+                    account_manager_id: values.account_manager,
+                    account_reg_sales_owner: values.account_reg_sales_owner || '',
+                    team_size: values.team_size || 1,
+                    billing_status_id: values.billing_type,
+                    budget: values.budget || 0,
+                    status_id: values.status,
+                    project_start_date: values.start_date ? values.start_date.format('YYYY-MM-DD') : null,
+                    project_end_date: values.end_date ? values.end_date.format('YYYY-MM-DD') : null,
                     description: values.description || '',
                 };
 
@@ -1227,7 +1331,7 @@ const AccountManagerReport = () => {
                     setSelectedProject(null);
                     form.resetFields();
                     setBillingType(null);
-                    setAccountType('External');
+                    setAccountType(accountTypesList.find(at => at.name === 'External')?.id || null);
                     // Refresh comprehensive report
                     await fetchAccountManagerReport();
                 } else {
@@ -1245,7 +1349,7 @@ const AccountManagerReport = () => {
                     setSelectedProject(null);
                     form.resetFields();
                     setBillingType(null);
-                    setAccountType('External');
+                    setAccountType(accountTypesList.find(at => at.name === 'External')?.id || null);
                     // Refresh comprehensive report
                     await fetchAccountManagerReport();
                 } else {
@@ -1389,6 +1493,9 @@ const AccountManagerReport = () => {
                     name: resource.name, // API returns 'name' field
                     email: resource.email,
                     status: resource.status,
+                    updated_at: resource.updated_at,
+                    total_allocation: resource.total_allocation,
+                    total_resource_billing: resource.total_resource_billing,
                 })).filter(resource => resource.id && resource.name); // Filter out invalid entries
 
                 setResourcesList(formattedResources);
@@ -1423,14 +1530,19 @@ const AccountManagerReport = () => {
         // Find the resource ID from the resource name
         const resource = resourcesList.find(r => r.name === record.employeeName);
 
+        // Find the project ID by matching project_name from the allocation record
+        const project = projectsForFilter.find(p => p.project_name === record.project_name || p.name === record.project_name);
+        const projectId = project?.id;
+
         allocationForm.setFieldsValue({
             resource_id: resource?.id,
-            project_id: selectedProjectId,
+            project_id: projectId,
             allocation_percentage: parseFloat(record.projectAllocation?.replace('%', '') || '0'),
             billing_percentage: parseFloat(record.billingPercentage?.replace('%', '') || '0'),
             start_date: record.allocatedDate ? dayjs(record.allocatedDate, 'DD MMM YYYY') : null,
             end_date: record.deallocatedDate ? dayjs(record.deallocatedDate, 'DD MMM YYYY') : null,
             is_active: record.status === 'Active',
+            billing_status_id: undefined, // Empty initially as requested
             notes: '',
         });
         setIsAllocationModalVisible(true);
@@ -1507,6 +1619,7 @@ const AccountManagerReport = () => {
                 project_id: values.project_id,
                 allocation_percentage: values.allocation_percentage,
                 billing_percentage: values.billing_percentage,
+                billing_status_id: values.billing_status_id || undefined,
                 start_date: values.start_date ? values.start_date.format('YYYY-MM-DD') : null,
                 end_date: values.end_date ? values.end_date.format('YYYY-MM-DD') : null,
                 notes: values.notes || '',
@@ -1517,11 +1630,19 @@ const AccountManagerReport = () => {
                 const updatePayload = {
                     allocation_percentage: values.allocation_percentage,
                     billing_percentage: values.billing_percentage,
+                    billing_status_id: values.billing_status_id || undefined,
                     start_date: values.start_date ? values.start_date.format('YYYY-MM-DD') : null,
                     end_date: values.end_date ? values.end_date.format('YYYY-MM-DD') : null,
                     is_active: values.is_active !== undefined ? values.is_active : true,
                     notes: values.notes || '',
                 };
+
+                // Clean up undefined values
+                Object.keys(updatePayload).forEach(key => {
+                    if (updatePayload[key] === undefined) {
+                        delete updatePayload[key];
+                    }
+                });
 
                 const response = await allocationsService.update(selectedAllocation.id, updatePayload);
 
@@ -1537,6 +1658,13 @@ const AccountManagerReport = () => {
                     showErrorToast(response?.message || 'Failed to update allocation');
                 }
             } else {
+                // Clean up undefined values from create payload
+                Object.keys(allocationPayload).forEach(key => {
+                    if (allocationPayload[key] === undefined) {
+                        delete allocationPayload[key];
+                    }
+                });
+
                 // Create allocation
                 const response = await allocationsService.create(allocationPayload);
 
@@ -1806,16 +1934,22 @@ const AccountManagerReport = () => {
             width: 140,
         },
         {
+            title: 'Total Billing',
+            dataIndex: 'totalBilling',
+            key: 'totalBilling',
+            width: 140,
+        },
+        {
             title: 'Project Allocation',
             dataIndex: 'projectAllocation',
             key: 'projectAllocation',
             width: 140,
         },
         {
-            title: 'Duration (Days)',
-            dataIndex: 'duration',
-            key: 'duration',
-            width: 130,
+            title: 'Total Allocation',
+            dataIndex: 'totalAllocation',
+            key: 'totalAllocation',
+            width: 140,
         },
         {
             title: 'Status',
@@ -1824,11 +1958,17 @@ const AccountManagerReport = () => {
             width: 100,
         },
         {
+            title: 'Last Updated',
+            dataIndex: 'lastUpdated',
+            key: 'lastUpdated',
+            width: 140,
+        },
+        {
             title: 'Actions',
             key: 'actions',
             width: 120,
-            fixed: 'right',
             align: 'center',
+            fixed: 'right',
             render: (_, record) => (
                 <Space size="small" style={{ justifyContent: 'center', width: '100%' }}>
                     <Tooltip title="View Allocations">
@@ -1871,11 +2011,14 @@ const AccountManagerReport = () => {
                 </Space>
             ),
         },
+  
     ];
 
     // Fetch allocations for a project
     const fetchProjectAllocations = async (projectId, page = 1, limit = 10) => {
-        if (!projectId) return;
+        const effectiveProjectId = projectId
+            ?? selectedProjectId
+            ?? (filters.projectName && filters.projectName !== 'All' ? filters.projectName : null);
 
         // Prevent duplicate calls
         if (fetchAllocationsInProgressRef.current) {
@@ -1887,11 +2030,28 @@ const AccountManagerReport = () => {
             setLoadingAllocations(true);
             // Note: projectsService.getAllocations doesn't support pagination directly
             // We'll fetch all and paginate client-side, or use allocationsService.getAll with project_id filter
-            const response = await allocationsService.getAll({
-                project_id: projectId,
+            const params = {
                 page: page || allocationPagination.current,
                 limit: limit || allocationPagination.pageSize,
-            });
+            };
+
+            if (effectiveProjectId) {
+                params.project_id = effectiveProjectId;
+            }
+            if (filters.accountManager && filters.accountManager !== 'All') {
+                params.account_manager_id = filters.accountManager;
+            }
+            if (filters.projectStatus && filters.projectStatus !== 'All') {
+                params.project_status_id = filters.projectStatus;
+            }
+            if (filters.clientName && filters.clientName !== 'All') {
+                params.client_id = filters.clientName;
+            }
+            if (filters.billingStatus && filters.billingStatus !== 'All') {
+                params.billing_status_id = filters.billingStatus;
+            }
+
+            const response = await allocationsService.getAll(params);
 
             logger.debug('Allocations API response:', response);
 
@@ -2000,6 +2160,10 @@ const AccountManagerReport = () => {
                 const billingPercentage = typeof allocation.billing_percentage === 'string'
                     ? parseFloat(allocation.billing_percentage)
                     : (allocation.billing_percentage || 0);
+                const resourceInfo = resourcesById.get(allocation.resource_id);
+                const totalAllocation = parseFloat(resourceInfo?.total_allocation ?? allocation.total_allocation) || 0;
+                const totalBilling = parseFloat(resourceInfo?.total_resource_billing ?? allocation.total_resource_billing) || 0;
+                const lastUpdatedSource = resourceInfo?.updated_at || allocation.updated_at;
 
                 return {
                     key: allocation.id || `allocation-${index}`,
@@ -2011,6 +2175,9 @@ const AccountManagerReport = () => {
                     billingStatus: billingStatus,
                     billingPercentage: billingPercentage ? `${billingPercentage.toFixed(2)}%` : '0.00%',
                     projectAllocation: allocationPercentage ? `${allocationPercentage.toFixed(2)}%` : '0.00%',
+                    totalAllocation: `${totalAllocation.toFixed(2)}%`,
+                    totalBilling: `${totalBilling.toFixed(2)}%`,
+                    lastUpdated: lastUpdatedSource ? dayjs(lastUpdatedSource).format('DD MMM YYYY') : '',
                     duration: duration,
                     status: allocation.is_active !== undefined ? (allocation.is_active ? 'Active' : 'Inactive') : (allocation.status || 'Active'),
                     resource_id: allocation.resource_id,
@@ -2213,24 +2380,24 @@ const AccountManagerReport = () => {
                 title={
                     <div className="project-overview-header">
                         <span className="project-overview-title">
-                                BY ALLOCATION
-                                {displayProjectName && (
-                                    <span style={{ marginLeft: '8px', color: '#1890ff', fontWeight: 'normal' }}>
-                                        - {displayProjectName}
-                                    </span>
-                                )}
-                            </span>
+                            BY ALLOCATION
+                            {displayProjectName && (
+                                <span style={{ marginLeft: '8px', color: '#1890ff', fontWeight: 'normal' }}>
+                                    - {displayProjectName}
+                                </span>
+                            )}
+                        </span>
                         <div className="project-overview-actions">
-                        {byAllocationExpanded && (
-                            <Button
-                                type="primary"
-                                icon={<PlusOutlined />}
-                                onClick={handleAddAllocation}
+                            {byAllocationExpanded && (
+                                <Button
+                                    type="primary"
+                                    icon={<PlusOutlined />}
+                                    onClick={handleAddAllocation}
                                     className="create-project-btn"
-                            >
-                                Add Allocation
-                            </Button>
-                        )}
+                                >
+                                    Add Allocation
+                                </Button>
+                            )}
                             <div
                                 className="collapsible-icon"
                                 onClick={() => setByAllocationExpanded(!byAllocationExpanded)}
@@ -2254,16 +2421,12 @@ const AccountManagerReport = () => {
                             onChange: (page, pageSize) => {
                                 setAllocationPagination(prev => ({ ...prev, current: page, pageSize }));
                                 // Fetch allocations directly when pagination changes
-                                if (selectedProjectId) {
-                                    fetchProjectAllocations(selectedProjectId, page, pageSize);
-                                }
+                                fetchProjectAllocations(undefined, page, pageSize);
                             },
                             onShowSizeChange: (current, size) => {
                                 setAllocationPagination(prev => ({ ...prev, current: 1, pageSize: size }));
                                 // Fetch allocations directly when page size changes
-                                if (selectedProjectId) {
-                                    fetchProjectAllocations(selectedProjectId, 1, size);
-                                }
+                                fetchProjectAllocations(undefined, 1, size);
                             },
                         }}
                         scroll={{ x: 1200 }}
@@ -2278,25 +2441,51 @@ const AccountManagerReport = () => {
             </Card>
 
             {/* Create/Edit Project Modal */}
-            <ProjectModal
-                visible={isCreateProjectModalVisible}
-                isEditMode={isEditMode}
+            <CustomModal
+                title={isEditMode ? "Edit Project Details" : "Create New Project"}
+                open={isCreateProjectModalVisible}
+                onClose={handleCreateProjectCancel}
+                width={800}
+                buttons={[
+                    {
+                        text: 'Cancel',
+                        type: 'default',
+                        onClick: handleCreateProjectCancel,
+                    },
+                    {
+                        text: isEditMode ? 'Update Details' : 'Create Project',
+                        type: 'primary',
+                        onClick: () => {
+                            form.submit();
+                        },
+                        loading: isSubmittingProject,
+                    },
+                ]}
+            >
+                <Form
                     form={form}
-                onCancel={handleCreateProjectCancel}
-                onSubmit={handleCreateProjectSubmit}
-                loading={isSubmittingProject}
-                filters={filters}
-                projectStatusesList={projectStatusesList}
-                projectTypesList={projectTypesList}
-                accountTypesList={accountTypesList}
-                billingStatusesList={billingStatusesList}
-                clientsList={clientsList}
-                accountManagersList={accountManagersList}
-                loadingAccountManagers={loadingAccountManagers}
-                accountType={accountType}
-                setAccountType={setAccountType}
-                setBillingType={setBillingType}
-            />
+                    layout="vertical"
+                    onFinish={handleCreateProjectSubmit}
+                >
+                    <ProjectForm
+                        form={form}
+                        isEditMode={isEditMode}
+                        accountTypeId={accountType}
+                        setAccountTypeId={setAccountType}
+                        clients={clientsList.map(client => ({
+                            id: client.id,
+                            name: client.client_name || client.name,
+                        }))}
+                        accountManagersList={accountManagersList}
+                        projectTypesForModal={projectTypesList}
+                        billingStatusesForModal={billingStatusesList}
+                        accountTypesForModal={accountTypesList}
+                        projectStatusesForModal={projectStatusesList}
+                        loadingConfigForModal={false}
+                        loadingAccountManagers={loadingAccountManagers}
+                    />
+                </Form>
+            </CustomModal>
 
             {/* Add Team Members Modal */}
             <CustomModal
@@ -2802,10 +2991,10 @@ const AccountManagerReport = () => {
                                         (option?.children ?? '').toLowerCase().includes(input.toLowerCase())
                                     }
                                 >
-                                    {projectData.length > 0 ? (
-                                        projectData.map((project) => (
+                                    {projectsForFilter.length > 0 ? (
+                                        projectsForFilter.map((project) => (
                                             <Option key={project.id} value={project.id}>
-                                                {project.project_name || project.project}
+                                                {project.project_name || project.name}
                                             </Option>
                                         ))
                                     ) : (
@@ -2852,6 +3041,28 @@ const AccountManagerReport = () => {
                                     formatter={value => `${value}%`}
                                     parser={value => value.replace('%', '')}
                                 />
+                            </Form.Item>
+                        </Col>
+                        <Col xs={24} sm={12}>
+                            <Form.Item
+                                label="Billing Status"
+                                name="billing_status_id"
+                            >
+                                <Select
+                                    placeholder="Select billing status"
+                                    showSearch
+                                    optionFilterProp="children"
+                                    allowClear
+                                    filterOption={(input, option) =>
+                                        (option?.children ?? '').toLowerCase().includes(input.toLowerCase())
+                                    }
+                                >
+                                    {billingStatusesList.map((status) => (
+                                        <Option key={status.id} value={status.id}>
+                                            {status.name}
+                                        </Option>
+                                    ))}
+                                </Select>
                             </Form.Item>
                         </Col>
                         <Col xs={24} sm={12}>

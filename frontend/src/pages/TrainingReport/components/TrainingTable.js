@@ -28,27 +28,27 @@ const TrainingTable = ({
 }) => {
   return (
     <Row gutter={[16, 16]} className="tables-section">
-      {/* Left Table - BY DESIGNATION */}
-      <Col xs={24} lg={12}>
+      {/* Top Table - BY DESIGNATION */}
+      <Col xs={24}>
         <Card className="table-card" title="BY DESIGNATION" loading={loading}>
           <CustomTable
             columns={designationColumns}
             dataSource={designationTableData}
             pagination={{ pageSize: 10 }}
-            scroll={{ x: 800, y: 400 }}
+            scroll={{ x: 800 }}
             size="small"
           />
         </Card>
       </Col>
 
-      {/* Right Table - BY ALLOCATION */}
-      <Col xs={24} lg={12}>
+      {/* Bottom Table - BY ALLOCATION */}
+      <Col xs={24}>
         <Card className="table-card" title="BY ALLOCATION" loading={loading}>
           <CustomTable
             columns={allocationColumns}
             dataSource={allocationTableData}
             pagination={{ pageSize: 10 }}
-            scroll={{ x: 900, y: 400 }}
+            scroll={{ x: 900 }}
             size="small"
             onRow={onRowClick ? (record) => ({
               onClick: () => onRowClick(record),

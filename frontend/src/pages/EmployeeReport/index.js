@@ -62,13 +62,13 @@ const EmployeeReport = () => {
     return {
       key: item.id || `employee-${index}`,
       id: item.id,
-      employeeId: item.employee_id || 'N/A',
+      employeeNumber: item.emp_no || '-',
       employeeName: item.name || 'N/A',
       email: item.email || 'N/A',
       designation: item.designation || 'N/A',
       track: item.track || 'N/A',
       status: item.status || 'N/A',
-      dateOfJoining: item.date_of_joining ? new Date(item.date_of_joining).toLocaleDateString() : 'N/A',
+      dateOfJoining: item.joined_date ? new Date(item.joined_date).toLocaleDateString() : 'N/A',
       totalAllocation: totalAllocation,
       totalAllocationFormatted: `${totalAllocation.toFixed(2)}%`,
       currentProjects: currentProjects,
@@ -95,11 +95,15 @@ const EmployeeReport = () => {
   // Table columns
   const columns = [
     {
-      title: 'Employee ID',
-      dataIndex: 'employeeId',
-      key: 'employeeId',
+      title: 'Employee Number',
+      dataIndex: 'employeeNumber',
+      key: 'employeeNumber',
       width: 120,
-      sorter: (a, b) => a.employeeId.localeCompare(b.employeeId),
+      sorter: (a, b) => {
+        const aVal = a.employeeNumber || '';
+        const bVal = b.employeeNumber || '';
+        return aVal.localeCompare(bVal);
+      },
     },
     {
       title: 'Employee Name',
