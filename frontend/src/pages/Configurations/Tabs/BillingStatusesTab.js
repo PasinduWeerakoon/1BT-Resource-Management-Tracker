@@ -4,7 +4,7 @@
 
 import React, { useEffect, useMemo } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
-import { Form, Input, Switch } from 'antd';
+import { Form, Input, Switch, Row, Col } from 'antd';
 import { useConfigCRUD } from '../hooks/useConfigCRUD';
 import ConfigTable from '../components/ConfigTable';
 import ConfigModal from '../components/ConfigModal';
@@ -58,6 +58,12 @@ const BillingStatusesTab = () => {
   } = useConfigCRUD({
     service: billingStatusesService,
     onFetch: refetchBillingStatuses,
+    transformPayload: (values) => ({
+      name: values.name,
+      description: values.description,
+      is_active: values.is_active,
+      is_project_billing: values.is_project_billing,
+    }),
   });
 
   // Custom edit handler to prevent editing default billing statuses
@@ -66,6 +72,12 @@ const BillingStatusesTab = () => {
       showErrorToast('Default billing statuses cannot be edited');
       return;
     }
+    form.setFieldsValue({
+      name: record.name,
+      description: record.description,
+      is_active: record.is_active !== undefined ? record.is_active : record.isActive,
+      is_project_billing: record.is_project_billing !== undefined ? record.is_project_billing : record.isProjectBilling,
+    });
     handleEdit(record);
   };
 
@@ -154,14 +166,28 @@ const BillingStatusesTab = () => {
         >
           <Input.TextArea rows={3} placeholder="Enter description (optional)" />
         </Form.Item>
-        <Form.Item
-          label="Active"
-          name="is_active"
-          valuePropName="checked"
-          initialValue={true}
-        >
-          <Switch checkedChildren="Active" unCheckedChildren="Inactive" />
-        </Form.Item>
+        <Row gutter={16}>
+          <Col xs={24} sm={12}>
+            <Form.Item
+              label="Active"
+              name="is_active"
+              valuePropName="checked"
+              initialValue={true}
+            >
+              <Switch checkedChildren="Active" unCheckedChildren="Inactive" />
+            </Form.Item>
+          </Col>
+          <Col xs={24} sm={12}>
+            <Form.Item
+              label="Is Project Billing"
+              name="is_project_billing"
+              valuePropName="checked"
+              initialValue={true}
+            >
+              <Switch checkedChildren="Yes" unCheckedChildren="No" />
+            </Form.Item>
+          </Col>
+        </Row>
       </ConfigModal>
     </>
   );

@@ -38,6 +38,7 @@ export const getEmployeeReport = async (event) => {
             SELECT 
                 r.id,
                 r.epf_no,
+                r.emp_no,
                 r.name,
                 r.email,
                 d.name as designation,
