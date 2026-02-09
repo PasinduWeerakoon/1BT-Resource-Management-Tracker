@@ -37,6 +37,21 @@ export const getNonBillingReport = async (event) => {
     try {
         log.info('Getting non-billing report');
 
+        // Extract query parameters
+        const queryParams = event.queryStringParameters || {};
+        const track_id = queryParams.track_id ? parseInt(queryParams.track_id) : null;
+
+        // Build WHERE clause for track filter
+        let trackFilterClause = '';
+        const queryParamsArray = [];
+        let paramIndex = 1;
+
+        if (track_id) {
+            trackFilterClause = `AND r.track_id = $${paramIndex}`;
+            queryParamsArray.push(track_id);
+            paramIndex++;
+        }
+
         // Non-billing resources are those with allocations where billing_status_id = 2 (Non-Billing)
         const query = `
             SELECT 
@@ -65,10 +80,53 @@ export const getNonBillingReport = async (event) => {
             AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
             AND a.billing_status_id = 2
             AND r.deleted_at IS NULL
+            ${trackFilterClause}
             ORDER BY r.name ASC
         `;
 
-        const result = await db.query(query);
+        // Chart queries - Calculate distributions using SQL for better performance
+        const trackChartQuery = `
+            SELECT 
+                r.track_id,
+                COUNT(DISTINCT r.id) as count
+            FROM allocations a
+            JOIN employees r ON a.employee_id = r.id
+            JOIN projects p ON a.project_id = p.id
+            WHERE a.is_active = true
+            AND a.deleted_at IS NULL
+            AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
+            AND a.billing_status_id = 2
+            AND r.deleted_at IS NULL
+            ${trackFilterClause}
+            AND r.track_id IS NOT NULL
+            GROUP BY r.track_id
+            ORDER BY count DESC
+        `;
+
+        const techStackChartQuery = `
+            SELECT 
+                r.tech_stack_id,
+                COUNT(DISTINCT r.id) as count
+            FROM allocations a
+            JOIN employees r ON a.employee_id = r.id
+            JOIN projects p ON a.project_id = p.id
+            WHERE a.is_active = true
+            AND a.deleted_at IS NULL
+            AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
+            AND a.billing_status_id = 2
+            AND r.deleted_at IS NULL
+            ${trackFilterClause}
+            AND r.tech_stack_id IS NOT NULL
+            GROUP BY r.tech_stack_id
+            ORDER BY count DESC
+        `;
+
+        // Execute all queries in parallel for better performance
+        const [result, trackChartResult, techStackChartResult] = await Promise.all([
+            db.query(query, queryParamsArray),
+            db.query(trackChartQuery, queryParamsArray),
+            db.query(techStackChartQuery, queryParamsArray)
+        ]);
 
         // Transform results with config resolution
         const data = result.rows.map(row => ({
@@ -78,14 +136,35 @@ export const getNonBillingReport = async (event) => {
             tech_stack: resolveConfigLabel(TECH_STACKS, row.tech_stack_id)
         }));
 
+        // Format charts - resolve IDs to labels using configs
+        const charts = {
+            nonBillingResourcesByTrack: trackChartResult.rows.map(row => {
+                const trackLabel = resolveConfigLabel(TRACKS, row.track_id) || 'Unassigned';
+                return {
+                    track: trackLabel,
+                    trackId: row.track_id,
+                    count: parseInt(row.count)
+                };
+            }),
+            nonBillingResourcesByTechStack: techStackChartResult.rows.map(row => {
+                const techStackLabel = resolveConfigLabel(TECH_STACKS, row.tech_stack_id) || 'Unassigned';
+                return {
+                    techStack: techStackLabel,
+                    techStackId: row.tech_stack_id,
+                    count: parseInt(row.count)
+                };
+            })
+        };
+
         return success({
             data,
             total: data.length,
+            charts,
             generatedAt: new Date().toISOString()
         });
 
     } catch (err) {
-        log.error('Failed to get non-billing report', { error: err.message });
+        log.error('Failed to get non-billing report', { error: err.message, stack: err.stack });
         return error('Failed to get non-billing report', err);
     }
 };
