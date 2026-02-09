@@ -77,11 +77,12 @@ export const calculateDailyStats = async (event) => {
                 COALESCE(SUM(CASE WHEN ea.has_billing_allocation THEN 1 ELSE 0 END), 0)::DECIMAL(10,1) as billing_resource_count,
                 
                 -- Allocated Resource Count (employees with any allocation > 0)
-                COALESCE(SUM(CASE WHEN COALESCE(ea.total_allocation, 0) > 0 THEN 1 ELSE 0 END), 0)::DECIMAL(10,1) as allocated_resource_count,
+                COALESCE(SUM(COALESCE(ea.total_allocation, 0) / 100.0), 0)::DECIMAL(10,1) as allocated_resource_count,
                 
-                -- Billable Resource Count (excludes Delivery=10)
+                -- Billable Resource Count (excludes Delivery=10 & Interns)
                 COALESCE(SUM(CASE 
                     WHEN ae.track_id IN (1, 2, 3, 4, 5, 8, 11)  -- BILLABLE_RESOURCE_TRACK_IDS: excludes Delivery
+                    AND ae.designation_id NOT IN (SELECT id FROM intern_designations)
                     THEN 1 ELSE 0 
                 END), 0)::DECIMAL(10,1) as billable_resource_count,
                 
@@ -92,7 +93,13 @@ export const calculateDailyStats = async (event) => {
                 COALESCE(SUM(CASE WHEN ae.employee_type_id IN (SELECT id FROM consultant_type) THEN 1 ELSE 0 END), 0)::DECIMAL(10,1) as external_consultant_count,
                 
                 -- Bench Resource Count (allocation < 100 or no allocation)
-                COALESCE(SUM(CASE WHEN COALESCE(ea.total_allocation, 0) < 100 THEN 1 ELSE 0 END), 0)::DECIMAL(10,1) as bench_resource_count,
+                -- Bench Resource Count (allocation < 100, eligible tracks only, no interns)
+                COALESCE(SUM(CASE 
+                    WHEN COALESCE(ea.total_allocation, 0) < 100 
+                    AND ae.track_id IN (1, 2, 3, 4, 5, 8, 10, 11) -- BENCH_ELIGIBLE_TRACK_IDS
+                    AND ae.designation_id NOT IN (SELECT id FROM intern_designations)
+                    THEN 1 ELSE 0 
+                END), 0)::DECIMAL(10,1) as bench_resource_count,
                 
                 -- Training Resource Count (employees allocated to training projects)
                 COALESCE((
@@ -144,7 +151,8 @@ export const calculateDailyStats = async (event) => {
                 SELECT e.id, 
                        COALESCE(e.total_allocation, 0) as current_allocation,
                        COALESCE(e.total_resource_billing, 0) as current_billing,
-                       e.track_id
+                       e.track_id, 
+                       e.designation_id
                 FROM employees e
                 WHERE e.status = 'Active' AND e.deleted_at IS NULL
             ),
@@ -160,6 +168,9 @@ export const calculateDailyStats = async (event) => {
                   AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
                 GROUP BY a.employee_id
             ),
+            intern_designations AS (
+                SELECT id FROM designations WHERE is_intern_role = true
+            ),
             totals AS (
                 SELECT 
                     COUNT(*) as total_employees,
@@ -167,30 +178,35 @@ export const calculateDailyStats = async (event) => {
                     COALESCE(SUM(COALESCE(ea.total_allocation, 0)), 0) as sum_allocation,
                     COALESCE(SUM(COALESCE(ea.total_billing, 0)), 0) as sum_billing,
                     COALESCE(SUM(COALESCE(ea.shadow_percentage, 0)), 0) as sum_shadow,
-                    -- Billable count for bench % denominator (excludes Delivery=10)
+                    -- Billable count for bench % denominator (excludes Delivery=10 & Interns)
                     COALESCE(SUM(CASE 
-                        WHEN ae.track_id IN (1, 2, 3, 4, 5, 8, 11) THEN 1 ELSE 0 
+                        WHEN ae.track_id IN (1, 2, 3, 4, 5, 8, 11) 
+                        AND ae.designation_id NOT IN (SELECT id FROM intern_designations)
+                        THEN 1 ELSE 0 
                     END), 0) as billable_count,
                     -- Bench allocation sum for bench % numerator
                     (
                         SELECT COALESCE(SUM(a.allocation_percentage), 0)
                         FROM allocations a
                         JOIN projects p ON a.project_id = p.id
+                        JOIN employees e ON a.employee_id = e.id
                         WHERE p.project_name = 'Bench'
                           AND a.is_active = true
                           AND a.deleted_at IS NULL
                           AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
+                          AND e.track_id IN (1, 2, 3, 4, 5, 8, 11) -- Only billable tracks
+                          AND e.designation_id NOT IN (SELECT id FROM intern_designations) -- Exclude interns
                     ) as sum_bench
                 FROM active_employees ae
                 LEFT JOIN employee_allocations ea ON ae.id = ea.employee_id
             )
             SELECT 
-                CASE WHEN total_employees > 0 
-                    THEN ROUND((sum_allocation::DECIMAL / (total_employees * 100)) * 100, 1)
+                CASE WHEN billable_count > 0 
+                    THEN ROUND((sum_allocation::DECIMAL / 100.0) / billable_count * 100, 1)
                     ELSE 0 
                 END as allocation_percentage,
-                CASE WHEN total_employees > 0 
-                    THEN ROUND((sum_billing::DECIMAL / (total_employees * 100)) * 100, 1)
+                CASE WHEN billable_count > 0 
+                    THEN ROUND((sum_billing::DECIMAL / 100.0) / billable_count * 100, 1)
                     ELSE 0 
                 END as billable_percentage,
                 CASE WHEN sum_allocation > 0 

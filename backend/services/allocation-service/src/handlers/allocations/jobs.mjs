@@ -11,6 +11,7 @@ import * as db from '/opt/nodejs/database/index.js';
 import logger from '/opt/nodejs/logger/index.js';
 import { success, error } from '/opt/nodejs/utils/response.js';
 import { getBenchProjectId, detectAndFillGaps } from '../../services/benchService.js';
+import { BENCH_ELIGIBLE_TRACK_IDS } from '/opt/nodejs/configs/index.js';
 
 /**
  * Enhancement 3.4: Scheduled job to detect and fill gaps for all active resources
@@ -23,10 +24,14 @@ export const gapDetectionJob = async (event) => {
     try {
         log.info('Starting gap detection job');
 
-        // Get all active resources
-        const resourcesResult = await db.query(
-            "SELECT id, name FROM employees WHERE status = 'Active' AND deleted_at IS NULL"
-        );
+        // Get all active resources from bench-eligible tracks only
+        const resourcesResult = await db.query(`
+            SELECT id, name, track_id 
+            FROM employees 
+            WHERE status = 'Active' 
+            AND deleted_at IS NULL
+            AND track_id = ANY(ARRAY[${BENCH_ELIGIBLE_TRACK_IDS.join(',')}])
+        `);
 
         const results = {
             totalResources: resourcesResult.rows.length,

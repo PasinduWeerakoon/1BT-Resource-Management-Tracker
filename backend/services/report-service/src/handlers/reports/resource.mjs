@@ -17,7 +17,7 @@ import * as db from '/opt/nodejs/database/index.js';
 import logger from '/opt/nodejs/logger/index.js';
 import { success, error } from '/opt/nodejs/utils/response.js';
 // Import shared configs for ID-to-label resolution
-import { TRACKS, TIERS, TECH_STACKS, getConfigById } from '/opt/nodejs/configs/index.js';
+import { TRACKS, TIERS, TECH_STACKS, getConfigById, BENCH_ELIGIBLE_TRACK_IDS } from '/opt/nodejs/configs/index.js';
 
 /**
  * Helper function to resolve config IDs to labels
@@ -120,6 +120,7 @@ export const getBenchReport = async (event) => {
             LEFT JOIN designations d ON r.designation_id = d.id
             WHERE r.status = 'Active'
             AND r.deleted_at IS NULL
+            AND r.track_id = ANY(ARRAY[${BENCH_ELIGIBLE_TRACK_IDS.join(',')}])
             ${trackFilterClause}
             ORDER BY ba.bench_allocation_percentage DESC, r.name ASC
         `;
@@ -145,6 +146,7 @@ export const getBenchReport = async (event) => {
             INNER JOIN bench_allocations ba ON r.id = ba.employee_id
             WHERE r.status = 'Active'
             AND r.deleted_at IS NULL
+            AND r.track_id = ANY(ARRAY[${BENCH_ELIGIBLE_TRACK_IDS.join(',')}])
             ${trackFilterClause}
             AND r.track_id IS NOT NULL
             GROUP BY r.track_id
@@ -171,6 +173,7 @@ export const getBenchReport = async (event) => {
             INNER JOIN bench_allocations ba ON r.id = ba.employee_id
             WHERE r.status = 'Active'
             AND r.deleted_at IS NULL
+            AND r.track_id = ANY(ARRAY[${BENCH_ELIGIBLE_TRACK_IDS.join(',')}])
             ${trackFilterClause}
             AND r.tech_stack_id IS NOT NULL
             GROUP BY r.tech_stack_id
