@@ -80,7 +80,8 @@ const paginationSchema = {
 // Note: designation_id, employee_type_id, university_id are INTEGER IDs referencing lookup tables
 export const resourceSchemas = {
     list: Joi.object({
-        ...paginationSchema,
+        page: Joi.number().integer().min(1).default(1),
+        limit: Joi.number().integer().min(1).max(250).default(20), // Resources endpoint allows up to 250
         search: Joi.string().allow('').optional(),
         track_id: Joi.number().integer().min(1).optional(),
         designation_id: Joi.number().integer().min(1).optional(),
@@ -331,7 +332,11 @@ export const allocationSchemas = {
     create: Joi.object({
         resource_id: Joi.number().integer().min(1).required(),
         project_id: Joi.number().integer().min(1).required(),
-        allocation_percentage: Joi.number().min(0).max(100).required(),
+        allocation_percentage: Joi.number().min(0).max(200).required()
+            .messages({
+                'number.max': 'Allocation percentage cannot exceed 200%',
+                'number.min': 'Allocation percentage must be at least 0%'
+            }),
         start_date: Joi.date().iso().required(),
         end_date: Joi.date().iso().optional(),
         billing_percentage: Joi.number().min(0).max(100).default(100),
@@ -343,7 +348,11 @@ export const allocationSchemas = {
     }),
 
     update: Joi.object({
-        allocation_percentage: Joi.number().min(0).max(100).optional(),
+        allocation_percentage: Joi.number().min(0).max(200).optional()
+            .messages({
+                'number.max': 'Allocation percentage cannot exceed 200%',
+                'number.min': 'Allocation percentage must be at least 0%'
+            }),
         start_date: Joi.date().iso().optional(),
         end_date: Joi.date().iso().optional(),
         billing_percentage: Joi.number().min(0).max(100).optional(),
