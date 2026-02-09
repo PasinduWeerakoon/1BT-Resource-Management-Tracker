@@ -100,9 +100,10 @@ const ProjectsTab = () => {
 
     // Use project form hook
     const projectBillingStatusesForModal = useMemo(() => {
-        const filtered = billingStatusesForModal.filter((status) =>
-            status?.isProjectBilling === true || status?.is_project_billing === true
-        );
+        const filtered = billingStatusesForModal.filter((status) => {
+            const billingType = status?.billingType || [];
+            return Array.isArray(billingType) && billingType.includes('project');
+        });
         return filtered.length > 0 ? filtered : billingStatusesForModal;
     }, [billingStatusesForModal]);
 

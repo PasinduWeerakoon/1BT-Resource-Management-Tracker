@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Row, Col, Card, Select } from 'antd';
 import { useSelector } from 'react-redux';
 import CustomTable from '@components/Table';
@@ -7,7 +7,7 @@ import { selectTracks } from '@redux/slices/configSlice';
 import { useReportFilters, useReportData } from '@hooks/reports';
 import { FilterSection, ReportHeader, SummaryCards } from '@components/ReportLayout';
 import { createNumberColumn, commonColumns } from '@utils/tableColumnFactories';
-import logger from '@utils/logger';
+import BenchCharts from './components/BenchCharts';
 import '@styles/pages/BenchReport.scss';
 
 const { Option } = Select;
@@ -29,6 +29,12 @@ const BenchReport = () => {
 
   // Get tracks from Redux (cached on login)
   const tracksList = useSelector(selectTracks);
+
+  // Store chart data from API response
+  const [chartData, setChartData] = useState({
+    benchResourcesByTrack: [],
+    benchResourcesByTechStack: [],
+  });
 
   // Transform function for report data
   const transformReportData = (item, index) => ({
@@ -56,7 +62,26 @@ const BenchReport = () => {
       if (filters.track_id) {
         queryParams.track_id = filters.track_id;
       }
-      return await reportsService.getBench(queryParams);
+      const response = await reportsService.getBench(queryParams);
+
+      // Extract chart data from API response
+      // Backend returns: { success: true, data: { data: [...], charts: {...}, summary: {...} } }
+      // reportsService.getBench returns: response.data || response
+      // So response structure is: { data: [...], charts: {...}, summary: {...} }
+      if (response?.charts) {
+        setChartData({
+          benchResourcesByTrack: response.charts.benchResourcesByTrack || [],
+          benchResourcesByTechStack: response.charts.benchResourcesByTechStack || [],
+        });
+      } else {
+        // Reset charts if not available
+        setChartData({
+          benchResourcesByTrack: [],
+          benchResourcesByTechStack: [],
+        });
+      }
+
+      return response;
     },
     transformReportData,
     {
@@ -131,6 +156,12 @@ const BenchReport = () => {
       </FilterSection>
 
       <SummaryCards cards={summaryCards} />
+
+      {/* Charts Section */}
+      <BenchCharts
+        trackData={chartData.benchResourcesByTrack}
+        techStackData={chartData.benchResourcesByTechStack}
+      />
 
       {/* Table Section */}
       <Card className="table-card" title="Bench Resources">
