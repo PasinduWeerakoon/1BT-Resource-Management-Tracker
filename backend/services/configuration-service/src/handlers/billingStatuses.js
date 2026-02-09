@@ -18,6 +18,7 @@ const transformRow = (row) => ({
     value: row.id,
     label: row.name,
     description: row.description || row.name,
+    billingType: row.billing_type || [],
     isActive: row.is_active,
     displayOrder: row.display_order || row.id,
     ...(row.is_default !== undefined && { isDefault: row.is_default }),
@@ -89,23 +90,47 @@ export const create = async (event) => {
             return validationError([{ field: 'name', message: 'Name must be less than 50 characters' }]);
         }
 
+        // Validate billing_type array
+        const validBillingTypes = ['resource', 'project'];
+        let billingType = body.billing_type || [];
+
+        if (!Array.isArray(billingType)) {
+            return validationError([{ field: 'billing_type', message: 'billing_type must be an array' }]);
+        }
+
+        if (billingType.length === 0) {
+            return validationError([{ field: 'billing_type', message: 'billing_type must contain at least one value: "resource" or "project"' }]);
+        }
+
+        // Validate each value
+        for (const type of billingType) {
+            if (!validBillingTypes.includes(type)) {
+                return validationError([{ field: 'billing_type', message: `Invalid billing_type value: "${type}". Must be "resource" or "project"` }]);
+            }
+        }
+
+        // Remove duplicates
+        billingType = [...new Set(billingType)];
+
         const validated = {
             name: body.name.trim(),
             description: body.description || null,
+            billing_type: billingType,
             is_active: body.is_active !== undefined ? body.is_active : true
         };
 
-        log.info('Creating billing status', { name: validated.name });
+        log.info('Creating billing status', { name: validated.name, billing_type: validated.billing_type });
 
         const query = `
-            INSERT INTO billing_statuses (name, description, is_active)
-            VALUES ($1, $2, $3)
+            INSERT INTO billing_statuses (name, description, billing_type, is_active)
+            VALUES ($1, $2, $3, $4)
             RETURNING *
         `;
 
         const params = [
             validated.name,
             validated.description || null,
+            validated.billing_type,
             validated.is_active ?? true
         ];
 
@@ -157,6 +182,30 @@ export const update = async (event) => {
             }
         }
 
+        // Validate billing_type array if provided
+        const validBillingTypes = ['resource', 'project'];
+        let billingType = body.billing_type;
+
+        if (billingType !== undefined) {
+            if (!Array.isArray(billingType)) {
+                return validationError([{ field: 'billing_type', message: 'billing_type must be an array' }]);
+            }
+
+            if (billingType.length === 0) {
+                return validationError([{ field: 'billing_type', message: 'billing_type must contain at least one value: "resource" or "project"' }]);
+            }
+
+            // Validate each value
+            for (const type of billingType) {
+                if (!validBillingTypes.includes(type)) {
+                    return validationError([{ field: 'billing_type', message: `Invalid billing_type value: "${type}". Must be "resource" or "project"` }]);
+                }
+            }
+
+            // Remove duplicates
+            billingType = [...new Set(billingType)];
+        }
+
         log.info('Updating billing status', { id });
 
         // Check if exists and get current data for audit
@@ -183,6 +232,10 @@ export const update = async (event) => {
         if (body.description !== undefined) {
             updates.push(`description = $${idx++}`);
             params.push(body.description || null);
+        }
+        if (billingType !== undefined) {
+            updates.push(`billing_type = $${idx++}`);
+            params.push(billingType);
         }
         if (body.is_active !== undefined) {
             updates.push(`is_active = $${idx++}`);

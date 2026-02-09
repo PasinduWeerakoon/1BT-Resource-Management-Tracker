@@ -108,6 +108,96 @@ export const list = async (event) => {
 };
 
 /**
+ * Create a new future allocation
+ * POST /api/v1/future-allocations
+ */
+export const create = async (event) => {
+    const log = logger.child({ handler: 'futureAllocations.create' });
+
+    try {
+        const body = JSON.parse(event.body);
+        const cognitoUserId = event.requestContext?.authorizer?.jwt?.claims?.sub;
+
+        // Convert Cognito sub to user ID (integer) from users table
+        let userId = null;
+        if (cognitoUserId) {
+            try {
+                const userResult = await db.query(
+                    'SELECT id FROM users WHERE cognito_user_id = $1',
+                    [cognitoUserId]
+                );
+                if (userResult.rows.length > 0) {
+                    userId = userResult.rows[0].id;
+                }
+            } catch (err) {
+                log.warn('Could not resolve user ID', { cognitoUserId, error: err.message });
+            }
+        }
+
+        log.info('Creating future allocation', { body, userId, cognitoUserId });
+
+        // Validate required fields
+        const { resource_id, project_id, allocation_percentage, effective_date, change_type } = body;
+
+        if (!resource_id || !project_id || !allocation_percentage || !effective_date || !change_type) {
+            return badRequest('Missing required fields: resource_id, project_id, allocation_percentage, effective_date, change_type');
+        }
+
+        // Ensure effective_date is in the future
+        const today = new Date().toISOString().split('T')[0];
+        if (effective_date <= today) {
+            return badRequest('effective_date must be in the future');
+        }
+
+        // Convert resource_id to integer if it's a UUID (shouldn't happen with correct API usage)
+        let employeeId = resource_id;
+        if (typeof resource_id === 'string' && resource_id.includes('-')) {
+            // It's a UUID, try to find the employee
+            const employeeQuery = await db.query(
+                'SELECT id FROM employees WHERE global_employee_id = $1::uuid',
+                [resource_id]
+            );
+            if (employeeQuery.rows.length === 0) {
+                return badRequest('Invalid resource_id - employee not found. Use integer employee ID, not UUID.');
+            }
+            employeeId = employeeQuery.rows[0].id;
+            log.info('Converted UUID to employee ID', { uuid: resource_id, employeeId });
+        }
+
+        // Create the future allocation
+        log.info('About to create future allocation with data', {
+            employee_id: parseInt(employeeId),
+            project_id: parseInt(project_id),
+            allocation_percentage: parseFloat(allocation_percentage),
+            billing_status_id: body.billing_status_id ? parseInt(body.billing_status_id) : null,
+            effective_date: effective_date,
+            change_type: change_type,
+            created_by_user_id: userId
+        });
+
+        const futureAllocation = await futureAllocationService.createFutureAllocation({
+            employee_id: parseInt(employeeId),
+            project_id: parseInt(project_id),
+            allocation_percentage: parseFloat(allocation_percentage),
+            billing_percentage: body.billing_percentage ? parseFloat(body.billing_percentage) : 100,
+            billing_status_id: body.billing_status_id ? parseInt(body.billing_status_id) : null,
+            effective_date: effective_date,
+            deallocated_date: body.end_date,
+            change_type: change_type,
+            notes: body.notes,
+            created_by: userId  // Now passing integer user ID, not UUID
+        });
+
+        log.info('Future allocation created', { id: futureAllocation.id });
+
+        return success(futureAllocation, 201);
+    } catch (err) {
+        log.error('Failed to create future allocation', { error: err.message, stack: err.stack });
+        return error(err.message, err.statusCode || 500, 'CREATE_ERROR');
+    }
+};
+
+/**
  * Get a future allocation by ID
  * GET /api/v1/future-allocations/{id}
  */
