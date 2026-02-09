@@ -270,7 +270,6 @@ const ClientsTab = () => {
               label="Contact Person"
               name="contact_person"
               rules={[
-                { required: true, message: 'Contact person is required' },
                 { max: 100, message: 'Contact person name must be less than 100 characters' },
               ]}
             >
@@ -282,7 +281,6 @@ const ClientsTab = () => {
               label="Contact Email"
               name="contact_email"
               rules={[
-                { required: true, message: 'Contact email is required' },
                 { type: 'email', message: 'Please enter a valid email' },
               ]}
             >
@@ -293,9 +291,6 @@ const ClientsTab = () => {
             <Form.Item
               label="Contact Phone"
               name="contact_phone"
-              rules={[
-                { required: true, message: 'Contact phone is required' },
-              ]}
             >
               <Input placeholder="Enter contact phone" />
             </Form.Item>

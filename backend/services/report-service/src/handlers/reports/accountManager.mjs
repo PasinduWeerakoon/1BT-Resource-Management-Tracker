@@ -255,7 +255,6 @@ export const getAccountManagerReport = async (event) => {
                     r.email,
                     r.total_allocation,
                     r.total_resource_billing as total_billing,
-                    a.status as allocation_status,
                     a.updated_at as allocation_updated_at,
                     p.project_name as project,
                     p.id as project_id,
