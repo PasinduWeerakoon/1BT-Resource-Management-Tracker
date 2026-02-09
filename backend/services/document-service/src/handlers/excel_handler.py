@@ -636,7 +636,7 @@ def generate_summary_report(event, context):
         # Title
         ws.merge_cells(f'A{current_row}:D{current_row}')
         title_cell = ws.cell(row=current_row, column=1, value="Resource Management Dashboard")
-        title_cell.font = Font(bold=True, size=16)
+        title_cell.font = Font(bold=True, size=16, color='FF0000')
         title_cell.alignment = Alignment(horizontal='center')
         current_row += 1
         
@@ -651,7 +651,7 @@ def generate_summary_report(event, context):
         current_row += 2
         
         # Resource Billing Stats
-        ws.cell(row=current_row, column=1, value="Resource Billing Stats").font = Font(bold=True, size=12)
+        ws.cell(row=current_row, column=1, value="Resource Billing Stats").font = Font(bold=True, size=12, color='FF0000')
         current_row += 1
         
         billing_headers = ['Metric', 'Value']
@@ -678,7 +678,7 @@ def generate_summary_report(event, context):
         current_row += 1
         
         # Resource Allocation Stats
-        ws.cell(row=current_row, column=1, value="Resource Allocation Stats").font = Font(bold=True, size=12)
+        ws.cell(row=current_row, column=1, value="Resource Allocation Stats").font = Font(bold=True, size=12, color='FF0000')
         current_row += 1
         
         allocation_headers = ['Metric', 'Value']
@@ -707,7 +707,7 @@ def generate_summary_report(event, context):
         current_row += 1
         
         # Bench Analysis
-        ws.cell(row=current_row, column=1, value="Bench Analysis").font = Font(bold=True, size=12)
+        ws.cell(row=current_row, column=1, value="Bench Analysis").font = Font(bold=True, size=12, color='FF0000')
         current_row += 1
         
         bench_headers = ['Name', 'Tier', 'Focused Area', 'Allocation']
@@ -733,7 +733,7 @@ def generate_summary_report(event, context):
         current_row += 1
         
         # Track Wise Summary
-        ws.cell(row=current_row, column=1, value="Track Wise Summary").font = Font(bold=True, size=12)
+        ws.cell(row=current_row, column=1, value="Track Wise Summary").font = Font(bold=True, size=12, color='FF0000')
         current_row += 1
         
         track_headers = ['Track', 'Bench Resource Count']
