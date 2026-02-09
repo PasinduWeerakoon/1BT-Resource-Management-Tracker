@@ -80,7 +80,8 @@ const paginationSchema = {
 // Note: designation_id, employee_type_id, university_id are INTEGER IDs referencing lookup tables
 export const resourceSchemas = {
     list: Joi.object({
-        ...paginationSchema,
+        page: Joi.number().integer().min(1).default(1),
+        limit: Joi.number().integer().min(1).max(250).default(20), // Resources endpoint allows up to 250
         search: Joi.string().allow('').optional(),
         track_id: Joi.number().integer().min(1).optional(),
         designation_id: Joi.number().integer().min(1).optional(),

@@ -166,6 +166,8 @@ export const list = async (event) => {
                 a.*,
                 r.name as resource_name,
                 r.email as resource_email,
+                r.total_allocation,
+                r.total_resource_billing,
                 p.project_name,
                 c.client_name,
                 bs.name as billing_status_name,
