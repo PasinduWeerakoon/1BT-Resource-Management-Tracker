@@ -133,6 +133,7 @@ export const useProjectData = (pagination) => {
         client_name: project.client_name,
         // For table display (keep existing fields)
         project_type: project.project_type || project.project_type_name,
+        account_manager_name: project.account_manager_name || null,
         is_billable: project.is_billable,
         status: project.status,
         start_date: project.start_date || project.project_start_date,

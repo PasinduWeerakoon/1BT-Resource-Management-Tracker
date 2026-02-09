@@ -31,6 +31,13 @@ export const getProjectColumns = () => [
     width: 200,
   },
   {
+    title: 'Account Manager',
+    dataIndex: 'account_manager_name',
+    key: 'account_manager_name',
+    width: 180,
+    render: (name) => name || '-',
+  },
+  {
     title: 'Type',
     dataIndex: 'project_type',
     key: 'project_type',
