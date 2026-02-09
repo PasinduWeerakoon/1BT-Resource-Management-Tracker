@@ -252,8 +252,11 @@ export const getAccountManagerReport = async (event) => {
                     a.id,
                     r.name as employee_name,
                     r.id as resource_id,
+                    r.email,
                     r.total_allocation,
                     r.total_resource_billing as total_billing,
+                    a.status as allocation_status,
+                    a.updated_at as allocation_updated_at,
                     p.project_name as project,
                     p.id as project_id,
                     TO_CHAR(a.allocated_date, 'DD Mon YYYY') as project_allocated_date,
@@ -302,6 +305,7 @@ export const getAccountManagerReport = async (event) => {
                 SELECT DISTINCT
                     r.id,
                     r.name as employee_name,
+                    r.designation_id,
                     r.track_id,
                     r.tech_stack_id,
                     r.tier_id

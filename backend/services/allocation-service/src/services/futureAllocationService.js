@@ -45,6 +45,14 @@ export const createFutureAllocation = async (data) => {
     const notes = data.notes;
     const created_by = data.created_by || data.createdBy;
 
+    // Validate that resource_id is a number, not UUID
+    if (typeof resource_id === 'string' && resource_id.includes('-')) {
+        throw new Error(`resource_id must be a number (employee ID), got UUID: ${resource_id}. Check that you're passing employee_id as integer, not UUID.`);
+    }
+    if (!resource_id || isNaN(resource_id)) {
+        throw new Error(`Invalid resource_id: ${resource_id}. Must be a valid integer employee ID.`);
+    }
+
     // allocated_date defaults to effective_date if not provided
     const allocated_date = data.allocated_date || data.allocatedDate || effective_date;
     const deallocated_date = data.deallocated_date || data.deallocatedDate || data.end_date || data.endDate;
@@ -147,7 +155,7 @@ export const getFutureAllocationsByResource = async (resourceId, options = {}) =
     let query = `
         SELECT fa.*, 
                r.name as resource_name,
-               p.name as project_name,
+               p.project_name,
                p.project_code
         FROM future_allocations fa
         JOIN employees r ON fa.employee_id = r.id
@@ -181,7 +189,7 @@ export const getScheduledAllocations = async (options = {}) => {
     let query = `
         SELECT fa.*, 
                r.name as resource_name,
-               p.name as project_name,
+               p.project_name,
                p.project_code,
                p.is_bench_project
         FROM future_allocations fa
@@ -220,7 +228,7 @@ export const getAllocationsToActivateToday = async () => {
     const query = `
         SELECT fa.*, 
                r.name as resource_name,
-               p.name as project_name,
+               p.project_name,
                p.project_code,
                p.is_bench_project
         FROM future_allocations fa
@@ -255,7 +263,7 @@ export const getFutureAllocationById = async (id) => {
     const query = `
         SELECT fa.*, 
                r.name as resource_name,
-               p.name as project_name,
+               p.project_name,
                p.project_code
         FROM future_allocations fa
         JOIN employees r ON fa.employee_id = r.id

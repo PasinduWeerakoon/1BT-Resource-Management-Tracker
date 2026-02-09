@@ -1445,7 +1445,7 @@ const AccountManagerReport = () => {
 
             try {
                 fetchResourcesInProgressRef.current = true;
-                const response = await resourcesService.getAll({ limit: 10 });
+                const response = await resourcesService.getAll({ limit: 250 });
                 let resourcesData = [];
 
                 if (response) {
