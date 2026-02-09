@@ -418,7 +418,8 @@ def generate_summary_report(event, context):
         }
         
         # Query Bench Analysis (Name, Tier, Focused Area, Allocation)
-        # Note: tier_id is stored on employees; we join tiers to get the tier name
+        # Note: tier_id and track_id are stored on employees as INTEGER config IDs (not DB table references)
+        # Also includes track information for track-wise summary calculation
         bench_analysis_query = """
             WITH bench_allocations AS (
                 SELECT 
@@ -445,14 +446,14 @@ def generate_summary_report(event, context):
             )
             SELECT 
                 r.name,
-                tt.name as tier,
+                r.tier_id,
                 COALESCE(ba.focused_areas, 'Bench') as focused_area,
                 COALESCE(ta.total_allocation, 0) as total_allocation,
-                COALESCE(ba.bench_allocation_percentage, 0) as bench_allocation
+                COALESCE(ba.bench_allocation_percentage, 0) as bench_allocation,
+                r.track_id
             FROM employees r
             INNER JOIN bench_allocations ba ON r.id = ba.employee_id
             LEFT JOIN total_allocations ta ON r.id = ta.employee_id
-            LEFT JOIN tiers tt ON r.tier_id = tt.id
             WHERE r.status = 'Active'
             AND r.deleted_at IS NULL
             ORDER BY ba.bench_allocation_percentage DESC, r.name ASC
@@ -460,32 +461,28 @@ def generate_summary_report(event, context):
         
         bench_analysis = query(bench_analysis_query)
         
-        # Query Role Summary - Get counts for all tracks
-        role_summary_query = """
-            WITH active_allocations AS (
-                SELECT 
-                    a.employee_id,
-                    a.allocation_percentage,
-                    e.track_id,
-                    t.name as track_name
-                FROM allocations a
-                JOIN employees e ON a.employee_id = e.id
-                LEFT JOIN tracks t ON e.track_id = t.id
-                WHERE a.is_active = true 
-                AND a.deleted_at IS NULL
-                AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
-                AND e.status = 'Active'
-                AND e.deleted_at IS NULL
-            )
-            SELECT
-                COALESCE(track_name, 'Unassigned') as track_name,
-                COALESCE(SUM(allocation_percentage) / 100.0, 0)::DECIMAL(10,2) as count
-            FROM active_allocations
-            GROUP BY track_id, track_name
-            ORDER BY track_name ASC
-        """
+        # Calculate Track Wise Summary from bench_analysis results
+        # Since tracks are configurations (not a DB table), we group by track_id
+        # Track names would need to be resolved from configs, but for now we'll use track_id
+        track_summary_dict = {}
+        for row in bench_analysis:
+            track_id = row.get('track_id')
+            # Use track_id as key since tracks are configs, not DB table
+            track_key = f"Track {track_id}" if track_id else 'Unassigned'
+            bench_allocation = float(row.get('bench_allocation', 0) or 0)
+            
+            if track_key not in track_summary_dict:
+                track_summary_dict[track_key] = 0
+            track_summary_dict[track_key] += bench_allocation
         
-        role_summary = query(role_summary_query)
+        # Convert to list format and divide by 100 to get count
+        track_summary = []
+        for track_name, total_bench_allocation in sorted(track_summary_dict.items()):
+            bench_count = round(total_bench_allocation / 100.0, 2)
+            track_summary.append({
+                'track_name': track_name,
+                'bench_count': bench_count
+            })
         
         # Create workbook
         wb = Workbook()
@@ -578,9 +575,11 @@ def generate_summary_report(event, context):
         current_row += 1
         
         for row_data in bench_analysis:
+            tier_id = row_data.get('tier_id')
+            tier_display = f"Tier {tier_id}" if tier_id else 'Unassigned'
             cells = [
                 row_data.get('name', ''),
-                row_data.get('tier', ''),
+                tier_display,
                 row_data.get('focused_area', 'Bench'),
                 f"{row_data.get('bench_allocation', 0)}%"
             ]
@@ -591,31 +590,31 @@ def generate_summary_report(event, context):
         
         current_row += 1
         
-        # Role Summary
-        ws.cell(row=current_row, column=1, value="Role Summary").font = Font(bold=True, size=12)
+        # Track Wise Summary
+        ws.cell(row=current_row, column=1, value="Track Wise Summary").font = Font(bold=True, size=12)
         current_row += 1
         
-        role_headers = ['Role', 'Count']
-        for col, header in enumerate(role_headers, 1):
+        track_headers = ['Track', 'Bench Resource Count']
+        for col, header in enumerate(track_headers, 1):
             cell = ws.cell(row=current_row, column=col, value=header)
             apply_header_style(cell)
         current_row += 1
         
         # Use all tracks from the query result
-        if role_summary:
-            for track_row in role_summary:
+        if track_summary:
+            for track_row in track_summary:
                 track_name = track_row.get('track_name', 'Unassigned')
-                track_count = float(track_row.get('count', 0) or 0)
-                role_data = [track_name, track_count]
+                bench_count = float(track_row.get('bench_count', 0) or 0)
+                track_data = [track_name, bench_count]
                 
-                for col_idx, value in enumerate(role_data, 1):
+                for col_idx, value in enumerate(track_data, 1):
                     cell = ws.cell(row=current_row, column=col_idx, value=value)
                     apply_cell_style(cell)
                 current_row += 1
         else:
             # Fallback if no data
-            role_data = [['No data', 0]]
-            for row_data in role_data:
+            track_data = [['No data', 0]]
+            for row_data in track_data:
                 for col_idx, value in enumerate(row_data, 1):
                     cell = ws.cell(row=current_row, column=col_idx, value=value)
                     apply_cell_style(cell)
