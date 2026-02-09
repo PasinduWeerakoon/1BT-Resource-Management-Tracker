@@ -79,11 +79,9 @@ export const calculateDailyStats = async (event) => {
                 -- Allocated Resource Count (employees with any allocation > 0)
                 COALESCE(SUM(CASE WHEN COALESCE(ea.total_allocation, 0) > 0 THEN 1 ELSE 0 END), 0)::DECIMAL(10,1) as allocated_resource_count,
                 
-                -- Billable Resource Count (excluding consultants, interns, synergy)
+                -- Billable Resource Count (based on billable track IDs)
                 COALESCE(SUM(CASE 
-                    WHEN ae.employee_type_id NOT IN (SELECT id FROM consultant_type)
-                         AND ae.designation_id NOT IN (SELECT id FROM intern_designations)
-                         AND ae.id NOT IN (SELECT employee_id FROM synergy_employees)
+                    WHEN ae.track_id IN (1, 2, 3, 4, 5, 8, 10, 11)  -- BILLABLE_TRACK_IDS: QA, Dev, UI, BA, PM, UX, Delivery, Functional Consultant
                     THEN 1 ELSE 0 
                 END), 0)::DECIMAL(10,1) as billable_resource_count,
                 
@@ -145,7 +143,8 @@ export const calculateDailyStats = async (event) => {
             active_employees AS (
                 SELECT e.id, 
                        COALESCE(e.total_allocation, 0) as current_allocation,
-                       COALESCE(e.total_resource_billing, 0) as current_billing
+                       COALESCE(e.total_resource_billing, 0) as current_billing,
+                       e.track_id
                 FROM employees e
                 WHERE e.status = 'Active' AND e.deleted_at IS NULL
             ),
@@ -167,7 +166,21 @@ export const calculateDailyStats = async (event) => {
                     -- Sum of all allocation percentages / (total employees * 100) * 100
                     COALESCE(SUM(COALESCE(ea.total_allocation, 0)), 0) as sum_allocation,
                     COALESCE(SUM(COALESCE(ea.total_billing, 0)), 0) as sum_billing,
-                    COALESCE(SUM(COALESCE(ea.shadow_percentage, 0)), 0) as sum_shadow
+                    COALESCE(SUM(COALESCE(ea.shadow_percentage, 0)), 0) as sum_shadow,
+                    -- Billable count for bench % denominator
+                    COALESCE(SUM(CASE 
+                        WHEN ae.track_id IN (1, 2, 3, 4, 5, 8, 10, 11) THEN 1 ELSE 0 
+                    END), 0) as billable_count,
+                    -- Bench allocation sum for bench % numerator
+                    (
+                        SELECT COALESCE(SUM(a.allocation_percentage), 0)
+                        FROM allocations a
+                        JOIN projects p ON a.project_id = p.id
+                        WHERE p.project_name = 'Bench'
+                          AND a.is_active = true
+                          AND a.deleted_at IS NULL
+                          AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
+                    ) as sum_bench
                 FROM active_employees ae
                 LEFT JOIN employee_allocations ea ON ae.id = ea.employee_id
             )
@@ -183,7 +196,11 @@ export const calculateDailyStats = async (event) => {
                 CASE WHEN sum_allocation > 0 
                     THEN ROUND((sum_shadow::DECIMAL / sum_allocation) * 100, 1)
                     ELSE 0 
-                END as shadow_percentage
+                END as shadow_percentage,
+                CASE WHEN billable_count > 0 
+                    THEN ROUND((sum_bench / 100.0) / billable_count * 100, 1)
+                    ELSE 0 
+                END as bench_percentage
             FROM totals
         `);
 
@@ -283,7 +300,8 @@ export const calculateDailyStats = async (event) => {
             JSON.stringify({
                 allocationPercentage: parseFloat(percentages.allocation_percentage) || 0,
                 billablePercentage: parseFloat(percentages.billable_percentage) || 0,
-                shadowPercentage: parseFloat(percentages.shadow_percentage) || 0
+                shadowPercentage: parseFloat(percentages.shadow_percentage) || 0,
+                benchPercentage: parseFloat(percentages.bench_percentage) || 0
             }),
             percentagesDuration,
             event?.source === 'aws.events' ? 'scheduled' : 'manual'

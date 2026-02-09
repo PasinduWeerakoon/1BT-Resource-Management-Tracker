@@ -9,7 +9,7 @@
 import * as db from '/opt/nodejs/database/index.js';
 import logger from '/opt/nodejs/logger/index.js';
 import { success, error } from '/opt/nodejs/utils/response.js';
-import { TRACKS, TECH_STACKS } from '/opt/nodejs/configs/index.js';
+import { TRACKS, TECH_STACKS, BILLABLE_TRACK_IDS } from '/opt/nodejs/configs/index.js';
 
 /**
  * Helper: Get cached stats from dashboard_stats table
@@ -192,9 +192,7 @@ export const getDashboardResourceCounts = async (event) => {
                 COALESCE(SUM(CASE WHEN ea.has_billing_allocation THEN 1 ELSE 0 END), 0)::DECIMAL(10,1) as billing_resource_count,
                 COALESCE(SUM(CASE WHEN COALESCE(ea.total_allocation, 0) > 0 THEN 1 ELSE 0 END), 0)::DECIMAL(10,1) as allocated_resource_count,
                 COALESCE(SUM(CASE 
-                    WHEN ae.employee_type_id NOT IN (SELECT id FROM consultant_type)
-                         AND ae.designation_id NOT IN (SELECT id FROM intern_designations)
-                         AND ae.id NOT IN (SELECT employee_id FROM synergy_employees)
+                    WHEN ae.track_id IN (1, 2, 3, 4, 5, 8, 10, 11)  -- BILLABLE_TRACK_IDS: QA, Dev, UI, BA, PM, UX, Delivery, Functional Consultant
                     THEN 1 ELSE 0 
                 END), 0)::DECIMAL(10,1) as billable_resource_count,
                 COALESCE(SUM(CASE WHEN COALESCE(ea.shadow_allocation, 0) > 0 THEN 1 ELSE 0 END), 0)::DECIMAL(10,1) as shadow_count,
@@ -266,7 +264,7 @@ export const getDashboardPercentages = async (event) => {
         const result = await db.query(`
             WITH 
             active_employees AS (
-                SELECT e.id
+                SELECT e.id, e.track_id
                 FROM employees e
                 WHERE e.status = 'Active' AND e.deleted_at IS NULL
             ),
@@ -287,7 +285,21 @@ export const getDashboardPercentages = async (event) => {
                     COUNT(*) as total_employees,
                     COALESCE(SUM(COALESCE(ea.total_allocation, 0)), 0) as sum_allocation,
                     COALESCE(SUM(COALESCE(ea.total_billing, 0)), 0) as sum_billing,
-                    COALESCE(SUM(COALESCE(ea.shadow_percentage, 0)), 0) as sum_shadow
+                    COALESCE(SUM(COALESCE(ea.shadow_percentage, 0)), 0) as sum_shadow,
+                    -- Billable count for bench % denominator
+                    COALESCE(SUM(CASE 
+                        WHEN ae.track_id IN (1, 2, 3, 4, 5, 8, 10, 11) THEN 1 ELSE 0 
+                    END), 0) as billable_count,
+                    -- Bench allocation sum for bench % numerator
+                    (
+                        SELECT COALESCE(SUM(a.allocation_percentage), 0)
+                        FROM allocations a
+                        JOIN projects p ON a.project_id = p.id
+                        WHERE p.project_name = 'Bench'
+                          AND a.is_active = true
+                          AND a.deleted_at IS NULL
+                          AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
+                    ) as sum_bench
                 FROM active_employees ae
                 LEFT JOIN employee_allocations ea ON ae.id = ea.employee_id
             )
@@ -303,7 +315,11 @@ export const getDashboardPercentages = async (event) => {
                 CASE WHEN sum_allocation > 0 
                     THEN ROUND((sum_shadow::DECIMAL / sum_allocation) * 100, 1)
                     ELSE 0 
-                END as shadow_percentage
+                END as shadow_percentage,
+                CASE WHEN billable_count > 0 
+                    THEN ROUND((sum_bench / 100.0) / billable_count * 100, 1)
+                    ELSE 0 
+                END as bench_percentage
             FROM totals
         `);
 
@@ -311,7 +327,8 @@ export const getDashboardPercentages = async (event) => {
         const percentages = {
             allocationPercentage: parseFloat(row.allocation_percentage) || 0,
             billablePercentage: parseFloat(row.billable_percentage) || 0,
-            shadowPercentage: parseFloat(row.shadow_percentage) || 0
+            shadowPercentage: parseFloat(row.shadow_percentage) || 0,
+            benchPercentage: parseFloat(row.bench_percentage) || 0
         };
 
         return success({

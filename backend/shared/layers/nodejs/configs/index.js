@@ -81,6 +81,29 @@ export const EMPLOYEE_STATUSES = [
 ];
 
 // ============================================================================
+// BILLABLE TRACKS - Tracks that should have auto-bench allocation
+// These are the tracks for billable resources (Dev, QA, BA, PM, UI, UX, Delivery, Functional Consultants)
+// Non-billable: Support (6), Execs (9)
+// ============================================================================
+export const BILLABLE_TRACK_IDS = [1, 2, 3, 4, 5, 8, 10, 11];
+// Mapping: QA=1, Dev=2, UI=3, BA=4, PM=5, UX=8, Delivery=10, Functional Consultant=11
+
+/**
+ * Check if a track ID is billable (should have auto-bench allocation)
+ * @param {number} trackId - Track ID to check
+ * @returns {boolean} - True if billable track
+ */
+export const isBillableTrackId = (trackId) =>
+    BILLABLE_TRACK_IDS.includes(trackId);
+
+/**
+ * Get billable track labels for display
+ * @returns {string[]} - Array of billable track labels
+ */
+export const getBillableTrackLabels = () =>
+    TRACKS.filter(t => BILLABLE_TRACK_IDS.includes(t.id)).map(t => t.label);
+
+// ============================================================================
 // PROJECT STATUSES - Project lifecycle status
 // ============================================================================
 export const PROJECT_STATUSES = [
@@ -216,6 +239,7 @@ export default {
     ACCOUNT_TYPES,
     USER_ROLES,
     USER_STATUSES,
+    BILLABLE_TRACK_IDS,
     ALL_CONFIGS,
     CONFIG_METADATA,
     // Helper functions
@@ -226,4 +250,6 @@ export default {
     getConfigValues,
     getConfigLabels,
     isValidConfigValue,
+    isBillableTrackId,
+    getBillableTrackLabels,
 };
