@@ -4,7 +4,7 @@
 
 import React, { useEffect, useMemo } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
-import { Form, Input, Switch, Row, Col, Checkbox } from 'antd';
+import { Form, Input, Switch, Row, Col, Checkbox, Tag } from 'antd';
 import { useConfigCRUD } from '../hooks/useConfigCRUD';
 import ConfigTable from '../components/ConfigTable';
 import ConfigModal from '../components/ConfigModal';
@@ -27,6 +27,7 @@ const BillingStatusesTab = () => {
       description: item.description || '',
       is_active: item.isActive !== undefined ? item.isActive : (item.is_active !== undefined ? item.is_active : true),
       is_default: item.isDefault !== undefined ? item.isDefault : (item.is_default !== undefined ? item.is_default : false),
+      billingType: item.billingType || item.billing_type || [],
       value: item.value || item.id,
       displayOrder: item.displayOrder || 0,
     }));
@@ -62,7 +63,7 @@ const BillingStatusesTab = () => {
       name: values.name,
       description: values.description,
       is_active: values.is_active,
-      billingType: values.billingType || [],
+      billing_type: values.billingType || [],
     }),
   });
 
@@ -109,6 +110,25 @@ const BillingStatusesTab = () => {
       width: 400,
     },
     {
+      title: 'Billing Type',
+      dataIndex: 'billingType',
+      key: 'billingType',
+      width: 200,
+      render: (billingType) => (
+        <>
+          {billingType && billingType.length > 0 ? (
+            billingType.map((type) => (
+              <Tag key={type} color={type === 'project' ? 'blue' : 'green'}>
+                {type === 'project' ? 'Project' : type === 'resource' ? 'Resource' : type}
+              </Tag>
+            ))
+          ) : (
+            <span style={{ color: '#999' }}>-</span>
+          )}
+        </>
+      ),
+    },
+    {
       title: 'Status',
       dataIndex: 'is_active',
       key: 'is_active',
@@ -132,7 +152,7 @@ const BillingStatusesTab = () => {
         isEditDisabled={(record) => record.is_default === true || record.isDefault === true}
         isDeleteDisabled={(record) => record.is_default === true || record.isDefault === true}
         pagination={{ pageSize: 20 }}
-        scroll={{ x: 600 }}
+        scroll={{ x: 1000 }}
         title="Billing Statuses"
         addButtonText="Add Billing Status"
         onAdd={handleAdd}

@@ -128,6 +128,19 @@ const ClientsTab = () => {
     },
   });
 
+  // Custom edit handler to populate form fields
+  const handleEditClient = (record) => {
+    form.setFieldsValue({
+      client_name: record.client_name,
+      contact_person: record.contact_person,
+      contact_email: record.contact_email,
+      contact_phone: record.contact_phone,
+      address: record.address,
+      is_active: record.is_active !== undefined ? record.is_active : record.isActive,
+    });
+    handleEdit(record);
+  };
+
   // Columns
   const columns = [
     {
@@ -180,7 +193,7 @@ const ClientsTab = () => {
         columns={columns}
         dataSource={clients}
         loading={loadingClients}
-        onEdit={handleEdit}
+        onEdit={handleEditClient}
         onDelete={(record) => handleDelete(record, {
           title: 'Delete Client',
           content: `Are you sure you want to delete "${record.client_name}"? This action cannot be undone.`,

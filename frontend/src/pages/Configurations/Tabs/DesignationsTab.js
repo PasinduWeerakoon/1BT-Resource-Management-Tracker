@@ -9,7 +9,7 @@ import { useConfigCRUD } from '../hooks/useConfigCRUD';
 import ConfigTable from '../components/ConfigTable';
 import ConfigModal from '../components/ConfigModal';
 import { designationsService } from '@api';
-import { selectDesignations, selectDesignationsLoading, fetchDesignationsData } from '@redux/slices/configSlice';
+import { selectDesignations, selectDesignationsLoading, fetchDesignationsData, selectTiers, fetchTiersData } from '@redux/slices/configSlice';
 
 const { Option } = Select;
 
@@ -18,6 +18,8 @@ const DesignationsTab = () => {
     // Get data from Redux
     const designationsData = useSelector(selectDesignations);
     const loadingDesignations = useSelector(selectDesignationsLoading);
+    const tiersData = useSelector(selectTiers);
+    const loadingTiers = useSelector(state => state.config.tiers.loading);
 
     // Transform data for table display
     const designations = useMemo(() => {
@@ -26,6 +28,7 @@ const DesignationsTab = () => {
             id: item.id,
             name: item.label || item.name, // Use label from API response as name
             level: item.level,
+            tier_id: item.tierId || item.tier_id,
             tier: item.level ? `Tier ${String(item.level).padStart(2, '0')}` : null,
             is_active: item.isActive !== undefined ? item.isActive : (item.is_active !== undefined ? item.is_active : true),
             description: item.description || '',
@@ -42,7 +45,10 @@ const DesignationsTab = () => {
         if (!designationsData.length && !loadingDesignations) {
             dispatch(fetchDesignationsData({ force: false }));
         }
-    }, [dispatch, designationsData.length, loadingDesignations]);
+        if (!tiersData.length && !loadingTiers) {
+            dispatch(fetchTiersData({ force: false }));
+        }
+    }, [dispatch, designationsData.length, loadingDesignations, tiersData.length, loadingTiers]);
 
     // Refetch function for after CRUD operations
     const refetchDesignations = async () => {
@@ -64,11 +70,13 @@ const DesignationsTab = () => {
         service: designationsService,
         onFetch: refetchDesignations,
         transformPayload: (values) => {
-            // Convert tier string (Tier 01) to level number (1)
-            const level = values.tier ? Number.parseInt(values.tier.replace('Tier ', ''), 10) : 1;
+            // tier_id is required by backend (1-7 mapping to tiers config)
+            // Find the tier to get its level for backward compatibility
+            const selectedTier = tiersData.find(t => t.id === values.tier_id);
             return {
                 name: values.name,
-                level: level,
+                tier_id: values.tier_id,
+                level: selectedTier?.value || 1,
                 is_active: values.is_active !== undefined ? values.is_active : true,
             };
         },
@@ -77,6 +85,16 @@ const DesignationsTab = () => {
             payload: { is_active: false },
         },
     });
+
+    // Custom edit handler to populate form fields
+    const handleEditDesignation = (record) => {
+        form.setFieldsValue({
+            name: record.name,
+            tier_id: record.tier_id,
+            is_active: record.is_active !== undefined ? record.is_active : record.isActive,
+        });
+        handleEdit(record);
+    };
 
     // Columns
     const columns = [
@@ -112,13 +130,13 @@ const DesignationsTab = () => {
         },
     ];
 
-    // Tier options
-    const tierOptions = [
-        { value: 'Tier 01', label: 'Tier 01' },
-        { value: 'Tier 02', label: 'Tier 02' },
-        { value: 'Tier 03', label: 'Tier 03' },
-        { value: 'Tier 04', label: 'Tier 04' },
-    ];
+    // Tier options from Redux config
+    const tierOptions = useMemo(() => {
+        return tiersData.map(tier => ({
+            value: tier.id,
+            label: tier.label || tier.name,
+        }));
+    }, [tiersData]);
 
     return (
         <>
@@ -126,7 +144,7 @@ const DesignationsTab = () => {
                 columns={columns}
                 dataSource={designations}
                 loading={loadingDesignations}
-                onEdit={handleEdit}
+                onEdit={handleEditDesignation}
                 onDelete={(record) => handleDelete(record, {
                     title: 'Delete Designation',
                     content: `Are you sure you want to delete "${record.name}"? This action cannot be undone.`,
@@ -161,10 +179,10 @@ const DesignationsTab = () => {
                 </Form.Item>
                 <Form.Item
                     label="Tier"
-                    name="tier"
+                    name="tier_id"
                     rules={[{ required: true, message: 'Tier is required' }]}
                 >
-                    <Select placeholder="Select tier">
+                    <Select placeholder="Select tier" loading={loadingTiers}>
                         {tierOptions.map((tier) => (
                             <Option key={tier.value} value={tier.value}>
                                 {tier.label}

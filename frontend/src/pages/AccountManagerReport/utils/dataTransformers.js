@@ -17,7 +17,7 @@ export const transformProjectData = (projectsData, allocationsData = []) => {
 
     // Calculate billing count (resources with billing_percentage > 0)
     const billingResources = projectAllocations.filter(alloc => {
-      const billingPct = parseFloat(allocation.billing_percentage) || 0;
+      const billingPct = parseFloat(alloc.billing_percentage) || 0;
       return billingPct > 0;
     });
     const uniqueBillingResourceIds = new Set(billingResources.map(alloc => alloc.resource_id).filter(Boolean));
@@ -51,53 +51,23 @@ export const transformProjectData = (projectsData, allocationsData = []) => {
 
 /**
  * Transform allocation data from API response
+ * API returns: resource_name, total_allocation, total_resource_billing, billing_status_name, updated_at
  */
 export const transformAllocationData = (allocationsData) => {
-  return allocationsData.map((allocation) => {
-    const allocationPercentage = parseFloat(allocation.allocation_percentage || allocation.project_allocation) || 0;
-    const billingPercentage = parseFloat(allocation.billing_percentage) || 0;
-    const billingStatus = billingPercentage > 0 ? 'Billing' : 'Non-Billing';
-
-    return {
-      key: allocation.id,
-      id: allocation.id,
-      resource_id: allocation.resource_id,
-      resource_name: allocation.resource_name || allocation.employee_name || 'N/A',
-      employeeName: allocation.resource_name || allocation.employee_name || 'N/A',
-      project_id: allocation.project_id,
-      project_name: allocation.project_name || allocation.project || 'N/A',
-      project: allocation.project_name || allocation.project || 'N/A',
-      allocatedDate: allocation.allocated_date
-        ? dayjs(allocation.allocated_date).format('DD MMM YYYY')
-        : (allocation.project_allocated_date || ''),
-      deallocatedDate: allocation.deallocated_date
-        ? dayjs(allocation.deallocated_date).format('DD MMM YYYY')
-        : (allocation.project_deallocated_date || ''),
-      billingStatus: billingStatus,
-      billingPercentage: billingPercentage ? `${billingPercentage.toFixed(2)}%` : '0.00%',
-      projectAllocation: allocationPercentage ? `${allocationPercentage.toFixed(2)}%` : '0.00%',
-      duration: allocation.duration || allocation.duration_days || 0,
-      status: allocation.is_active ? 'Active' : 'Inactive',
-    };
-  });
-};
-
-/**
- * Transform team member data from allocation data
- */
-export const transformTeamMemberData = async (allocationsData, resourcesList = [], project) => {
-  return Promise.all(allocationsData.map(async (allocation, index) => {
-    // Parse dates
-    let allocatedDate = undefined;
-    let deallocatedDate = undefined;
-    if (allocation.start_date) {
-      allocatedDate = dayjs(allocation.start_date);
-    }
-    if (allocation.end_date) {
-      deallocatedDate = dayjs(allocation.end_date);
+  return allocationsData.map((allocation, index) => {
+    // Calculate duration in days
+    let duration = 0;
+    if (allocation.allocated_date) {
+      const startDate = dayjs(allocation.allocated_date);
+      const endDate = allocation.deallocated_date ? dayjs(allocation.deallocated_date) : dayjs();
+      duration = endDate.diff(startDate, 'day');
     }
 
-    // Handle allocation_percentage and billing_percentage as strings or numbers
+    const resourceId = allocation.employee_id || allocation.resource_id;
+    const resourceName = allocation.resource_name || allocation.employee_name || 'N/A';
+    const projectName = allocation.project_name || 'N/A';
+    const billingStatus = allocation.billing_status_name || 'N/A';
+
     const allocationPercentage = typeof allocation.allocation_percentage === 'string'
       ? parseFloat(allocation.allocation_percentage)
       : (allocation.allocation_percentage || 0);
@@ -105,58 +75,29 @@ export const transformTeamMemberData = async (allocationsData, resourcesList = [
       ? parseFloat(allocation.billing_percentage)
       : (allocation.billing_percentage || 0);
 
-    // Determine billing status based on project_type
-    let billingStatus = 'Non-Billing';
-    if (allocation.project_type === 'Client' || allocation.project_is_billable) {
-      billingStatus = 'Billing';
-    } else if (allocation.project_type === 'Bench') {
-      billingStatus = 'Bench';
-    } else if (allocation.project_type === 'Pre-Sales' || allocation.project_type === 'Presale' || allocation.project_type === 'Pre-Sale') {
-      billingStatus = 'Presale';
-    } else if (allocation.project_type === 'Training') {
-      billingStatus = 'Training';
-    }
-
-    // Calculate duration in days
-    let duration = 0;
-    if (allocation.start_date) {
-      const startDate = dayjs(allocation.start_date);
-      const endDate = allocation.end_date ? dayjs(allocation.end_date) : dayjs();
-      duration = endDate.diff(startDate, 'day');
-    }
-
-    // Get resource name
-    let resourceName = allocation.resource_name ||
-      allocation.employeeName ||
-      allocation.name;
-
-    // If resource name is missing and we have resource_id, try to find it
-    if (!resourceName && allocation.resource_id) {
-      const resource = resourcesList.find(r => r.id === allocation.resource_id);
-      if (resource) {
-        resourceName = resource.name;
-      }
-    }
-
-    resourceName = resourceName || 'N/A';
+    const totalAllocation = parseFloat(allocation.total_allocation) || 0;
+    const totalBilling = parseFloat(allocation.total_resource_billing) || 0;
 
     return {
-      key: `existing-${allocation.id || index}`,
+      key: allocation.id || `allocation-${index}`,
       id: allocation.id,
-      resource_id: allocation.resource_id,
       employeeName: resourceName,
-      employeeId: allocation.resource_id,
-      projectName: allocation.project_name || project?.project || '',
-      allocatedDate: allocatedDate,
-      deallocatedDate: deallocatedDate,
-      billingStatus: billingStatus,
-      billingPercentage: billingPercentage,
-      projectAllocation: allocationPercentage,
-      duration: duration,
+      project: projectName,
+      allocatedDate: allocation.allocated_date ? dayjs(allocation.allocated_date).format('DD MMM YYYY') : '',
+      deallocatedDate: allocation.deallocated_date ? dayjs(allocation.deallocated_date).format('DD MMM YYYY') : '',
+      billingStatus,
+      billingPercentage: billingPercentage ? `${billingPercentage.toFixed(2)}%` : '0.00%',
+      projectAllocation: allocationPercentage ? `${allocationPercentage.toFixed(2)}%` : '0.00%',
+      totalAllocation: `${totalAllocation.toFixed(2)}%`,
+      totalBilling: `${totalBilling.toFixed(2)}%`,
+      lastUpdated: allocation.updated_at ? dayjs(allocation.updated_at).format('DD MMM YYYY') : '',
+      duration,
       status: allocation.is_active !== undefined ? (allocation.is_active ? 'Active' : 'Inactive') : (allocation.status || 'Active'),
-      isExisting: true,
+      resource_id: resourceId,
+      project_id: allocation.project_id,
+      project_name: projectName,
     };
-  }));
+  });
 };
 
 /**
@@ -261,52 +202,4 @@ export const transformResourceAllocationsData = (allocationsData) => {
   });
 
   return [...transformedActiveAllocations, ...transformedFutureAllocations];
-};
-
-/**
- * Extract data from API response (handles different response structures)
- */
-export const extractResponseData = (response) => {
-  if (!response) return [];
-
-  // Check if response has data array directly
-  if (Array.isArray(response.data)) {
-    return response.data;
-  }
-  // Check if response has nested data structure
-  else if (response.data && response.data.data && Array.isArray(response.data.data)) {
-    return response.data.data;
-  }
-  // Check if response is the data object directly
-  else if (response.pagination && response.data && Array.isArray(response.data)) {
-    return response.data;
-  }
-  // Fallback: response is an array
-  else if (Array.isArray(response)) {
-    return response;
-  }
-
-  return [];
-};
-
-/**
- * Extract pagination from API response
- */
-export const extractPagination = (response, defaultPage = 1, defaultLimit = 10) => {
-  let paginationData = {};
-
-  if (response) {
-    if (response.pagination) {
-      paginationData = response.pagination;
-    } else if (response.data && response.data.pagination) {
-      paginationData = response.data.pagination;
-    }
-  }
-
-  return {
-    total: paginationData.total || 0,
-    page: paginationData.page || defaultPage,
-    limit: paginationData.limit || defaultLimit,
-    totalPages: paginationData.totalPages || 0,
-  };
 };
