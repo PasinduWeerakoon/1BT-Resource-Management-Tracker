@@ -18,11 +18,10 @@ export const TRACKS = [
     { id: 4, value: 4, label: 'BA', description: 'Business Analysis', isActive: true, displayOrder: 4 },
     { id: 5, value: 5, label: 'PM', description: 'Project Management', isActive: true, displayOrder: 5 },
     { id: 6, value: 6, label: 'Support', description: 'Support Functions', isActive: true, displayOrder: 6 },
-    { id: 7, value: 7, label: 'Synergy', description: 'Synergy Program', isActive: true, displayOrder: 7 },
-    { id: 8, value: 8, label: 'UX', description: 'User Experience', isActive: true, displayOrder: 8 },
-    { id: 9, value: 9, label: 'Execs', description: 'Executives', isActive: true, displayOrder: 9 },
-    { id: 10, value: 10, label: 'Delivery', description: 'Delivery Management', isActive: true, displayOrder: 10 },
-    { id: 11, value: 11, label: 'Functional Consultant - MS Dynamics 365', description: 'MS Dynamics 365 Functional Consultant', isActive: true, displayOrder: 11 },
+    { id: 8, value: 8, label: 'UX', description: 'User Experience', isActive: true, displayOrder: 7 },
+    { id: 9, value: 9, label: 'Execs', description: 'Executives', isActive: true, displayOrder: 8 },
+    { id: 10, value: 10, label: 'Delivery', description: 'Delivery Management', isActive: true, displayOrder: 9 },
+    { id: 11, value: 11, label: 'Functional Consultant - MS Dynamics 365', description: 'MS Dynamics 365 Functional Consultant', isActive: true, displayOrder: 10 },
 ];
 
 // ============================================================================
@@ -80,6 +79,29 @@ export const EMPLOYEE_STATUSES = [
     { id: 4, value: 4, label: 'On Leave', description: 'Employee on leave', isActive: true, displayOrder: 4 },
     { id: 5, value: 5, label: 'Terminated', description: 'Terminated employee', isActive: true, displayOrder: 5 },
 ];
+
+// ============================================================================
+// BILLABLE TRACKS - Tracks that should have auto-bench allocation
+// These are the tracks for billable resources (Dev, QA, BA, PM, UI, UX, Delivery, Functional Consultants)
+// Non-billable: Support (6), Execs (9)
+// ============================================================================
+export const BILLABLE_TRACK_IDS = [1, 2, 3, 4, 5, 8, 10, 11];
+// Mapping: QA=1, Dev=2, UI=3, BA=4, PM=5, UX=8, Delivery=10, Functional Consultant=11
+
+/**
+ * Check if a track ID is billable (should have auto-bench allocation)
+ * @param {number} trackId - Track ID to check
+ * @returns {boolean} - True if billable track
+ */
+export const isBillableTrackId = (trackId) =>
+    BILLABLE_TRACK_IDS.includes(trackId);
+
+/**
+ * Get billable track labels for display
+ * @returns {string[]} - Array of billable track labels
+ */
+export const getBillableTrackLabels = () =>
+    TRACKS.filter(t => BILLABLE_TRACK_IDS.includes(t.id)).map(t => t.label);
 
 // ============================================================================
 // PROJECT STATUSES - Project lifecycle status
@@ -217,6 +239,7 @@ export default {
     ACCOUNT_TYPES,
     USER_ROLES,
     USER_STATUSES,
+    BILLABLE_TRACK_IDS,
     ALL_CONFIGS,
     CONFIG_METADATA,
     // Helper functions
@@ -227,4 +250,6 @@ export default {
     getConfigValues,
     getConfigLabels,
     isValidConfigValue,
+    isBillableTrackId,
+    getBillableTrackLabels,
 };

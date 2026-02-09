@@ -27,7 +27,7 @@ import { success, error, notFound, validationError, conflict } from '/opt/nodejs
 import { validate, resourceSchemas } from '/opt/nodejs/validation/index.js';
 import audit from '/opt/nodejs/lib/audit/index.js';
 // Import shared configs for ID-to-label mapping
-import { TRACKS, TIERS, TECH_STACKS, getConfigById } from '/opt/nodejs/configs/index.js';
+import { TRACKS, TIERS, TECH_STACKS, BILLABLE_TRACK_IDS, getConfigById } from '/opt/nodejs/configs/index.js';
 
 const SERVICE_NAME = 'resource-service';
 
@@ -151,21 +151,15 @@ const getBenchProjectId = async () => {
 
 /**
  * Check if a track is a billable track (should have auto-bench allocation)
- * Only Dev (FS, .Net, DS, UI/UX), QA, and PM/BA tracks should auto-bench
- * Uses shared TRACKS config for lookup
+ * Uses centralized BILLABLE_TRACK_IDS from shared config
+ * Billable tracks: QA(1), Dev(2), UI(3), BA(4), PM(5), UX(8), Delivery(10), Functional Consultant(11)
+ * Non-billable: Support(6), Execs(9)
  * @param {number} trackId - The track ID to check (maps to TRACKS config)
  * @returns {boolean} - Whether the track is billable
  */
 const isBillableTrack = (trackId) => {
     if (!trackId) return false;
-
-    // Get track from shared config
-    const track = getConfigById(TRACKS, trackId);
-    if (!track) return false;
-
-    // Billable tracks: QA, Dev, UI, BA, PM, UX
-    const billableTrackLabels = ['QA', 'Dev', 'UI', 'BA', 'PM', 'UX'];
-    return billableTrackLabels.includes(track.label);
+    return BILLABLE_TRACK_IDS.includes(trackId);
 };
 
 /**
