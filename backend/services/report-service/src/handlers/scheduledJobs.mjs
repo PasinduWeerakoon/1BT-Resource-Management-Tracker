@@ -79,9 +79,9 @@ export const calculateDailyStats = async (event) => {
                 -- Allocated Resource Count (employees with any allocation > 0)
                 COALESCE(SUM(CASE WHEN COALESCE(ea.total_allocation, 0) > 0 THEN 1 ELSE 0 END), 0)::DECIMAL(10,1) as allocated_resource_count,
                 
-                -- Billable Resource Count (based on billable track IDs)
+                -- Billable Resource Count (excludes Delivery=10)
                 COALESCE(SUM(CASE 
-                    WHEN ae.track_id IN (1, 2, 3, 4, 5, 8, 10, 11)  -- BILLABLE_TRACK_IDS: QA, Dev, UI, BA, PM, UX, Delivery, Functional Consultant
+                    WHEN ae.track_id IN (1, 2, 3, 4, 5, 8, 11)  -- BILLABLE_RESOURCE_TRACK_IDS: excludes Delivery
                     THEN 1 ELSE 0 
                 END), 0)::DECIMAL(10,1) as billable_resource_count,
                 
@@ -167,9 +167,9 @@ export const calculateDailyStats = async (event) => {
                     COALESCE(SUM(COALESCE(ea.total_allocation, 0)), 0) as sum_allocation,
                     COALESCE(SUM(COALESCE(ea.total_billing, 0)), 0) as sum_billing,
                     COALESCE(SUM(COALESCE(ea.shadow_percentage, 0)), 0) as sum_shadow,
-                    -- Billable count for bench % denominator
+                    -- Billable count for bench % denominator (excludes Delivery=10)
                     COALESCE(SUM(CASE 
-                        WHEN ae.track_id IN (1, 2, 3, 4, 5, 8, 10, 11) THEN 1 ELSE 0 
+                        WHEN ae.track_id IN (1, 2, 3, 4, 5, 8, 11) THEN 1 ELSE 0 
                     END), 0) as billable_count,
                     -- Bench allocation sum for bench % numerator
                     (
