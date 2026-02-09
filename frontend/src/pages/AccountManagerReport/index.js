@@ -8,7 +8,9 @@ import ProjectModal from './components/ProjectModal';
 import TeamMembersModal from './components/TeamMembersModal';
 import UserAllocationsModal from './components/UserAllocationsModal';
 import AllocationFormModal from './components/AllocationFormModal';
+import DeleteAllocationModal from './components/DeleteAllocationModal';
 import ResourceAllocationsModal from './components/ResourceAllocationsModal';
+import TechStackChart from './components/TechStackChart';
 import useAccountManagerData from './hooks/useAccountManagerData';
 import useProjectManagement from './hooks/useProjectManagement';
 import useTeamManagement from './hooks/useTeamManagement';
@@ -165,6 +167,11 @@ const AccountManagerReport = () => {
         displayProjectName={data.displayProjectName}
       />
 
+      {/* Tech Stack Chart - positioned after BY ALLOCATION table */}
+      <TechStackChart
+        techStackData={data.reportData.charts.employeesByTechStack}
+      />
+
       {/* ─── Modals ─── */}
       <ProjectModal
         visible={projectMgmt.isCreateProjectModalVisible}
@@ -222,6 +229,15 @@ const AccountManagerReport = () => {
         resourcesList={data.resourcesList}
         projectsForFilter={data.projectsForFilter}
         resourceBillingStatuses={data.resourceBillingStatuses}
+      />
+
+      <DeleteAllocationModal
+        visible={allocationMgmt.isDeleteAllocationModalVisible}
+        onCancel={allocationMgmt.handleDeleteAllocationModalCancel}
+        onSubmit={allocationMgmt.handleDeleteAllocationSubmit}
+        form={allocationMgmt.deleteAllocationForm}
+        isSubmitting={allocationMgmt.isDeletingAllocation}
+        allocationRecord={allocationMgmt.allocationToDelete}
       />
 
       <ResourceAllocationsModal
