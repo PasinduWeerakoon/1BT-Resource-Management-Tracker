@@ -1943,7 +1943,7 @@ const AccountManagerReport = () => {
                             size="small"
                         />
                     </Tooltip>
-                    {/* <Tooltip title="Delete">
+                    <Tooltip title="Delete">
                         <Button
                             type="text"
                             icon={<DeleteOutlined />}
@@ -1955,7 +1955,7 @@ const AccountManagerReport = () => {
                             danger
                             size="small"
                         />
-                    </Tooltip> */}
+                    </Tooltip>
                 </Space>
             ),
         },

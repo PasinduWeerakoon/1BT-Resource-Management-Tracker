@@ -126,18 +126,18 @@ const DesignationsTab = () => {
                 columns={columns}
                 dataSource={designations}
                 loading={loadingDesignations}
-                // onEdit={handleEdit}
-                // onDelete={(record) => handleDelete(record, {
-                //     title: 'Delete Designation',
-                //     content: `Are you sure you want to delete "${record.name}"? This action cannot be undone.`,
-                // })}
+                onEdit={handleEdit}
+                onDelete={(record) => handleDelete(record, {
+                    title: 'Delete Designation',
+                    content: `Are you sure you want to delete "${record.name}"? This action cannot be undone.`,
+                })}
                 isEditDisabled={(record) => record.isDefault === true || record.is_default === true}
                 isDeleteDisabled={(record) => record.isDefault === true || record.is_default === true}
                 pagination={{ pageSize: 20 }}
                 scroll={{ x: 600 }}
                 title="Designations"
                 addButtonText="Add Designation"
-                // onAdd={handleAdd}
+                onAdd={handleAdd}
             />
 
             <ConfigModal

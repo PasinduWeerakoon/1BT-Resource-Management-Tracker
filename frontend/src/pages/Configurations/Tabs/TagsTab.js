@@ -115,15 +115,15 @@ const TagsTab = () => {
         columns={columns}
         dataSource={tags}
         loading={loadingTags}
-        // onEdit={handleEditTag}
-        // onDelete={handleDeleteTag}
+        onEdit={handleEditTag}
+        onDelete={handleDeleteTag}
         isEditDisabled={(record) => record.is_default === true || record.isDefault === true}
         isDeleteDisabled={(record) => record.is_default === true || record.isDefault === true}
         pagination={{ pageSize: 20 }}
         scroll={{ x: 600 }}
         title="Tags"
         addButtonText="Add Tag"
-        // onAdd={handleAdd}
+        onAdd={handleAdd}
       />
 
       <ConfigModal
