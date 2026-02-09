@@ -422,6 +422,7 @@ const Dashboard = () => {
   }, [futureAllocations]);
 
   const [downloading, setDownloading] = useState(false);
+  const [downloadingProjects, setDownloadingProjects] = useState(false);
 
   const handleDownloadExcel = useCallback(async () => {
     try {
@@ -436,15 +437,38 @@ const Dashboard = () => {
     }
   }, []);
 
-  const downloadButton = (
-    <Button
-      type="primary"
-      icon={<DownloadOutlined />}
-      onClick={handleDownloadExcel}
-      loading={downloading}
-    >
-      Download Excel
-    </Button>
+  const handleDownloadProjectsExcel = useCallback(async () => {
+    try {
+      setDownloadingProjects(true);
+      await documentsService.downloadProjectsExcel();
+      showSuccessToast('Projects report downloaded successfully');
+    } catch (error) {
+      logger.error('Failed to download projects Excel', error);
+      showErrorToast('Failed to download projects report');
+    } finally {
+      setDownloadingProjects(false);
+    }
+  }, []);
+
+  const downloadButtons = (
+    <div style={{ display: 'flex', gap: '8px' }}>
+      <Button
+        type="primary"
+        icon={<DownloadOutlined />}
+        onClick={handleDownloadExcel}
+        loading={downloading}
+      >
+        Download Summary
+      </Button>
+      <Button
+        type="default"
+        icon={<DownloadOutlined />}
+        onClick={handleDownloadProjectsExcel}
+        loading={downloadingProjects}
+      >
+        Download Projects
+      </Button>
+    </div>
   );
 
   return (
@@ -452,7 +476,7 @@ const Dashboard = () => {
       <ReportHeader 
         title={LABELS.SUMMARY_VIEW} 
         className="dashboard-header"
-        extra={downloadButton}
+        extra={downloadButtons}
       />
 
       <div className="dashboard-content">

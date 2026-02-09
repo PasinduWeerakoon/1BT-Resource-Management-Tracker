@@ -782,3 +782,147 @@ def generate_summary_report(event, context):
         return error(f"Failed to generate summary report: {str(e)}")
     finally:
         close_connection()
+
+
+def generate_projects_report(event, context):
+    """
+    Generate projects report in Excel format
+    GET /documents/excel/projects
+    """
+    try:
+        # Query all projects with related data
+        sql = """
+            SELECT 
+                p.project_name,
+                p.id as project_id,
+                pt.name as project_type,
+                c.client_name,
+                p.project_start_date,
+                p.project_end_date,
+                p.status,
+                CONCAT(am.name, ' (', am.epf_no, ')') as account_manager,
+                p.account_type,
+                p.account_reg_sales_owner,
+                p.team_size,
+                p.budget,
+                bs.name as billing_status,
+                p.description,
+                p.project_code,
+                p.is_bench_project,
+                p.is_default,
+                p.created_at,
+                p.updated_at
+            FROM projects p
+            LEFT JOIN clients c ON p.client_id = c.id
+            LEFT JOIN employees am ON p.account_manager_id = am.id
+            LEFT JOIN project_types pt ON p.project_type_id = pt.id
+            LEFT JOIN billing_statuses bs ON p.billing_status_id = bs.id
+            WHERE p.deleted_at IS NULL
+            ORDER BY p.status ASC, p.project_name ASC
+        """
+        
+        data = query(sql)
+        
+        # Create workbook
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Projects"
+        
+        # Title
+        ws.merge_cells('A1:S1')
+        title_cell = ws.cell(row=1, column=1, value="Project Details Report")
+        title_cell.font = Font(bold=True, size=16, color='FF0000')
+        title_cell.alignment = Alignment(horizontal='center')
+        
+        # Date and count
+        ws.cell(row=2, column=1, value=f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        ws.cell(row=2, column=15, value=f"Total Projects: {len(data)}")
+        
+        # Headers
+        headers = [
+            'Project Name',
+            'Project ID',
+            'Project Type',
+            'Client Name',
+            'Project Start Date',
+            'Project End Date',
+            'Status',
+            'Account Manager',
+            'Account Type',
+            'Account Reg Sales Owner',
+            'Team Size',
+            'Budget',
+            'Billing Status',
+            'Description',
+            'Project Code',
+            'Is Bench Project',
+            'Is Default',
+            'Created At',
+            'Updated At'
+        ]
+        
+        for col, header in enumerate(headers, 1):
+            cell = ws.cell(row=4, column=col, value=header)
+            apply_header_style(cell)
+        
+        # Data
+        for row_idx, row in enumerate(data, 5):
+            cells = [
+                row.get('project_name', ''),
+                row.get('project_id', ''),
+                row.get('project_type', ''),
+                row.get('client_name', ''),
+                str(row.get('project_start_date', ''))[:10] if row.get('project_start_date') else '',
+                str(row.get('project_end_date', ''))[:10] if row.get('project_end_date') else '',
+                row.get('status', ''),
+                row.get('account_manager', ''),
+                row.get('account_type', ''),
+                row.get('account_reg_sales_owner', ''),
+                row.get('team_size', 0),
+                float(row.get('budget', 0) or 0),
+                row.get('billing_status', ''),
+                row.get('description', ''),
+                row.get('project_code', ''),
+                'Yes' if row.get('is_bench_project') else 'No',
+                'Yes' if row.get('is_default') else 'No',
+                str(row.get('created_at', ''))[:19] if row.get('created_at') else '',
+                str(row.get('updated_at', ''))[:19] if row.get('updated_at') else ''
+            ]
+            
+            for col_idx, value in enumerate(cells, 1):
+                cell = ws.cell(row=row_idx, column=col_idx, value=value)
+                apply_cell_style(cell)
+                
+                # Format budget as currency
+                if col_idx == 12 and value:
+                    cell.number_format = '$#,##0.00'
+                
+                # Highlight status
+                if col_idx == 7:
+                    if value == 'Active':
+                        cell.font = Font(color='008000', bold=True)
+                    elif value == 'Inactive':
+                        cell.font = Font(color='FF0000')
+                    elif value == 'Completed':
+                        cell.font = Font(color='0000FF')
+        
+        auto_column_width(ws)
+        
+        # Save to bytes
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+        
+        filename = f"projects_report_{datetime.now().strftime('%Y%m%d')}.xlsx"
+        
+        return file_response(
+            output.getvalue(),
+            filename,
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to generate projects report: {str(e)}", exc_info=True)
+        return error(f"Failed to generate projects report: {str(e)}")
+    finally:
+        close_connection()

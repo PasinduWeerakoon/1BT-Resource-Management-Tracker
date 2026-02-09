@@ -115,6 +115,15 @@ functions:
           method: GET
           authorizer: ${self:custom.authorizer}
 
+  generateProjectsExcel:
+    handler: src/handlers/documents.generate_projects_excel
+    description: Generate projects report Excel
+    events:
+      - httpApi:
+          path: /api/v1/documents/excel/projects
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
   getDocument:
     handler: src/handlers/documents.get_document
     description: Get a generated document

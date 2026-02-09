@@ -97,6 +97,22 @@ export const documentsService = {
     
     return blob;
   },
+
+  /**
+   * Download projects report as Excel
+   * @returns {Promise<Blob>} Excel file blob
+   */
+  downloadProjectsExcel: async () => {
+    const response = await fileDownloadClient.get(ENDPOINTS.DOCUMENTS.EXCEL_PROJECTS, {
+      responseType: 'blob',
+    });
+    
+    const blob = response.data;
+    const today = new Date().toISOString().split('T')[0];
+    downloadFileFromBlob(blob, response, `projects_report_${today}.xlsx`);
+    
+    return blob;
+  },
 };
 
 export default documentsService;

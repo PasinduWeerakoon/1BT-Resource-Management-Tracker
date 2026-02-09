@@ -8,7 +8,8 @@ from .excel_handler import (
     generate_allocation_report, 
     generate_bench_report, 
     generate_summary_report,
-    generate_non_billing_report
+    generate_non_billing_report,
+    generate_projects_report
 )
 from .pdf_handler import generate_report as generate_pdf_report
 
@@ -21,6 +22,11 @@ def generate_summary_excel(event, context):
 def generate_non_billing_excel(event, context):
     """Generate non-billing (critical shadows) report Excel"""
     return generate_non_billing_report(event, context)
+
+
+def generate_projects_excel(event, context):
+    """Generate projects report Excel"""
+    return generate_projects_report(event, context)
 
 # Excel handlers
 def generate_excel(event, context):
