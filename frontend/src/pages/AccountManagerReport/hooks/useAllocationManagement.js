@@ -53,8 +53,8 @@ const useAllocationManagement = ({
       start_date: record.allocatedDate ? dayjs(record.allocatedDate, 'DD MMM YYYY') : null,
       end_date: record.deallocatedDate ? dayjs(record.deallocatedDate, 'DD MMM YYYY') : null,
       is_active: record.status === 'Active',
-      billing_status_id: undefined,
-      notes: '',
+      billing_status_id: record.billing_status_id,
+      notes: record.notes || '',
     });
     setIsAllocationModalVisible(true);
   }, [allocationForm, resourcesList, projectsForFilter]);
