@@ -6,6 +6,8 @@ Generates Excel reports for allocations, bench, and custom reports
 import json
 import logging
 import io
+import os
+import re
 from datetime import datetime
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -16,6 +18,66 @@ from ..utils.response import success, error, file_response
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+
+# Path to configs file in shared layer
+CONFIGS_PATH = '/opt/nodejs/configs/index.js'
+
+def _load_configs_from_file():
+    """Load TRACKS and TIERS from the shared layer configs file"""
+    tracks = {}
+    tiers = {}
+    
+    try:
+        if os.path.exists(CONFIGS_PATH):
+            with open(CONFIGS_PATH, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # Parse TRACKS array
+            tracks_match = re.search(r'export const TRACKS = \[(.*?)\];', content, re.DOTALL)
+            if tracks_match:
+                tracks_content = tracks_match.group(1)
+                # Extract id and label from each track object
+                for track_match in re.finditer(r'\{[^}]*id:\s*(\d+)[^}]*label:\s*[\'\"]([^\'\"]+)[\'\"][^}]*\}', tracks_content):
+                    track_id = int(track_match.group(1))
+                    track_label = track_match.group(2)
+                    tracks[track_id] = track_label
+            
+            # Parse TIERS array
+            tiers_match = re.search(r'export const TIERS = \[(.*?)\];', content, re.DOTALL)
+            if tiers_match:
+                tiers_content = tiers_match.group(1)
+                # Extract id and label from each tier object
+                for tier_match in re.finditer(r'\{[^}]*id:\s*(\d+)[^}]*label:\s*[\'\"]([^\'\"]+)[\'\"][^}]*\}', tiers_content):
+                    tier_id = int(tier_match.group(1))
+                    tier_label = tier_match.group(2)
+                    tiers[tier_id] = tier_label
+        else:
+            logger.warning(f"Configs file not found at {CONFIGS_PATH}, using fallback values")
+            # Fallback values if file not found
+            tracks = {1: 'QA', 2: 'Dev', 3: 'UI', 4: 'BA', 5: 'PM', 6: 'Support', 8: 'UX', 9: 'Execs', 10: 'Delivery', 11: 'Functional Consultant - MS Dynamics 365'}
+            tiers = {1: 'Tier - 1', 2: 'Tier - 2', 3: 'Tier - 3', 4: 'Tier - 4', 5: 'Intern', 6: 'None', 7: 'Synergy'}
+    except Exception as e:
+        logger.error(f"Failed to load configs from file: {str(e)}, using fallback values")
+        # Fallback values on error
+        tracks = {1: 'QA', 2: 'Dev', 3: 'UI', 4: 'BA', 5: 'PM', 6: 'Support', 8: 'UX', 9: 'Execs', 10: 'Delivery', 11: 'Functional Consultant - MS Dynamics 365'}
+        tiers = {1: 'Tier - 1', 2: 'Tier - 2', 3: 'Tier - 3', 4: 'Tier - 4', 5: 'Intern', 6: 'None', 7: 'Synergy'}
+    
+    return tracks, tiers
+
+# Load configs once at module level
+TRACKS, TIERS = _load_configs_from_file()
+
+def get_track_name(track_id):
+    """Get track name from track_id"""
+    if track_id is None:
+        return 'Unassigned'
+    return TRACKS.get(track_id, f'T{track_id}')
+
+def get_tier_name(tier_id):
+    """Get tier name from tier_id"""
+    if tier_id is None:
+        return 'Unassigned'
+    return TIERS.get(tier_id, f'Tier {tier_id}')
 
 # Styling constants
 HEADER_FILL = PatternFill(start_color='1F4E79', end_color='1F4E79', fill_type='solid')
@@ -462,18 +524,16 @@ def generate_summary_report(event, context):
         bench_analysis = query(bench_analysis_query)
         
         # Calculate Track Wise Summary from bench_analysis results
-        # Since tracks are configurations (not a DB table), we group by track_id
-        # Track names would need to be resolved from configs, but for now we'll use track_id
+        # Group by track_id and resolve track names from configs
         track_summary_dict = {}
         for row in bench_analysis:
             track_id = row.get('track_id')
-            # Use track_id as key since tracks are configs, not DB table
-            track_key = f"Track {track_id}" if track_id else 'Unassigned'
+            track_name = get_track_name(track_id)
             bench_allocation = float(row.get('bench_allocation', 0) or 0)
             
-            if track_key not in track_summary_dict:
-                track_summary_dict[track_key] = 0
-            track_summary_dict[track_key] += bench_allocation
+            if track_name not in track_summary_dict:
+                track_summary_dict[track_name] = 0
+            track_summary_dict[track_name] += bench_allocation
         
         # Convert to list format and divide by 100 to get count
         track_summary = []
@@ -576,7 +636,7 @@ def generate_summary_report(event, context):
         
         for row_data in bench_analysis:
             tier_id = row_data.get('tier_id')
-            tier_display = f"Tier {tier_id}" if tier_id else 'Unassigned'
+            tier_display = get_tier_name(tier_id)
             cells = [
                 row_data.get('name', ''),
                 tier_display,
