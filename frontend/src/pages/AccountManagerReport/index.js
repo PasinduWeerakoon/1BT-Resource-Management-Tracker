@@ -8,6 +8,7 @@ import ProjectModal from './components/ProjectModal';
 import TeamMembersModal from './components/TeamMembersModal';
 import UserAllocationsModal from './components/UserAllocationsModal';
 import AllocationFormModal from './components/AllocationFormModal';
+import DeleteAllocationModal from './components/DeleteAllocationModal';
 import ResourceAllocationsModal from './components/ResourceAllocationsModal';
 import useAccountManagerData from './hooks/useAccountManagerData';
 import useProjectManagement from './hooks/useProjectManagement';
@@ -222,6 +223,15 @@ const AccountManagerReport = () => {
         resourcesList={data.resourcesList}
         projectsForFilter={data.projectsForFilter}
         resourceBillingStatuses={data.resourceBillingStatuses}
+      />
+
+      <DeleteAllocationModal
+        visible={allocationMgmt.isDeleteAllocationModalVisible}
+        onCancel={allocationMgmt.handleDeleteAllocationModalCancel}
+        onSubmit={allocationMgmt.handleDeleteAllocationSubmit}
+        form={allocationMgmt.deleteAllocationForm}
+        isSubmitting={allocationMgmt.isDeletingAllocation}
+        allocationRecord={allocationMgmt.allocationToDelete}
       />
 
       <ResourceAllocationsModal

@@ -184,7 +184,7 @@ export const getAllocationColumns = ({ onView, onEdit, onDelete }) => [
             size="small"
           />
         </Tooltip>
-        <Tooltip title="Delete">
+        <Tooltip title={record.project === 'Bench' ? 'Cannot delete Bench allocations' : 'Delete'}>
           <Button
             type="text"
             icon={<DeleteOutlined />}
@@ -192,6 +192,7 @@ export const getAllocationColumns = ({ onView, onEdit, onDelete }) => [
             className="action-icon-btn"
             danger
             size="small"
+            disabled={record.project === 'Bench'}
           />
         </Tooltip>
       </Space>
