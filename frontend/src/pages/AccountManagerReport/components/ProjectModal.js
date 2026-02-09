@@ -170,18 +170,6 @@ const ProjectModal = ({
             <Form.Item
               label="Client Name"
               name="clientName"
-              rules={[
-                ({ getFieldValue }) => ({
-                  validator(_, value) {
-                    const accountTypeId = getFieldValue('accountType');
-                    const selectedAccountType = accountTypesList.find(t => t.id === accountTypeId);
-                    if (selectedAccountType?.name === 'External' && !value) {
-                      return Promise.reject(new Error('Client is required for External projects'));
-                    }
-                    return Promise.resolve();
-                  },
-                }),
-              ]}
             >
               <Select
                 placeholder="Select client"

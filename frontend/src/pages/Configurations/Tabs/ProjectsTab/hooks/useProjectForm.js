@@ -54,17 +54,8 @@ export const useProjectForm = ({
         return;
       }
 
-      let client_id = null;
-      const accountTypeId = values.account_type;
-      const accountType = accountTypesForModal?.find(at => at.id === accountTypeId);
-      if (accountType?.name === 'External') {
-        if (values.client_id) {
-          client_id = values.client_id;
-        } else {
-          showErrorToast('Client is required for External projects');
-          return;
-        }
-      }
+      // client_id is optional for all project types
+      const client_id = values.client_id || null;
 
       if (isEditMode) {
         // For edit mode, send all updatable fields with IDs

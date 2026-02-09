@@ -1177,23 +1177,14 @@ const AccountManagerReport = () => {
                 return;
             }
 
-            // Handle client_id - required only for External projects
-            let client_id = null;
-            // Find the account type to check if it's External
-            const selectedAccountType = accountTypesList.find(t => t.id === values.account_type);
-            if (selectedAccountType?.name === 'External') {
-                if (values.client_id) {
-                    client_id = values.client_id;
-
-                    // Verify client exists in the list
-                    const selectedClient = clientsList.find(client => client.id === client_id);
-                    if (!selectedClient) {
-                        showErrorToast('Selected client not found');
-                        setIsSubmittingProject(false);
-                        return;
-                    }
-                } else {
-                    showErrorToast('Client is required for External projects');
+            // client_id is optional for all project types
+            let client_id = values.client_id || null;
+            
+            // Verify client exists in the list if provided
+            if (client_id) {
+                const selectedClient = clientsList.find(client => client.id === client_id);
+                if (!selectedClient) {
+                    showErrorToast('Selected client not found');
                     setIsSubmittingProject(false);
                     return;
                 }
@@ -1203,7 +1194,7 @@ const AccountManagerReport = () => {
             const projectPayload = {
                 project_name: values.project_name,
                 project_code: values.project_code || '', // Optional
-                client_id: client_id, // Required only for External projects
+                client_id: client_id, // Optional for all project types
                 project_type_id: values.project_type, // ID from Redux (projectTypesList)
                 account_type_id: values.account_type, // ID from form
                 account_manager_id: values.account_manager, // ID from form
@@ -1219,7 +1210,7 @@ const AccountManagerReport = () => {
 
             // Clean up payload: remove empty optional fields, but keep required fields
             // Required: project_name, account_manager
-            // client_id is required only for External projects (already validated above)
+            // client_id is optional for all project types
             const cleanedPayload = { ...projectPayload };
 
             // Remove empty optional string fields

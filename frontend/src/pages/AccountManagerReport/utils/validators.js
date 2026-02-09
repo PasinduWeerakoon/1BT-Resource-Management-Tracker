@@ -71,17 +71,12 @@ export const validateProjectForm = (values, accountTypesList, clientsList) => {
     errors.push('Account manager is required');
   }
 
-  // Validate client for External projects
-  const selectedAccountType = accountTypesList.find(t => t.id === values.accountType);
-  if (selectedAccountType?.name === 'External') {
-    if (!values.clientName) {
-      errors.push('Client is required for External projects');
-    } else {
-      // Verify client exists
-      const selectedClient = clientsList.find(client => client.id === values.clientName);
-      if (!selectedClient) {
-        errors.push('Selected client not found');
-      }
+  // Validate client if provided (optional for all project types)
+  if (values.clientName) {
+    // Verify client exists
+    const selectedClient = clientsList.find(client => client.id === values.clientName);
+    if (!selectedClient) {
+      errors.push('Selected client not found');
     }
   }
 
