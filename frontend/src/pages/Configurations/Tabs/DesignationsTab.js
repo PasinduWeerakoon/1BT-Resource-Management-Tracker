@@ -23,22 +23,27 @@ const DesignationsTab = () => {
 
     // Transform data for table display
     const designations = useMemo(() => {
-        return designationsData.map((item, index) => ({
-            key: item.id || `designation-${index}`,
-            id: item.id,
-            name: item.label || item.name, // Use label from API response as name
-            level: item.level,
-            tier_id: item.tierId || item.tier_id,
-            tier: item.level ? `Tier ${String(item.level).padStart(2, '0')}` : null,
-            is_active: item.isActive !== undefined ? item.isActive : (item.is_active !== undefined ? item.is_active : true),
-            description: item.description || '',
-            category: item.category || '',
-            isDefault: item.isDefault !== undefined ? item.isDefault : (item.is_default !== undefined ? item.is_default : false),
-            is_default: item.isDefault !== undefined ? item.isDefault : (item.is_default !== undefined ? item.is_default : false),
-            isInternRole: item.isInternRole || false,
-            displayOrder: item.displayOrder || 0,
-        }));
-    }, [designationsData]);
+        return designationsData.map((item, index) => {
+            // Find the tier from tiersData using tier_id
+            const tier = tiersData.find(t => t.id === (item.level || item.tierId));
+            
+            return {
+                key: item.id || `designation-${index}`,
+                id: item.id,
+                name: item.label || item.name, // Use label from API response as name
+                level: item.level,
+                tier_id: item.tierId || item.tier_id,
+                tier: tier?.label || tier?.name || null, // Display tier label from tiers config
+                is_active: item.isActive !== undefined ? item.isActive : (item.is_active !== undefined ? item.is_active : true),
+                description: item.description || '',
+                category: item.category || '',
+                isDefault: item.isDefault !== undefined ? item.isDefault : (item.is_default !== undefined ? item.is_default : false),
+                is_default: item.isDefault !== undefined ? item.isDefault : (item.is_default !== undefined ? item.is_default : false),
+                isInternRole: item.isInternRole || false,
+                displayOrder: item.displayOrder || 0,
+            };
+        });
+    }, [designationsData, tiersData]);
 
     useEffect(() => {
         // Fetch data if not already loaded
@@ -90,7 +95,7 @@ const DesignationsTab = () => {
     const handleEditDesignation = (record) => {
         form.setFieldsValue({
             name: record.name,
-            tier_id: record.tier_id,
+            tier_id: record.level,
             is_active: record.is_active !== undefined ? record.is_active : record.isActive,
         });
         handleEdit(record);
