@@ -66,6 +66,12 @@ const TiersTab = () => {
       showErrorToast('Default tiers cannot be edited');
       return;
     }
+    form.setFieldsValue({
+      name: record.name,
+      level: record.level,
+      description: record.description,
+      is_active: record.is_active !== undefined ? record.is_active : record.isActive,
+    });
     handleEdit(record);
   };
 

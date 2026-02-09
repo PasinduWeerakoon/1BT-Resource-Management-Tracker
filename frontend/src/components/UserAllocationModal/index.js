@@ -1,7 +1,9 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useMemo } from 'react';
+import { useSelector } from 'react-redux';
 import { Row, Col, Form, Input, InputNumber, Select, DatePicker, Button, Tag, Tooltip, Alert } from 'antd';
 import { PlusOutlined, DeleteOutlined, ClockCircleOutlined, CheckCircleOutlined, HistoryOutlined } from '@ant-design/icons';
 import CustomModal from '@components/Modal';
+import { selectBillingStatuses } from '@redux/slices/configSlice';
 import logger from '@utils/logger';
 import dayjs from 'dayjs';
 
@@ -59,6 +61,16 @@ const UserAllocationModal = ({
     onSubmit,
     projectOptions = [],
 }) => {
+    // Get billing statuses from Redux and filter for resource billing
+    const billingStatusesList = useSelector(selectBillingStatuses);
+    const resourceBillingStatuses = useMemo(() => {
+        const filtered = billingStatusesList.filter((status) => {
+            const billingType = status?.billingType || [];
+            return Array.isArray(billingType) && billingType.includes('resource');
+        });
+        return filtered.length > 0 ? filtered : billingStatusesList;
+    }, [billingStatusesList]);
+
     // Build initial form values from allocations list
     const getInitialValues = () => {
         if (allocationsList.length === 0) {
@@ -259,11 +271,11 @@ const UserAllocationModal = ({
                                                         placeholder="Select billing status"
                                                         onChange={(value) => onFieldChange(allocation.key, 'billingStatus', value)}
                                                     >
-                                                        <Option value="Billing">Billing</Option>
-                                                        <Option value="Non-Billing">Non-Billing</Option>
-                                                        <Option value="Bench">Bench</Option>
-                                                        <Option value="Training">Training</Option>
-                                                        <Option value="Presale">Presale</Option>
+                                                        {resourceBillingStatuses.map((status) => (
+                                                            <Option key={status.id} value={status.name}>
+                                                                {status.name}
+                                                            </Option>
+                                                        ))}
                                                     </Select>
                                                 </Form.Item>
                                             </Col>

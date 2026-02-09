@@ -66,6 +66,11 @@ const ProjectTypesTab = () => {
       showErrorToast('Default project types cannot be edited');
       return;
     }
+    form.setFieldsValue({
+      name: record.name,
+      description: record.description,
+      is_active: record.is_active !== undefined ? record.is_active : record.isActive,
+    });
     handleEdit(record);
   };
 
