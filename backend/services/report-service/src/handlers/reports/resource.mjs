@@ -44,6 +44,21 @@ export const getBenchReport = async (event) => {
     try {
         log.info('Getting bench report');
 
+        // Extract query parameters
+        const queryParams = event.queryStringParameters || {};
+        const track_id = queryParams.track_id ? parseInt(queryParams.track_id) : null;
+
+        // Build WHERE clause for track filter
+        let trackFilterClause = '';
+        const queryParamsArray = [];
+        let paramIndex = 1;
+
+        if (track_id) {
+            trackFilterClause = `AND r.track_id = $${paramIndex}`;
+            queryParamsArray.push(track_id);
+            paramIndex++;
+        }
+
         // Query resources with bench allocations
         // Bench = allocation.billing_status_id = 3 OR project.is_bench_project = true
         const query = `
@@ -88,6 +103,7 @@ export const getBenchReport = async (event) => {
                 r.email,
                 d.name as designation,
                 r.track_id,
+                r.tech_stack_id,
                 r.tier_id,
                 COALESCE(ba.bench_allocation_percentage, 0) as bench_allocation_percentage,
                 COALESCE(nba.non_bench_allocation, 0) as non_bench_allocation,
@@ -104,15 +120,75 @@ export const getBenchReport = async (event) => {
             LEFT JOIN designations d ON r.designation_id = d.id
             WHERE r.status = 'Active'
             AND r.deleted_at IS NULL
+            ${trackFilterClause}
             ORDER BY ba.bench_allocation_percentage DESC, r.name ASC
         `;
 
-        const result = await db.query(query);
+        // Chart queries - Calculate distributions using SQL for better performance
+        const trackChartQuery = `
+            WITH bench_allocations AS (
+                SELECT 
+                    a.employee_id,
+                    SUM(a.allocation_percentage) as bench_allocation_percentage
+                FROM allocations a
+                LEFT JOIN projects p ON a.project_id = p.id
+                WHERE a.is_active = true 
+                AND a.deleted_at IS NULL
+                AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
+                AND (a.billing_status_id = 3 OR p.is_bench_project = true)
+                GROUP BY a.employee_id
+            )
+            SELECT 
+                r.track_id,
+                COUNT(DISTINCT r.id) as count
+            FROM employees r
+            INNER JOIN bench_allocations ba ON r.id = ba.employee_id
+            WHERE r.status = 'Active'
+            AND r.deleted_at IS NULL
+            ${trackFilterClause}
+            AND r.track_id IS NOT NULL
+            GROUP BY r.track_id
+            ORDER BY count DESC
+        `;
+
+        const techStackChartQuery = `
+            WITH bench_allocations AS (
+                SELECT 
+                    a.employee_id,
+                    SUM(a.allocation_percentage) as bench_allocation_percentage
+                FROM allocations a
+                LEFT JOIN projects p ON a.project_id = p.id
+                WHERE a.is_active = true 
+                AND a.deleted_at IS NULL
+                AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
+                AND (a.billing_status_id = 3 OR p.is_bench_project = true)
+                GROUP BY a.employee_id
+            )
+            SELECT 
+                r.tech_stack_id,
+                COUNT(DISTINCT r.id) as count
+            FROM employees r
+            INNER JOIN bench_allocations ba ON r.id = ba.employee_id
+            WHERE r.status = 'Active'
+            AND r.deleted_at IS NULL
+            ${trackFilterClause}
+            AND r.tech_stack_id IS NOT NULL
+            GROUP BY r.tech_stack_id
+            ORDER BY count DESC
+        `;
+
+        // Execute all queries in parallel for better performance
+        const [result, trackChartResult, techStackChartResult] = await Promise.all([
+            db.query(query, queryParamsArray),
+            db.query(trackChartQuery, queryParamsArray),
+            db.query(techStackChartQuery, queryParamsArray)
+        ]);
 
         // Transform results with config resolution
         const data = result.rows.map(row => ({
             ...row,
             track: resolveConfigLabel(TRACKS, row.track_id),
+            techStack: resolveConfigLabel(TECH_STACKS, row.tech_stack_id),
             tier: resolveConfigLabel(TIERS, row.tier_id)
         }));
 
@@ -121,6 +197,26 @@ export const getBenchReport = async (event) => {
         // partialBench: Has bench allocation but also has other project allocations
         const fullBench = data.filter(r => parseInt(r.bench_allocation_percentage) === 100 || parseInt(r.non_bench_allocation) === 0);
         const partialBench = data.filter(r => parseInt(r.bench_allocation_percentage) < 100 && parseInt(r.non_bench_allocation) > 0);
+
+        // Format charts - resolve IDs to labels using configs
+        const charts = {
+            benchResourcesByTrack: trackChartResult.rows.map(row => {
+                const trackLabel = resolveConfigLabel(TRACKS, row.track_id) || 'Unassigned';
+                return {
+                    track: trackLabel,
+                    trackId: row.track_id,
+                    count: parseInt(row.count)
+                };
+            }),
+            benchResourcesByTechStack: techStackChartResult.rows.map(row => {
+                const techStackLabel = resolveConfigLabel(TECH_STACKS, row.tech_stack_id) || 'Unassigned';
+                return {
+                    techStack: techStackLabel,
+                    techStackId: row.tech_stack_id,
+                    count: parseInt(row.count)
+                };
+            })
+        };
 
         return success({
             data,
@@ -132,11 +228,12 @@ export const getBenchReport = async (event) => {
                     ? Math.round(data.reduce((sum, r) => sum + parseInt(r.bench_allocation_percentage), 0) / data.length)
                     : 0
             },
+            charts,
             generatedAt: new Date().toISOString()
         });
 
     } catch (err) {
-        log.error('Failed to get bench report', { error: err.message });
+        log.error('Failed to get bench report', { error: err.message, stack: err.stack });
         return error('Failed to get bench report', err);
     }
 };
