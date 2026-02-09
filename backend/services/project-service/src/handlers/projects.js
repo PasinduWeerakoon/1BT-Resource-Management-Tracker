@@ -244,12 +244,8 @@ export const create = async (event) => {
 
         log.info('Creating project', { name: validated.project_name, userId });
 
-        // For Internal projects, client_id is optional
-        // For External (Client) projects, client_id is required
+        // Determine account type - client_id is optional for all project types
         const accountType = validated.account_type || (validated.client_id ? 'External' : 'Internal');
-        if (accountType === 'External' && !validated.client_id) {
-            return validationError([{ field: 'client_id', message: 'client_id is required for External projects' }]);
-        }
 
         // Validate account_manager_id if provided
         if (validated.account_manager_id) {
