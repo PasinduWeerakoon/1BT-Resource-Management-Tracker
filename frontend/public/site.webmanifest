@@ -1,0 +1,14 @@
+{
+    "name": "1billiontech - Resource Management",
+    "short_name": "1BT RMS",
+    "icons": [
+       {
+          "src": "/android-chrome-192x192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+       }
+    ],
+    "theme_color": "#E50914",
+    "background_color": "#FFFFFF",
+    "display": "standalone"
+ }

@@ -119,7 +119,7 @@ const AllocationFormModal = ({
                 filterOption={(input, option) => (option?.children ?? '').toLowerCase().includes(input.toLowerCase())}
               >
                 {resourceBillingStatuses.map((s) => (
-                  <Option key={s.id} value={s.id}>{s.name}</Option>
+                  <Option key={s.id} value={s.id}>{s.label || s.name}</Option>
                 ))}
               </Select>
             </Form.Item>
