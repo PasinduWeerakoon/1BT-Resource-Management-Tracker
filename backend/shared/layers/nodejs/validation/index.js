@@ -332,7 +332,11 @@ export const allocationSchemas = {
     create: Joi.object({
         resource_id: Joi.number().integer().min(1).required(),
         project_id: Joi.number().integer().min(1).required(),
-        allocation_percentage: Joi.number().min(0).max(100).required(),
+        allocation_percentage: Joi.number().min(0).max(200).required()
+            .messages({
+                'number.max': 'Allocation percentage cannot exceed 200%',
+                'number.min': 'Allocation percentage must be at least 0%'
+            }),
         start_date: Joi.date().iso().required(),
         end_date: Joi.date().iso().optional(),
         billing_percentage: Joi.number().min(0).max(100).default(100),
@@ -344,7 +348,11 @@ export const allocationSchemas = {
     }),
 
     update: Joi.object({
-        allocation_percentage: Joi.number().min(0).max(100).optional(),
+        allocation_percentage: Joi.number().min(0).max(200).optional()
+            .messages({
+                'number.max': 'Allocation percentage cannot exceed 200%',
+                'number.min': 'Allocation percentage must be at least 0%'
+            }),
         start_date: Joi.date().iso().optional(),
         end_date: Joi.date().iso().optional(),
         billing_percentage: Joi.number().min(0).max(100).optional(),

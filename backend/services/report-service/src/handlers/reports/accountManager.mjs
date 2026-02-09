@@ -305,6 +305,7 @@ export const getAccountManagerReport = async (event) => {
                 SELECT DISTINCT
                     r.id,
                     r.name as employee_name,
+                    r.designation_id,
                     r.track_id,
                     r.tech_stack_id,
                     r.tier_id

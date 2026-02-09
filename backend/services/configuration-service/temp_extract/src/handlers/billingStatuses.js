@@ -307,23 +307,13 @@ export const remove = async (event) => {
         }
 
         // Check if billing status is being used by any projects
-        const projectUsage = await db.query(
-            'SELECT COUNT(*) as count FROM projects WHERE billing_status_id = $1 AND deleted_at IS NULL',
-            [id]
+        const usageCheck = await db.query(
+            'SELECT COUNT(*) as count FROM projects WHERE billing_status = $1 AND deleted_at IS NULL',
+            [existing.name]
         );
 
-        if (parseInt(projectUsage.rows[0].count) > 0) {
+        if (parseInt(usageCheck.rows[0].count) > 0) {
             return error('Cannot delete billing status that is in use by projects', null, 409);
-        }
-
-        // Check if billing status is being used by any allocations
-        const allocationUsage = await db.query(
-            'SELECT COUNT(*) as count FROM allocations WHERE billing_status_id = $1 AND is_active = true AND deleted_at IS NULL',
-            [id]
-        );
-
-        if (parseInt(allocationUsage.rows[0].count) > 0) {
-            return error('Cannot delete billing status that is in use by allocations', null, 409);
         }
 
         const query = 'DELETE FROM billing_statuses WHERE id = $1 RETURNING *';

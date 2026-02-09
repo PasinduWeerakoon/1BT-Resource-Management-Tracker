@@ -58,6 +58,7 @@ export const billingStatuses = pgTable('billing_statuses', {
     id: serial('id').primaryKey(),
     name: varchar('name', { length: 50 }).notNull().unique(),
     description: text('description'),
+    billingType: text('billing_type').array().notNull().default(sql`'{}'::text[]`),
     isActive: boolean('is_active').notNull().default(true),
     isDefault: boolean('is_default').notNull().default(false),
     displayOrder: smallint('display_order').default(0),
