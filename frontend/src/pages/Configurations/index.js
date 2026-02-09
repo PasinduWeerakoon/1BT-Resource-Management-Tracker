@@ -16,6 +16,7 @@ import DesignationsTab from './Tabs/DesignationsTab';
 import TracksTab from './Tabs/TracksTab';
 import TiersTab from './Tabs/TiersTab';
 import TagsTab from './Tabs/TagsTab';
+import TechStackTab from './Tabs/TechStackTab';
 
 // Project-related tabs
 import ProjectsTab from './Tabs/ProjectsTab';
@@ -46,6 +47,11 @@ const Configurations = () => {
       key: 'tracks',
       label: 'Tracks',
       children: <TracksTab />,
+    },
+    {
+      key: 'tech-stack',
+      label: 'Tech Stack',
+      children: <TechStackTab />,
     },
     {
       key: 'tags',
