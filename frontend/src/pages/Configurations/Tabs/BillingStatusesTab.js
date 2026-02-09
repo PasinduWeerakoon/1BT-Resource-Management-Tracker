@@ -4,7 +4,7 @@
 
 import React, { useEffect, useMemo } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
-import { Form, Input, Switch, Row, Col } from 'antd';
+import { Form, Input, Switch, Row, Col, Checkbox } from 'antd';
 import { useConfigCRUD } from '../hooks/useConfigCRUD';
 import ConfigTable from '../components/ConfigTable';
 import ConfigModal from '../components/ConfigModal';
@@ -62,7 +62,7 @@ const BillingStatusesTab = () => {
       name: values.name,
       description: values.description,
       is_active: values.is_active,
-      is_project_billing: values.is_project_billing,
+      billingType: values.billingType || [],
     }),
   });
 
@@ -76,7 +76,7 @@ const BillingStatusesTab = () => {
       name: record.name,
       description: record.description,
       is_active: record.is_active !== undefined ? record.is_active : record.isActive,
-      is_project_billing: record.is_project_billing !== undefined ? record.is_project_billing : record.isProjectBilling,
+      billingType: record.billingType || [],
     });
     handleEdit(record);
   };
@@ -179,12 +179,20 @@ const BillingStatusesTab = () => {
           </Col>
           <Col xs={24} sm={12}>
             <Form.Item
-              label="Is Project Billing"
-              name="is_project_billing"
-              valuePropName="checked"
-              initialValue={true}
+              label="Billing Types"
+              name="billingType"
+              initialValue={[]}
             >
-              <Switch checkedChildren="Yes" unCheckedChildren="No" />
+              <Checkbox.Group>
+                <Row>
+                  <Col span={24}>
+                    <Checkbox value="project">Project Billing</Checkbox>
+                  </Col>
+                  <Col span={24}>
+                    <Checkbox value="resource">Resource Billing</Checkbox>
+                  </Col>
+                </Row>
+              </Checkbox.Group>
             </Form.Item>
           </Col>
         </Row>

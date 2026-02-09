@@ -29,7 +29,7 @@ import ProjectForm from '@pages/Configurations/Tabs/ProjectsTab/components/Proje
 import { useReportFilters } from '@hooks/reports';
 import { useSelector } from 'react-redux';
 import { projectsService, clientsService, allocationsService, resourcesService, accountManagersService, reportsService } from '@api';
-import { selectProjectTypes, selectBillingStatuses, selectTiers, selectTracks, selectAccountTypes, selectProjectStatuses } from '@redux/slices/configSlice';
+import { selectProjectTypes, selectBillingStatuses, selectTiers, selectTracks, selectAccountTypes, selectProjectStatuses, selectTechStacks } from '@redux/slices/configSlice';
 import { showErrorToast, showSuccessToast, showWarningToast } from '@utils/toast.utils';
 import logger from '@utils/logger';
 import '@styles/pages/AccountManagerReport.scss';
@@ -192,6 +192,25 @@ const AccountManagerReport = () => {
     const tracksList = useSelector(selectTracks);
     const accountTypesList = useSelector(selectAccountTypes);
     const projectStatusesList = useSelector(selectProjectStatuses);
+    const techStacksList = useSelector(selectTechStacks);
+
+    // Filter billing statuses for projects (with "project" in billingType)
+    const projectBillingStatuses = useMemo(() => {
+        const filtered = billingStatusesList.filter((status) => {
+            const billingType = status?.billingType || [];
+            return Array.isArray(billingType) && billingType.includes('project');
+        });
+        return filtered.length > 0 ? filtered : billingStatusesList;
+    }, [billingStatusesList]);
+
+    // Filter billing statuses for resources (with "resource" in billingType)
+    const resourceBillingStatuses = useMemo(() => {
+        const filtered = billingStatusesList.filter((status) => {
+            const billingType = status?.billingType || [];
+            return Array.isArray(billingType) && billingType.includes('resource');
+        });
+        return filtered.length > 0 ? filtered : billingStatusesList;
+    }, [billingStatusesList]);
 
     // Initialize account type with External ID (id: 2)
     const defaultAccountTypeId = accountTypesList?.find(at => at.name === 'External')?.id || 2;
@@ -232,6 +251,7 @@ const AccountManagerReport = () => {
         projectStatus: 'All',
         clientName: 'All',
         billingStatus: 'All',
+        techStack: 'All',
     };
 
     // Use shared hooks
@@ -442,6 +462,11 @@ const AccountManagerReport = () => {
                 queryParams.billing_status_id = filters.billingStatus;
             }
 
+            // Tech Stack ID (filter value is already an ID)
+            if (filters.techStack && filters.techStack !== 'All') {
+                queryParams.tech_stack_id = filters.techStack;
+            }
+
             // Pagination (use allocation pagination if project is selected, otherwise project pagination)
             if (selectedProjectId) {
                 queryParams.page = allocationPagination.current;
@@ -554,6 +579,7 @@ const AccountManagerReport = () => {
         filters.allocationStatus,
         filters.clientName,
         filters.billingStatus,
+        filters.techStack,
         // Removed selectedProjectId - don't refetch report when project is selected
         // Allocations are fetched separately via fetchProjectAllocations when clicking a project row
         projectPagination.current,
@@ -1998,6 +2024,9 @@ const AccountManagerReport = () => {
             if (filters.billingStatus && filters.billingStatus !== 'All') {
                 params.billing_status_id = filters.billingStatus;
             }
+            if (filters.techStack && filters.techStack !== 'All') {
+                params.tech_stack_id = filters.techStack;
+            }
 
             const response = await allocationsService.getAll(params);
 
@@ -2288,6 +2317,9 @@ const AccountManagerReport = () => {
                     accountManagersList={accountManagersList}
                     projectsForFilter={projectsForFilter}
                     clientsList={clientsList}
+                    techStacksList={techStacksList}
+                    projectStatusesList={projectStatusesList}
+                    billingStatusesList={billingStatusesList}
                     loadingAccountManagers={loadingAccountManagers}
                     loadingProjectsForFilter={loadingProjectsForFilter}
                 />
@@ -2428,7 +2460,7 @@ const AccountManagerReport = () => {
                         }))}
                         accountManagersList={accountManagersList}
                         projectTypesForModal={projectTypesList}
-                        billingStatusesForModal={billingStatusesList}
+                        billingStatusesForModal={projectBillingStatuses}
                         accountTypesForModal={accountTypesList}
                         projectStatusesForModal={projectStatusesList}
                         loadingConfigForModal={false}
@@ -2761,11 +2793,11 @@ const AccountManagerReport = () => {
                                             value={allocation.billingStatus}
                                             onChange={(value) => handleUserAllocationFieldChange(allocation.key, 'billingStatus', value)}
                                         >
-                                            <Option value="Billing">Billing</Option>
-                                            <Option value="Non-Billing">Non-Billing</Option>
-                                            <Option value="Bench">Bench</Option>
-                                            <Option value="Training">Training</Option>
-                                            <Option value="Presale">Presale</Option>
+                                            {resourceBillingStatuses.map((status) => (
+                                                <Option key={status.id} value={status.name}>
+                                                    {status.name}
+                                                </Option>
+                                            ))}
                                         </Select>
                                     </Form.Item>
                                 </Col>
@@ -3007,7 +3039,7 @@ const AccountManagerReport = () => {
                                         (option?.children ?? '').toLowerCase().includes(input.toLowerCase())
                                     }
                                 >
-                                    {billingStatusesList.map((status) => (
+                                    {resourceBillingStatuses.map((status) => (
                                         <Option key={status.id} value={status.id}>
                                             {status.name}
                                         </Option>

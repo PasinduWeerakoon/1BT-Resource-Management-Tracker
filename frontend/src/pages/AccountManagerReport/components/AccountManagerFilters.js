@@ -5,8 +5,6 @@
 
 import React from 'react';
 import { Row, Col, Select } from 'antd';
-import { useSelector } from 'react-redux';
-import { selectProjectStatuses, selectBillingStatuses } from '@redux/slices/configSlice';
 import PropTypes from 'prop-types';
 
 const { Option } = Select;
@@ -19,6 +17,9 @@ const { Option } = Select;
  * @param {Array} props.accountManagersList - List of account managers
  * @param {Array} props.projectsForFilter - List of projects for filter
  * @param {Array} props.clientsList - List of clients
+ * @param {Array} props.techStacksList - List of tech stacks
+ * @param {Array} props.projectStatusesList - List of project statuses
+ * @param {Array} props.billingStatusesList - List of billing statuses
  * @param {boolean} props.loadingAccountManagers - Loading state for account managers
  * @param {boolean} props.loadingProjectsForFilter - Loading state for projects
  */
@@ -28,12 +29,12 @@ const AccountManagerFilters = ({
   accountManagersList = [],
   projectsForFilter = [],
   clientsList = [],
+  techStacksList = [],
+  projectStatusesList = [],
+  billingStatusesList = [],
   loadingAccountManagers = false,
   loadingProjectsForFilter = false,
 }) => {
-  // Get project statuses and billing statuses from Redux
-  const projectStatuses = useSelector(selectProjectStatuses);
-  const billingStatuses = useSelector(selectBillingStatuses);
   return (
     <Row gutter={[16, 16]} className="filters-row">
       <Col xs={24} sm={12} md={8} lg={6}>
@@ -92,7 +93,7 @@ const AccountManagerFilters = ({
             placeholder="Select Project Status"
           >
             <Option value="All">All</Option>
-            {projectStatuses.map((status) => (
+            {projectStatusesList.map((status) => (
               <Option key={status.id} value={status.id}>
                 {status.name}
               </Option>
@@ -132,9 +133,31 @@ const AccountManagerFilters = ({
             placeholder="Select Billing Status"
           >
             <Option value="All">All</Option>
-            {billingStatuses.map((status) => (
+            {billingStatusesList.map((status) => (
               <Option key={status.id} value={status.id}>
                 {status.name}
+              </Option>
+            ))}
+          </Select>
+        </div>
+      </Col>
+      <Col xs={24} sm={12} md={8} lg={6}>
+        <div className="filter-item">
+          <label>Tech Stack</label>
+          <Select
+            value={filters.techStack}
+            onChange={(value) => setFilters({ ...filters, techStack: value })}
+            style={{ width: '100%' }}
+            showSearch
+            filterOption={(input, option) =>
+              (option?.children ?? '').toLowerCase().includes(input.toLowerCase())
+            }
+            placeholder="Select Tech Stack"
+          >
+            <Option value="All">All</Option>
+            {techStacksList.map((techStack) => (
+              <Option key={techStack.id} value={techStack.id}>
+                {techStack.name || techStack.label}
               </Option>
             ))}
           </Select>
@@ -150,6 +173,9 @@ AccountManagerFilters.propTypes = {
   accountManagersList: PropTypes.array,
   projectsForFilter: PropTypes.array,
   clientsList: PropTypes.array,
+  techStacksList: PropTypes.array,
+  projectStatusesList: PropTypes.array,
+  billingStatusesList: PropTypes.array,
   loadingAccountManagers: PropTypes.bool,
   loadingProjectsForFilter: PropTypes.bool,
 };

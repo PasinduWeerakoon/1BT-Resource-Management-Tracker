@@ -3,7 +3,7 @@
  * Modal for creating/editing projects in Account Manager Report
  */
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Form, Row, Col, Input, Select, DatePicker, InputNumber } from 'antd';
 import CustomModal from '@components/Modal';
 import PropTypes from 'prop-types';
@@ -51,6 +51,15 @@ const ProjectModal = ({
   setAccountType,
   setBillingType,
 }) => {
+  // Filter billing statuses for project billing
+  const projectBillingStatuses = useMemo(() => {
+    const filtered = billingStatusesList.filter((status) => {
+      const billingType = status?.billingType || [];
+      return Array.isArray(billingType) && billingType.includes('project');
+    });
+    return filtered.length > 0 ? filtered : billingStatusesList;
+  }, [billingStatusesList]);
+
   return (
     <CustomModal
       title={isEditMode ? "Edit Project Details" : "Create New Project"}
@@ -244,7 +253,7 @@ const ProjectModal = ({
                 placeholder="Select billing type"
                 onChange={(value) => setBillingType(value)}
               >
-                {billingStatusesList.map((status) => (
+                {projectBillingStatuses.map((status) => (
                   <Option key={status.id} value={status.id}>
                     {status.name}
                   </Option>
