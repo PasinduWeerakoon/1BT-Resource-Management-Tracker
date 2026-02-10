@@ -207,6 +207,7 @@ const createInitialBenchAllocation = async (tx, resourceId, trackId, userId, log
                 projectId: benchProjectId,
                 allocationPercentage: 100,
                 billingPercentage: 0, // Bench is non-billing
+                billingStatusId: 3, // Bench billing status
                 allocatedDate: new Date().toISOString().split('T')[0], // YYYY-MM-DD format
                 isActive: true,
                 notes: 'Auto-created bench allocation for new resource',
