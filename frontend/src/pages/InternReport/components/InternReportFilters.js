@@ -116,8 +116,8 @@ const InternReportFilters = ({
           >
             <Option value="All">All</Option>
             {techStacks.map((techStack) => (
-              <Option key={techStack.id || techStack.name} value={techStack.id || techStack.name} label={techStack.name}>
-                {techStack.name}
+              <Option key={techStack.id} value={techStack.id} label={techStack.name || techStack.label}>
+                {techStack.name || techStack.label}
               </Option>
             ))}
           </Select>

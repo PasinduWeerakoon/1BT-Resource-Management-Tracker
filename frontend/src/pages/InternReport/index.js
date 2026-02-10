@@ -3,7 +3,7 @@ import { Row, Col, Card } from 'antd';
 import { useSelector } from 'react-redux';
 import CustomTable from '@components/Table';
 import { accountManagersService, projectsService } from '@api';
-import { selectTracks } from '@redux/slices/configSlice';
+import { selectTracks, selectTechStacks } from '@redux/slices/configSlice';
 import { useUserAllocationModal } from '@hooks/useUserAllocationModal';
 import UserAllocationModal from '@components/UserAllocationModal';
 import { useReportFilters } from '@hooks/reports';
@@ -33,16 +33,16 @@ const InternReport = () => {
 
   // Get configuration data from Redux (cached on login)
   const tracks = useSelector(selectTracks);
+  const techStacks = useSelector(selectTechStacks);
 
   // Filter options for dropdowns
   const [accountManagers, setAccountManagers] = useState([]);
   const [loadingAccountManagers, setLoadingAccountManagers] = useState(false);
   const [projects, setProjects] = useState([]);
   const [loadingProjects, setLoadingProjects] = useState(false);
-  const [techStacks, setTechStacks] = useState([]);
 
   // Report data - using custom hook
-  const { internData, totalInternCount, internPercentage, loadingReport } = useInternReportData(filters, setTechStacks);
+  const { internData, totalInternCount, internPercentage, loadingReport } = useInternReportData(filters);
 
   // Fetch filter options on mount
   useEffect(() => {
