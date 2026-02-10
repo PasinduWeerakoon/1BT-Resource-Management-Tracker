@@ -4,10 +4,7 @@ Generates Excel reports for allocations, bench, and custom reports
 """
 
 import json
-import logging
 import io
-import os
-import re
 from datetime import datetime
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -15,70 +12,17 @@ from openpyxl.utils import get_column_letter
 
 from ..utils.database import query, close_connection
 from ..utils.response import success, error, file_response
+from ..lib import (
+    get_logger,
+    get_track_name,
+    get_tier_name,
+    get_tech_stack_name,
+    get_project_status_name,
+    BILLABLE_RESOURCE_TRACK_IDS
+)
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-
-# Path to configs file in shared layer
-CONFIGS_PATH = '/opt/nodejs/configs/index.js'
-
-def _load_configs_from_file():
-    """Load TRACKS and TIERS from the shared layer configs file"""
-    tracks = {}
-    tiers = {}
-    
-    try:
-        if os.path.exists(CONFIGS_PATH):
-            with open(CONFIGS_PATH, 'r', encoding='utf-8') as f:
-                content = f.read()
-            
-            # Parse TRACKS array
-            tracks_match = re.search(r'export const TRACKS = \[(.*?)\];', content, re.DOTALL)
-            if tracks_match:
-                tracks_content = tracks_match.group(1)
-                # Extract id and label from each track object
-                for track_match in re.finditer(r'\{[^}]*id:\s*(\d+)[^}]*label:\s*[\'\"]([^\'\"]+)[\'\"][^}]*\}', tracks_content):
-                    track_id = int(track_match.group(1))
-                    track_label = track_match.group(2)
-                    tracks[track_id] = track_label
-            
-            # Parse TIERS array
-            tiers_match = re.search(r'export const TIERS = \[(.*?)\];', content, re.DOTALL)
-            if tiers_match:
-                tiers_content = tiers_match.group(1)
-                # Extract id and label from each tier object
-                for tier_match in re.finditer(r'\{[^}]*id:\s*(\d+)[^}]*label:\s*[\'\"]([^\'\"]+)[\'\"][^}]*\}', tiers_content):
-                    tier_id = int(tier_match.group(1))
-                    tier_label = tier_match.group(2)
-                    tiers[tier_id] = tier_label
-        else:
-            logger.warning(f"Configs file not found at {CONFIGS_PATH}, using fallback values")
-            # Fallback values if file not found
-            tracks = {1: 'QA', 2: 'Dev', 3: 'UI', 4: 'BA', 5: 'PM', 6: 'Support', 8: 'UX', 9: 'Execs', 10: 'Delivery', 11: 'Functional Consultant - MS Dynamics 365'}
-            tiers = {1: 'Tier - 1', 2: 'Tier - 2', 3: 'Tier - 3', 4: 'Tier - 4', 5: 'Intern', 6: 'None', 7: 'Synergy'}
-    except Exception as e:
-        logger.error(f"Failed to load configs from file: {str(e)}, using fallback values")
-        # Fallback values on error
-        tracks = {1: 'QA', 2: 'Dev', 3: 'UI', 4: 'BA', 5: 'PM', 6: 'Support', 8: 'UX', 9: 'Execs', 10: 'Delivery', 11: 'Functional Consultant - MS Dynamics 365'}
-        tiers = {1: 'Tier - 1', 2: 'Tier - 2', 3: 'Tier - 3', 4: 'Tier - 4', 5: 'Intern', 6: 'None', 7: 'Synergy'}
-    
-    return tracks, tiers
-
-# Load configs once at module level
-TRACKS, TIERS = _load_configs_from_file()
-logger.info(f"Loaded {len(TRACKS)} tracks and {len(TIERS)} tiers from configs")
-
-def get_track_name(track_id):
-    """Get track name from track_id"""
-    if track_id is None:
-        return 'Unassigned'
-    return TRACKS.get(track_id, f'T{track_id}')
-
-def get_tier_name(tier_id):
-    """Get tier name from tier_id"""
-    if tier_id is None:
-        return 'Unassigned'
-    return TIERS.get(tier_id, f'Tier {tier_id}')
+# Initialize logger
+logger = get_logger(__name__)
 
 # Styling constants
 HEADER_FILL = PatternFill(start_color='1F4E79', end_color='1F4E79', fill_type='solid')
@@ -503,59 +447,80 @@ def generate_summary_report(event, context):
     try:
         report_date = datetime.now().strftime('%Y-%m-%d')
         
-        # Get resource counts from dashboard_stats table (summary table)
-        summary_query = """
-            SELECT resource_counts
+        # Get all stats from dashboard_stats table
+        # Using the pre-calculated dashboard stats for consistency with dashboard UI
+        # Note: Each stats_type stores data in its specific column
+        stats_query = """
+            SELECT 
+                stats_type,
+                resource_counts,
+                percentages
             FROM dashboard_stats
-            WHERE stats_type = 'resource_counts'
-            ORDER BY stats_date DESC
-            LIMIT 1
+            WHERE stats_type IN ('resource_counts', 'percentages')
+            ORDER BY stats_date DESC, stats_type ASC
+            LIMIT 2
         """
         
-        summary_result = query(summary_query)
+        stats_result = query(stats_query)
         resource_counts = {}
+        percentages = {}
         
-        if summary_result and len(summary_result) > 0:
-            # resource_counts is stored as JSONB, psycopg2 with RealDictCursor returns it as dict
-            resource_counts_data = summary_result[0].get('resource_counts')
-            if resource_counts_data:
-                if isinstance(resource_counts_data, dict):
-                    resource_counts = resource_counts_data
-                elif isinstance(resource_counts_data, str):
-                    import json
-                    resource_counts = json.loads(resource_counts_data)
+        logger.info(f"=== DASHBOARD STATS QUERY ===")
+        logger.info(f"Query returned {len(stats_result) if stats_result else 0} rows")
         
-        # Extract values from summary table
-        billing_resource_count = float(resource_counts.get('billingResourceCount', 0) or 0)
+        if stats_result and len(stats_result) > 0:
+            # Log raw results for debugging
+            for idx, row in enumerate(stats_result):
+                logger.info(f"Row {idx}: stats_type={row.get('stats_type')}, has_resource_counts={row.get('resource_counts') is not None}, has_percentages={row.get('percentages') is not None}")
+            
+            # Process each row
+            for row in stats_result:
+                stats_type = row.get('stats_type')
+                
+                # Resource counts are in the 'resource_counts' row
+                if stats_type == 'resource_counts':
+                    counts_data = row.get('resource_counts')
+                    if counts_data:
+                        if isinstance(counts_data, dict):
+                            resource_counts = counts_data
+                        elif isinstance(counts_data, str):
+                            resource_counts = json.loads(counts_data)
+                        logger.info(f"✓ Loaded resource_counts with keys: {list(resource_counts.keys())}")
+                        logger.info(f"  Resource counts data: {resource_counts}")
+                    else:
+                        logger.warning(f"✗ stats_type='resource_counts' but resource_counts column is NULL")
+                
+                # Percentages are in the 'percentages' row
+                elif stats_type == 'percentages':
+                    perc_data = row.get('percentages')
+                    if perc_data:
+                        if isinstance(perc_data, dict):
+                            percentages = perc_data
+                        elif isinstance(perc_data, str):
+                            percentages = json.loads(perc_data)
+                        logger.info(f"✓ Loaded percentages with keys: {list(percentages.keys())}")
+                        logger.info(f"  Percentages data: {percentages}")
+                    else:
+                        logger.warning(f"✗ stats_type='percentages' but percentages column is NULL")
+        else:
+            logger.error("✗✗✗ NO DASHBOARD_STATS DATA FOUND! The calculateDailyStats job may not have run yet.")
+        
+        # Extract values from dashboard_stats (pre-calculated values)
+        logger.info(f"=== EXTRACTING VALUES ===")
         billable_resource_count = float(resource_counts.get('billableResourceCount', 0) or 0)
+        billing_resource_count = float(resource_counts.get('billingResourceCount', 0) or 0)
         bench_resource_count = float(resource_counts.get('benchResourceCount', 0) or 0)
         shadow_count = float(resource_counts.get('shadowCount', 0) or 0)
         intern_count = float(resource_counts.get('internsCount', 0) or 0)
         
-        # Calculate billing utilization percentage
-        billing_utilization_percent = 0
-        if billable_resource_count > 0:
-            billing_utilization_percent = round((billing_resource_count / billable_resource_count) * 100, 0)
+        logger.info(f"Extracted counts: billable={billable_resource_count}, billing={billing_resource_count}, bench={bench_resource_count}, shadow={shadow_count}, intern={intern_count}")
         
-        # Calculate Allocated Utilization % using custom formula:
-        # Sum of all allocation_percentage (excluding Bench) / 100 / billable_resource_count * 100
-        allocated_utilization_percent = 0
-        if billable_resource_count > 0:
-            allocation_util_query = """
-                SELECT COALESCE(SUM(a.allocation_percentage), 0) as sum_allocation_non_bench
-                FROM allocations a
-                LEFT JOIN projects p ON a.project_id = p.id
-                WHERE a.is_active = true 
-                  AND a.deleted_at IS NULL
-                  AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
-                  AND (p.project_name IS NULL OR p.project_name <> 'Bench')
-            """
-            
-            allocation_util_result = query(allocation_util_query)
-            if allocation_util_result and len(allocation_util_result) > 0:
-                sum_allocation_non_bench = float(allocation_util_result[0].get('sum_allocation_non_bench', 0) or 0)
-                # (Sum / 100) / billable_count * 100 = Sum / billable_count
-                allocated_utilization_percent = round((sum_allocation_non_bench / billable_resource_count), 0)
+        # Get utilization percentages from dashboard_stats
+        # These are pre-calculated daily by the scheduled job
+        billing_utilization_percent = float(percentages.get('billingUtilizationPercent', 0) or 0)
+        allocated_utilization_percent = float(percentages.get('allocatedUtilizationPercent', 0) or 0)
+        
+        logger.info(f"Extracted percentages: billing_util={billing_utilization_percent}%, allocated_util={allocated_utilization_percent}%")
         
         # Prepare billing stats row
         billing_row = {
@@ -572,6 +537,10 @@ def generate_summary_report(event, context):
             'bench_resources': bench_resource_count,
             'intern_count': intern_count
         }
+        
+        logger.info(f"=== EXCEL DATA TO BE WRITTEN ===")
+        logger.info(f"Billing row: {billing_row}")
+        logger.info(f"Allocation row: {allocation_row}")
         
         # Query Bench Analysis (Name, Tier, Focused Area, Allocation, Track)
         # Note: tier_id and track_id are stored on employees as INTEGER config IDs (not DB table references)
@@ -603,7 +572,12 @@ def generate_summary_report(event, context):
             ORDER BY ba.bench_allocation_percentage DESC, e.name ASC
         """
         
+        logger.info(f"=== BENCH ANALYSIS QUERY ===")
         bench_analysis = query(bench_analysis_query)
+        logger.info(f"Bench analysis returned {len(bench_analysis) if bench_analysis else 0} rows")
+        
+        if bench_analysis and len(bench_analysis) > 0:
+            logger.info(f"Sample bench row: {bench_analysis[0]}")
         
         # Calculate Track Wise Summary from bench_analysis results
         # Group by track_id and resolve track names from configs
