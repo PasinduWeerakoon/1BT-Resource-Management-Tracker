@@ -10,9 +10,9 @@ import logger from '@utils/logger';
 
 /**
  * Custom hook for Tier Breakdown Report
- * Handles data fetching, tier distribution, and tech stack extraction
+ * Handles data fetching and tier distribution
  */
-export const useTierBreakdownData = (filters, setTechStacks) => {
+export const useTierBreakdownData = (filters) => {
   const [tierData, setTierData] = useState([]);
   const [employeeData, setEmployeeData] = useState([]);
   const [totalEmployees, setTotalEmployees] = useState(0);
@@ -29,22 +29,22 @@ export const useTierBreakdownData = (filters, setTechStacks) => {
         fetchReportInProgressRef.current = true;
         setLoadingReport(true);
 
-        // Build query params from filters
+        // Build query params from filters - send IDs to backend
         const params = {};
         if (filters.tier && filters.tier !== 'All') {
-          params.tier = filters.tier;
+          params.tier_id = filters.tier;
         }
         if (filters.projectName && filters.projectName !== 'All') {
-          params.project_name = filters.projectName;
+          params.project_id = filters.projectName;
         }
         if (filters.accountManager && filters.accountManager !== 'All') {
-          params.account_manager = filters.accountManager;
+          params.account_manager_id = filters.accountManager;
         }
         if (filters.track && filters.track !== 'All') {
-          params.track = filters.track;
+          params.track_id = filters.track;
         }
         if (filters.techStack && filters.techStack !== 'All') {
-          params.tech_stack = filters.techStack;
+          params.tech_stack_id = filters.techStack;
         }
 
         const response = await reportsService.getTierBreakdown(params);
@@ -68,25 +68,6 @@ export const useTierBreakdownData = (filters, setTechStacks) => {
           // Update employee details for table
           if (reportData.employeeDetails && Array.isArray(reportData.employeeDetails)) {
             setEmployeeData(reportData.employeeDetails);
-
-            // Extract unique tech stacks from employee details for filter dropdown
-            const hasNoFilters = filters.projectName === 'All' &&
-              filters.tier === 'All' &&
-              filters.accountManager === 'All' &&
-              filters.track === 'All' &&
-              filters.techStack === 'All';
-
-            if (hasNoFilters && reportData.employeeDetails.length > 0) {
-              const uniqueTechStacks = [...new Set(
-                reportData.employeeDetails
-                  .map((employee) => employee.techStack || employee.tech_stack)
-                  .filter((techStack) => techStack && techStack.trim() !== '')
-              )].sort();
-
-              if (uniqueTechStacks.length > 0) {
-                setTechStacks(uniqueTechStacks.map((techStack) => ({ name: techStack })));
-              }
-            }
           }
 
           // Update total employees
@@ -104,7 +85,7 @@ export const useTierBreakdownData = (filters, setTechStacks) => {
     };
 
     fetchTierBreakdownReport();
-  }, [filters.tier, filters.projectName, filters.accountManager, filters.track, filters.techStack, setTechStacks]);
+  }, [filters.tier, filters.projectName, filters.accountManager, filters.track, filters.techStack]);
 
   return {
     tierData,

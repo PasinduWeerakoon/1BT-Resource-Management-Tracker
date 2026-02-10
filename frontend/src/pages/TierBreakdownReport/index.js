@@ -5,7 +5,7 @@ import { useSelector } from 'react-redux';
 import { commonOptions, colors } from '@utils/chartConfig';
 import CustomTable from '@components/Table';
 import { accountManagersService, projectsService } from '@api';
-import { selectTiers, selectTracks } from '@redux/slices/configSlice';
+import { selectTiers, selectTracks, selectTechStacks } from '@redux/slices/configSlice';
 import { useReportFilters } from '@hooks/reports';
 import { FilterSection, ReportHeader, SummaryCards } from '@components/ReportLayout';
 import TierBreakdownFilters from './components/TierBreakdownFilters';
@@ -35,16 +35,16 @@ const TierBreakdownReport = () => {
   // Get configuration data from Redux (cached on login)
   const tracks = useSelector(selectTracks);
   const tiers = useSelector(selectTiers);
+  const techStacks = useSelector(selectTechStacks);
 
   // Filter options for dropdowns
   const [accountManagers, setAccountManagers] = useState([]);
   const [loadingAccountManagers, setLoadingAccountManagers] = useState(false);
   const [projects, setProjects] = useState([]);
   const [loadingProjects, setLoadingProjects] = useState(false);
-  const [techStacks, setTechStacks] = useState([]);
 
   // Report data - using custom hook
-  const { tierData, employeeData, totalEmployees, loadingReport } = useTierBreakdownData(filters, setTechStacks);
+  const { tierData, employeeData, totalEmployees, loadingReport } = useTierBreakdownData(filters);
 
   // Fetch filter options on mount
   useEffect(() => {
