@@ -27,9 +27,9 @@ const resolveConfigLabel = (configArray, id) => {
 };
 
 /**
- * Get non-billing resources report
- * Non-billing resources are those with allocations that have billing_status_id = 2 (Non-Billing)
- * Uses the allocation's billing_status_id, not the project's billing_status_id
+ * Get non-billing resources report (Critical Shadows)
+ * Critical Shadows are resources whose total billing percentage is less than 100%
+ * Shows all allocations for these resources
  */
 export const getNonBillingReport = async (event) => {
     const log = logger.child({ handler: 'reports.getNonBillingReport' });
@@ -60,6 +60,8 @@ export const getNonBillingReport = async (event) => {
         }
 
         // Non-billing resources are those with allocations where billing_status_id = 2 (Non-Billing)
+        // Critical Shadows: Resources whose total_resource_billing < 100%
+        // Using pre-calculated field from employees table for better performance
         const query = `
             SELECT 
                 r.id,
@@ -70,6 +72,7 @@ export const getNonBillingReport = async (event) => {
                 r.track_id,
                 r.tier_id,
                 r.tech_stack_id,
+                r.total_resource_billing,
                 p.project_name,
                 a.allocation_percentage,
                 a.billing_percentage,
@@ -77,32 +80,31 @@ export const getNonBillingReport = async (event) => {
                 a.deallocated_date,
                 bs.name as billing_status,
                 a.billing_status_id
-            FROM allocations a
-            JOIN employees r ON a.employee_id = r.id
+            FROM employees r
+            JOIN allocations a ON a.employee_id = r.id
             JOIN projects p ON a.project_id = p.id
             LEFT JOIN designations d ON r.designation_id = d.id
             LEFT JOIN billing_statuses bs ON a.billing_status_id = bs.id
-            WHERE a.is_active = true
+            WHERE r.total_resource_billing < 100
+            AND r.status = 'Active'
+            AND a.is_active = true
             AND a.deleted_at IS NULL
             AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
-            AND a.billing_status_id = 2
             AND r.deleted_at IS NULL
             ${filterClause}
             ORDER BY r.name ASC
+            ${trackFilterClause}
+            ORDER BY r.total_resource_billing ASC, r.name ASC
         `;
 
-        // Chart queries - Calculate distributions using SQL for better performance
+        // Chart queries - Count distinct resources with total_resource_billing < 100%
         const trackChartQuery = `
             SELECT 
                 r.track_id,
                 COUNT(DISTINCT r.id) as count
-            FROM allocations a
-            JOIN employees r ON a.employee_id = r.id
-            JOIN projects p ON a.project_id = p.id
-            WHERE a.is_active = true
-            AND a.deleted_at IS NULL
-            AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
-            AND a.billing_status_id = 2
+            FROM employees r
+            WHERE r.total_resource_billing < 100
+            AND r.status = 'Active'
             AND r.deleted_at IS NULL
             ${filterClause}
             AND r.track_id IS NOT NULL
@@ -114,13 +116,9 @@ export const getNonBillingReport = async (event) => {
             SELECT 
                 r.tech_stack_id,
                 COUNT(DISTINCT r.id) as count
-            FROM allocations a
-            JOIN employees r ON a.employee_id = r.id
-            JOIN projects p ON a.project_id = p.id
-            WHERE a.is_active = true
-            AND a.deleted_at IS NULL
-            AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
-            AND a.billing_status_id = 2
+            FROM employees r
+            WHERE r.total_resource_billing < 100
+            AND r.status = 'Active'
             AND r.deleted_at IS NULL
             ${filterClause}
             AND r.tech_stack_id IS NOT NULL

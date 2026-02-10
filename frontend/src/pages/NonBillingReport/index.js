@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
-import { Row, Col, Card, Select } from 'antd';
+import { Row, Col, Card, Select, Button } from 'antd';
+import { DownloadOutlined } from '@ant-design/icons';
 import { useSelector } from 'react-redux';
 import CustomTable from '@components/Table';
-import { reportsService } from '@api';
+import { reportsService, documentsService } from '@api';
 import { selectTracks, selectTechStacks } from '@redux/slices/configSlice';
 import { useReportFilters, useReportData } from '@hooks/reports';
 import { FilterSection, ReportHeader, SummaryCards } from '@components/ReportLayout';
+import { showSuccessToast, showErrorToast } from '@utils/toast.utils';
 import NonBillingCharts from './components/NonBillingCharts';
 import '@styles/pages/NonBillingReport.scss';
 
@@ -16,7 +18,7 @@ const NonBillingReport = () => {
     track_id: undefined,
     tech_stack_id: undefined,
   };
-  
+
   // Use shared hooks
   const {
     filters,
@@ -41,7 +43,7 @@ const NonBillingReport = () => {
   const transformReportData = (item, index) => {
     const allocationPercentage = parseFloat(item.allocation_percentage || 0);
     const billingPercentage = parseFloat(item.billing_percentage || 0);
-    
+
     return {
       key: item.id || `non-billing-${index}`,
       id: item.id,
@@ -72,7 +74,7 @@ const NonBillingReport = () => {
         queryParams.tech_stack_id = filters.tech_stack_id;
       }
       const response = await reportsService.getNonBilling(queryParams);
-      
+
       // Extract chart data from API response
       // Backend returns: { success: true, data: { data: [...], charts: {...}, total: number } }
       // reportsService.getNonBilling returns: response.data || response
@@ -89,7 +91,7 @@ const NonBillingReport = () => {
           nonBillingResourcesByTechStack: [],
         });
       }
-      
+
       return response;
     },
     transformReportData,
@@ -165,7 +167,7 @@ const NonBillingReport = () => {
       width: 150,
       sorter: (a, b) => a.billingPercentage - b.billingPercentage,
       render: (text, record) => (
-        <span style={{ 
+        <span style={{
           color: record.billingPercentage === 0 ? '#ff4d4f' : '#999',
           fontWeight: record.billingPercentage === 0 ? 'bold' : 'normal'
         }}>
@@ -197,9 +199,43 @@ const NonBillingReport = () => {
     { value: reportData.length, label: 'TOTAL NON-BILLING RESOURCES' },
   ];
 
+  // Excel download handler
+  const [isDownloading, setIsDownloading] = useState(false);
+
+  const handleDownloadExcel = async () => {
+    setIsDownloading(true);
+    try {
+      // Pass current filters to the download
+      const params = {};
+      if (filters.track_id) {
+        params.track_id = filters.track_id;
+      }
+
+      await documentsService.downloadNonBillingExcel(params);
+      showSuccessToast('Excel report downloaded successfully');
+    } catch (error) {
+      console.error('Failed to download Excel:', error);
+      showErrorToast('Failed to download Excel report');
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
   return (
     <div className="non-billing-report-page">
-      <ReportHeader title="NON-BILLING REPORT" />
+      <ReportHeader
+        title="NON-BILLING REPORT"
+        extra={
+          <Button
+            type="primary"
+            icon={<DownloadOutlined />}
+            onClick={handleDownloadExcel}
+            loading={isDownloading}
+          >
+            Download Excel
+          </Button>
+        }
+      />
 
       <FilterSection
         expanded={filtersExpanded}
