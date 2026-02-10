@@ -12,6 +12,7 @@ import logger from '/opt/nodejs/logger/index.js';
 import { success, error } from '/opt/nodejs/utils/response.js';
 import { getBenchProjectId, detectAndFillGaps } from '../../services/benchService.js';
 import { BENCH_ELIGIBLE_TRACK_IDS } from '/opt/nodejs/configs/index.js';
+import { updateResourceTotals } from '../../services/resourceTotalsService.js';
 
 /**
  * Enhancement 3.4: Scheduled job to detect and fill gaps for all active resources
@@ -46,6 +47,8 @@ export const gapDetectionJob = async (event) => {
                 if (result.gapDetected) {
                     results.gapsDetected++;
                     results.gapsFilled++;
+                    // Update resource totals after filling gap
+                    await updateResourceTotals(resource.id, log);
                 }
             } catch (err) {
                 log.error('Failed to process resource in gap detection', {
@@ -122,6 +125,9 @@ export const billingStatusTransitionJob = async (event) => {
                     allocationId: allocation.id,
                     projectBillingStatus: allocation.project_billing_status
                 });
+
+                // Update resource totals (billing status change may affect total_billing)
+                await updateResourceTotals(allocation.employee_id, log);
 
             } catch (err) {
                 log.error('Failed to transition billing status', {
