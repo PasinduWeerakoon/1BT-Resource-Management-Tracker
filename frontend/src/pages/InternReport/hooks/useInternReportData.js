@@ -71,8 +71,8 @@ export const useInternReportData = (filters) => {
 
           // Update intern data for table
           // Data is at reportData.data (array of intern records)
-          const tableData = reportData.data && Array.isArray(reportData.data) 
-            ? reportData.data 
+          const tableData = reportData.data && Array.isArray(reportData.data)
+            ? reportData.data
             : [];
 
           setInternData(tableData);
