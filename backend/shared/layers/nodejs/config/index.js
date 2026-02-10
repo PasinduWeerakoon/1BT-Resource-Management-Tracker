@@ -21,8 +21,8 @@ const config = {
         secretArn: process.env.DB_SECRET_ARN,
         url: process.env.DATABASE_URL,
         ssl: (process.env.DB_HOST || process.env.DATABASE_HOST) ? { rejectUnauthorized: false } : false,
-        poolMin: parseInt(process.env.DB_POOL_MIN, 10) || 2,
-        poolMax: parseInt(process.env.DB_POOL_MAX, 10) || 10,
+        poolMin: parseInt(process.env.DB_POOL_MIN, 10) || 0,
+        poolMax: parseInt(process.env.DB_POOL_MAX, 10) || 2,
     },
 
     // AWS Cognito

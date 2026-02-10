@@ -82,19 +82,42 @@ export const EMPLOYEE_STATUSES = [
 
 // ============================================================================
 // BILLABLE TRACKS - Tracks that should have auto-bench allocation
-// These are the tracks for billable resources (Dev, QA, BA, PM, UI, UX, Delivery, Functional Consultants)
-// Non-billable: Support (6), Execs (9)
+// These tracks get auto-bench allocation when employee is created/seeded
+// Includes: Dev, QA, BA, PM, UI, UX, Delivery, Functional Consultants
+// Non-billable (no bench): Support (6), Execs (9)
 // ============================================================================
-export const BILLABLE_TRACK_IDS = [1, 2, 3, 4, 5, 8, 10, 11];
+export const BENCH_ELIGIBLE_TRACK_IDS = [1, 2, 3, 4, 5, 8, 10, 11];
 // Mapping: QA=1, Dev=2, UI=3, BA=4, PM=5, UX=8, Delivery=10, Functional Consultant=11
 
+// ============================================================================
+// BILLABLE RESOURCE TRACKS - Tracks counted as billable resources for stats
+// Used for dashboard billable resource count and bench percentage calculation
+// EXCLUDES Delivery (10) - they are on bench but not counted as billable
+// ============================================================================
+export const BILLABLE_RESOURCE_TRACK_IDS = [1, 2, 3, 4, 5, 8, 11];
+// Mapping: QA=1, Dev=2, UI=3, BA=4, PM=5, UX=8, Functional Consultant=11
+
+// Legacy alias for backward compatibility
+export const BILLABLE_TRACK_IDS = BENCH_ELIGIBLE_TRACK_IDS;
+
 /**
- * Check if a track ID is billable (should have auto-bench allocation)
+ * Check if a track ID is bench-eligible (should have auto-bench allocation)
  * @param {number} trackId - Track ID to check
- * @returns {boolean} - True if billable track
+ * @returns {boolean} - True if bench-eligible track
  */
-export const isBillableTrackId = (trackId) =>
-    BILLABLE_TRACK_IDS.includes(trackId);
+export const isBenchEligibleTrackId = (trackId) =>
+    BENCH_ELIGIBLE_TRACK_IDS.includes(trackId);
+
+/**
+ * Check if a track ID is billable (counted in billable resource stats)
+ * @param {number} trackId - Track ID to check
+ * @returns {boolean} - True if billable track (excludes Delivery)
+ */
+export const isBillableResourceTrackId = (trackId) =>
+    BILLABLE_RESOURCE_TRACK_IDS.includes(trackId);
+
+// Legacy alias for backward compatibility
+export const isBillableTrackId = isBenchEligibleTrackId;
 
 /**
  * Get billable track labels for display
