@@ -249,6 +249,9 @@ export const getDashboardResourceCounts = async (event) => {
                 -- Synergy Count: Headcount by Tier ID 7
                 COALESCE(SUM(CASE WHEN ae.tier_id = 7 THEN 1 ELSE 0 END), 0)::DECIMAL(10,1) as synergy_count,
                 
+                -- Shared Services Count (Headcount): Support Track (ID 6)
+                COALESCE(SUM(CASE WHEN ae.track_id = 6 THEN 1 ELSE 0 END), 0)::DECIMAL(10,1) as shared_services_count,
+                
                 COUNT(*)::INTEGER as total_active_employees
             FROM active_employees ae
             LEFT JOIN employee_allocations ea ON ae.id = ea.employee_id
@@ -265,7 +268,7 @@ export const getDashboardResourceCounts = async (event) => {
             trainingResourceCount: 0,
             internsCount: parseFloat(row.interns_count) || 0,
             synergyCount: parseFloat(row.synergy_count) || 0,
-            sharedServicesCount: 0
+            sharedServicesCount: parseFloat(row.shared_services_count) || 0
         };
 
         return success({
