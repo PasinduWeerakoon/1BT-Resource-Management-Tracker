@@ -101,15 +101,29 @@ export const getExceptionReport = async (event) => {
     try {
         log.info('Getting exception report');
 
+        // Extract query parameters for filtering
+        const queryParams = event.queryStringParameters || {};
+        const projectId = queryParams.project_id;
+
+        // Build project filter clause
+        let projectFilterClause = '';
+        const params = [];
+        
+        if (projectId) {
+            projectFilterClause = 'AND a.project_id = $1';
+            params.push(parseInt(projectId));
+        }
+
         const query = `
             WITH resource_allocations AS (
                 SELECT 
-                    employee_id,
-                    SUM(allocation_percentage) as total_allocation
-                FROM allocations
-                WHERE is_active = true 
-                AND (deallocated_date IS NULL OR deallocated_date >= CURRENT_DATE)
-                GROUP BY employee_id
+                    a.employee_id,
+                    SUM(a.allocation_percentage) as total_allocation
+                FROM allocations a
+                WHERE a.is_active = true 
+                AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
+                ${projectFilterClause}
+                GROUP BY a.employee_id
             )
             SELECT 
                 r.id,
@@ -120,6 +134,7 @@ export const getExceptionReport = async (event) => {
                 r.track_id,
                 r.tier_id,
                 r.tech_stack_id,
+                r.total_resource_billing,
                 COALESCE(ra.total_allocation, 0) as total_allocation,
                 CASE 
                     WHEN COALESCE(ra.total_allocation, 0) > 100 THEN 'Over-allocated'
@@ -136,7 +151,7 @@ export const getExceptionReport = async (event) => {
             ORDER BY ra.total_allocation DESC NULLS LAST
         `;
 
-        const result = await db.query(query);
+        const result = await db.query(query, params);
 
         // Transform results with config resolution
         const data = result.rows.map(row => ({

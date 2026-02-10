@@ -206,12 +206,18 @@ export const getAccountManagerReport = async (event) => {
             db.query(`
                 SELECT 
                     COUNT(DISTINCT CASE WHEN bs.name = 'Billing' THEN r.id END) as billable_resources,
-                    ROUND(AVG(a.allocation_percentage)::numeric, 1) as avg_allocation,
+                    ROUND(SUM(CASE 
+                        WHEN LOWER(p.project_name) = 'bench' THEN 0
+                        WHEN LOWER(bs.name) = 'training' THEN 0
+                        WHEN LOWER(pt.name) = 'training' THEN 0
+                        ELSE a.allocation_percentage 
+                    END) / 100.0, 1) as allocated_resource_count,
                     COUNT(DISTINCT CASE WHEN bs.name = 'Billing' THEN p.id END) as billable_count,
                     ROUND(AVG(CASE WHEN a.is_active = true THEN a.allocation_percentage ELSE NULL END)::numeric, 1) as avg_project_allocation,
                     ROUND(AVG(CASE WHEN bs.name = 'Billing' THEN a.billing_percentage ELSE NULL END)::numeric, 1) as avg_billing_percentage
                 FROM projects p
                 LEFT JOIN billing_statuses bs ON p.billing_status_id = bs.id
+                LEFT JOIN project_types pt ON p.project_type_id = pt.id
                 LEFT JOIN allocations a ON p.id = a.project_id AND a.is_active = true
                 LEFT JOIN employees r ON a.employee_id = r.id AND r.deleted_at IS NULL
                 ${projectWhereClause}
@@ -255,7 +261,6 @@ export const getAccountManagerReport = async (event) => {
                     r.email,
                     r.total_allocation,
                     r.total_resource_billing as total_billing,
-                    a.status as allocation_status,
                     a.updated_at as allocation_updated_at,
                     p.project_name as project,
                     p.id as project_id,
@@ -385,7 +390,7 @@ export const getAccountManagerReport = async (event) => {
         // Format summary
         const summary = {
             billableResources: parseInt(summaryResult.rows[0]?.billable_resources || 0),
-            allocatedCount: parseFloat(summaryResult.rows[0]?.avg_allocation || 0),
+            allocatedCount: parseFloat(summaryResult.rows[0]?.allocated_resource_count || 0),
             billableCount: parseInt(summaryResult.rows[0]?.billable_count || 0),
             averageProjectAllocation: parseFloat(summaryResult.rows[0]?.avg_project_allocation || 0),
             averageBillingPercentage: parseFloat(summaryResult.rows[0]?.avg_billing_percentage || 0)

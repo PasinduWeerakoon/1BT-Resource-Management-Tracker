@@ -27,9 +27,9 @@ const resolveConfigLabel = (configArray, id) => {
 };
 
 /**
- * Get non-billing resources report
- * Non-billing resources are those with allocations that have billing_status_id = 2 (Non-Billing)
- * Uses the allocation's billing_status_id, not the project's billing_status_id
+ * Get non-billing resources report (Critical Shadows)
+ * Critical Shadows are resources whose total billing percentage is less than 100%
+ * Shows all allocations for these resources
  */
 export const getNonBillingReport = async (event) => {
     const log = logger.child({ handler: 'reports.getNonBillingReport' });
@@ -37,7 +37,31 @@ export const getNonBillingReport = async (event) => {
     try {
         log.info('Getting non-billing report');
 
+        // Extract query parameters
+        const queryParams = event.queryStringParameters || {};
+        const track_id = queryParams.track_id ? parseInt(queryParams.track_id) : null;
+        const tech_stack_id = queryParams.tech_stack_id ? parseInt(queryParams.tech_stack_id) : null;
+
+        // Build WHERE clause for filters
+        let filterClause = '';
+        const queryParamsArray = [];
+        let paramIndex = 1;
+
+        if (track_id) {
+            filterClause += ` AND r.track_id = $${paramIndex}`;
+            queryParamsArray.push(track_id);
+            paramIndex++;
+        }
+
+        if (tech_stack_id) {
+            filterClause += ` AND r.tech_stack_id = $${paramIndex}`;
+            queryParamsArray.push(tech_stack_id);
+            paramIndex++;
+        }
+
         // Non-billing resources are those with allocations where billing_status_id = 2 (Non-Billing)
+        // Critical Shadows: Resources whose total_resource_billing < 100%
+        // Using pre-calculated field from employees table for better performance
         const query = `
             SELECT 
                 r.id,
@@ -48,6 +72,7 @@ export const getNonBillingReport = async (event) => {
                 r.track_id,
                 r.tier_id,
                 r.tech_stack_id,
+                r.total_resource_billing,
                 p.project_name,
                 a.allocation_percentage,
                 a.billing_percentage,
@@ -55,20 +80,58 @@ export const getNonBillingReport = async (event) => {
                 a.deallocated_date,
                 bs.name as billing_status,
                 a.billing_status_id
-            FROM allocations a
-            JOIN employees r ON a.employee_id = r.id
+            FROM employees r
+            JOIN allocations a ON a.employee_id = r.id
             JOIN projects p ON a.project_id = p.id
             LEFT JOIN designations d ON r.designation_id = d.id
             LEFT JOIN billing_statuses bs ON a.billing_status_id = bs.id
-            WHERE a.is_active = true
+            WHERE r.total_resource_billing < 100
+            AND r.status = 'Active'
+            AND a.is_active = true
             AND a.deleted_at IS NULL
             AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
-            AND a.billing_status_id = 2
             AND r.deleted_at IS NULL
+            ${filterClause}
             ORDER BY r.name ASC
+            ${trackFilterClause}
+            ORDER BY r.total_resource_billing ASC, r.name ASC
         `;
 
-        const result = await db.query(query);
+        // Chart queries - Count distinct resources with total_resource_billing < 100%
+        const trackChartQuery = `
+            SELECT 
+                r.track_id,
+                COUNT(DISTINCT r.id) as count
+            FROM employees r
+            WHERE r.total_resource_billing < 100
+            AND r.status = 'Active'
+            AND r.deleted_at IS NULL
+            ${filterClause}
+            AND r.track_id IS NOT NULL
+            GROUP BY r.track_id
+            ORDER BY count DESC
+        `;
+
+        const techStackChartQuery = `
+            SELECT 
+                r.tech_stack_id,
+                COUNT(DISTINCT r.id) as count
+            FROM employees r
+            WHERE r.total_resource_billing < 100
+            AND r.status = 'Active'
+            AND r.deleted_at IS NULL
+            ${filterClause}
+            AND r.tech_stack_id IS NOT NULL
+            GROUP BY r.tech_stack_id
+            ORDER BY count DESC
+        `;
+
+        // Execute all queries in parallel for better performance
+        const [result, trackChartResult, techStackChartResult] = await Promise.all([
+            db.query(query, queryParamsArray),
+            db.query(trackChartQuery, queryParamsArray),
+            db.query(techStackChartQuery, queryParamsArray)
+        ]);
 
         // Transform results with config resolution
         const data = result.rows.map(row => ({
@@ -78,14 +141,35 @@ export const getNonBillingReport = async (event) => {
             tech_stack: resolveConfigLabel(TECH_STACKS, row.tech_stack_id)
         }));
 
+        // Format charts - resolve IDs to labels using configs
+        const charts = {
+            nonBillingResourcesByTrack: trackChartResult.rows.map(row => {
+                const trackLabel = resolveConfigLabel(TRACKS, row.track_id) || 'Unassigned';
+                return {
+                    track: trackLabel,
+                    trackId: row.track_id,
+                    count: parseInt(row.count)
+                };
+            }),
+            nonBillingResourcesByTechStack: techStackChartResult.rows.map(row => {
+                const techStackLabel = resolveConfigLabel(TECH_STACKS, row.tech_stack_id) || 'Unassigned';
+                return {
+                    techStack: techStackLabel,
+                    techStackId: row.tech_stack_id,
+                    count: parseInt(row.count)
+                };
+            })
+        };
+
         return success({
             data,
             total: data.length,
+            charts,
             generatedAt: new Date().toISOString()
         });
 
     } catch (err) {
-        log.error('Failed to get non-billing report', { error: err.message });
+        log.error('Failed to get non-billing report', { error: err.message, stack: err.stack });
         return error('Failed to get non-billing report', err);
     }
 };

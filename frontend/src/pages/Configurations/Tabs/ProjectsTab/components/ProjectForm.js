@@ -109,18 +109,6 @@ const ProjectForm = ({
           <Form.Item
             label="Client Name"
             name="client_id"
-            rules={[
-              ({ getFieldValue }) => ({
-                validator(_, value) {
-                  const accountTypeId = getFieldValue('account_type');
-                  const accountType = accountTypesForModal.find(at => at.id === accountTypeId);
-                  if (accountType?.name === 'External' && !value) {
-                    return Promise.reject(new Error('Client is required for External projects'));
-                  }
-                  return Promise.resolve();
-                },
-              }),
-            ]}
           >
             <Form.Item shouldUpdate={(prevValues, currentValues) => prevValues.account_type !== currentValues.account_type} noStyle>
               {({ getFieldValue }) => {

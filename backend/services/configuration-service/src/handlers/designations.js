@@ -79,6 +79,7 @@ export const getById = async (event) => {
 /**
  * Create a new designation
  */
+
 export const create = async (event) => {
     const log = logger.child({ handler: 'designations.create' });
 
