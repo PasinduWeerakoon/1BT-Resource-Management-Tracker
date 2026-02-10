@@ -6,6 +6,8 @@ Generates Excel reports for allocations, bench, and custom reports
 import json
 import logging
 import io
+import os
+import re
 from datetime import datetime
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -16,6 +18,67 @@ from ..utils.response import success, error, file_response
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+
+# Path to configs file in shared layer
+CONFIGS_PATH = '/opt/nodejs/configs/index.js'
+
+def _load_configs_from_file():
+    """Load TRACKS and TIERS from the shared layer configs file"""
+    tracks = {}
+    tiers = {}
+    
+    try:
+        if os.path.exists(CONFIGS_PATH):
+            with open(CONFIGS_PATH, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # Parse TRACKS array
+            tracks_match = re.search(r'export const TRACKS = \[(.*?)\];', content, re.DOTALL)
+            if tracks_match:
+                tracks_content = tracks_match.group(1)
+                # Extract id and label from each track object
+                for track_match in re.finditer(r'\{[^}]*id:\s*(\d+)[^}]*label:\s*[\'\"]([^\'\"]+)[\'\"][^}]*\}', tracks_content):
+                    track_id = int(track_match.group(1))
+                    track_label = track_match.group(2)
+                    tracks[track_id] = track_label
+            
+            # Parse TIERS array
+            tiers_match = re.search(r'export const TIERS = \[(.*?)\];', content, re.DOTALL)
+            if tiers_match:
+                tiers_content = tiers_match.group(1)
+                # Extract id and label from each tier object
+                for tier_match in re.finditer(r'\{[^}]*id:\s*(\d+)[^}]*label:\s*[\'\"]([^\'\"]+)[\'\"][^}]*\}', tiers_content):
+                    tier_id = int(tier_match.group(1))
+                    tier_label = tier_match.group(2)
+                    tiers[tier_id] = tier_label
+        else:
+            logger.warning(f"Configs file not found at {CONFIGS_PATH}, using fallback values")
+            # Fallback values if file not found
+            tracks = {1: 'QA', 2: 'Dev', 3: 'UI', 4: 'BA', 5: 'PM', 6: 'Support', 8: 'UX', 9: 'Execs', 10: 'Delivery', 11: 'Functional Consultant - MS Dynamics 365'}
+            tiers = {1: 'Tier - 1', 2: 'Tier - 2', 3: 'Tier - 3', 4: 'Tier - 4', 5: 'Intern', 6: 'None', 7: 'Synergy'}
+    except Exception as e:
+        logger.error(f"Failed to load configs from file: {str(e)}, using fallback values")
+        # Fallback values on error
+        tracks = {1: 'QA', 2: 'Dev', 3: 'UI', 4: 'BA', 5: 'PM', 6: 'Support', 8: 'UX', 9: 'Execs', 10: 'Delivery', 11: 'Functional Consultant - MS Dynamics 365'}
+        tiers = {1: 'Tier - 1', 2: 'Tier - 2', 3: 'Tier - 3', 4: 'Tier - 4', 5: 'Intern', 6: 'None', 7: 'Synergy'}
+    
+    return tracks, tiers
+
+# Load configs once at module level
+TRACKS, TIERS = _load_configs_from_file()
+logger.info(f"Loaded {len(TRACKS)} tracks and {len(TIERS)} tiers from configs")
+
+def get_track_name(track_id):
+    """Get track name from track_id"""
+    if track_id is None:
+        return 'Unassigned'
+    return TRACKS.get(track_id, f'T{track_id}')
+
+def get_tier_name(tier_id):
+    """Get tier name from tier_id"""
+    if tier_id is None:
+        return 'Unassigned'
+    return TIERS.get(tier_id, f'Tier {tier_id}')
 
 # Styling constants
 HEADER_FILL = PatternFill(start_color='1F4E79', end_color='1F4E79', fill_type='solid')
@@ -316,5 +379,550 @@ def generate_bench_report(event, context):
     except Exception as e:
         logger.error(f"Failed to generate bench report: {str(e)}")
         return error(f"Failed to generate report: {str(e)}")
+    finally:
+        close_connection()
+
+
+def generate_non_billing_report(event, context):
+    """
+    Generate non-billing (Critical Shadows) report in Excel format
+    Critical Shadows are resources whose total billing percentage is less than 100%
+    GET /documents/excel/non-billing
+    """
+    try:
+        # Extract query parameters for filtering
+        query_params = event.get('queryStringParameters', {}) or {}
+        track_id = query_params.get('track_id')
+        
+        # Build WHERE clause for track filter
+        track_filter = ''
+        params = []
+        if track_id:
+            track_filter = 'AND e.track_id = %s'
+            params.append(int(track_id))
+        
+        # Query Critical Shadows: Resources whose total_resource_billing < 100%
+        # Using pre-calculated field from employees table for better performance
+        sql = f"""
+            SELECT 
+                e.name,
+                p.project_name,
+                a.allocation_percentage,
+                a.billing_percentage,
+                e.total_resource_billing,
+                e.track_id,
+                e.tier_id,
+                d.name as designation
+            FROM employees e
+            JOIN allocations a ON a.employee_id = e.id
+            JOIN projects p ON a.project_id = p.id
+            LEFT JOIN designations d ON e.designation_id = d.id
+            WHERE e.total_resource_billing < 100
+              AND e.status = 'Active'
+              AND a.is_active = true
+              AND a.deleted_at IS NULL
+              AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
+              AND e.deleted_at IS NULL
+              {track_filter}
+            ORDER BY e.total_resource_billing ASC, e.name ASC
+        """
+        
+        data = query(sql, params)
+        
+        # Create workbook
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Critical Shadows"
+        
+        # Title
+        ws.merge_cells('A1:E1')
+        title_cell = ws.cell(row=1, column=1, value="Critical Shadows (Resources with Total Billing < 100%)")
+        title_cell.font = Font(bold=True, size=14, color='FF0000')
+        title_cell.alignment = Alignment(horizontal='center')
+        
+        # Date and count
+        ws.cell(row=2, column=1, value=f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        ws.cell(row=2, column=4, value=f"Total Records: {len(data)}")
+        
+        # Headers
+        headers = ['Name', 'Project', 'Allocation %', 'Billing %', 'Total Billing %']
+        
+        for col, header in enumerate(headers, 1):
+            cell = ws.cell(row=4, column=col, value=header)
+            apply_header_style(cell)
+        
+        # Data
+        for row_idx, row in enumerate(data, 5):
+            allocation_pct = float(row.get('allocation_percentage', 0) or 0)
+            billing_pct = float(row.get('billing_percentage', 0) or 0)
+            total_billing_pct = float(row.get('total_resource_billing', 0) or 0)
+            
+            cells = [
+                row.get('name', ''),
+                row.get('project_name', ''),
+                f"{allocation_pct}%",
+                f"{billing_pct}%",
+                f"{total_billing_pct}%"
+            ]
+            
+            for col_idx, value in enumerate(cells, 1):
+                cell = ws.cell(row=row_idx, column=col_idx, value=value)
+                apply_cell_style(cell)
+                
+                # Highlight total billing percentage in red (since all are < 100%)
+                if col_idx == 5:
+                    cell.font = Font(color='FF0000', bold=True)
+        
+        auto_column_width(ws)
+        
+        # Save to bytes
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+        
+        filename = f"critical_shadows_report_{datetime.now().strftime('%Y%m%d')}.xlsx"
+        
+        return file_response(
+            output.getvalue(),
+            filename,
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to generate non-billing report: {str(e)}")
+        return error(f"Failed to generate report: {str(e)}")
+    finally:
+        close_connection()
+
+
+def generate_summary_report(event, context):
+    """
+    Generate summary report in Excel format matching the dashboard view
+    POST /documents/excel/summary
+    """
+    try:
+        report_date = datetime.now().strftime('%Y-%m-%d')
+        
+        # Get resource counts from dashboard_stats table (summary table)
+        summary_query = """
+            SELECT resource_counts
+            FROM dashboard_stats
+            WHERE stats_type = 'resource_counts'
+            ORDER BY stats_date DESC
+            LIMIT 1
+        """
+        
+        summary_result = query(summary_query)
+        resource_counts = {}
+        
+        if summary_result and len(summary_result) > 0:
+            # resource_counts is stored as JSONB, psycopg2 with RealDictCursor returns it as dict
+            resource_counts_data = summary_result[0].get('resource_counts')
+            if resource_counts_data:
+                if isinstance(resource_counts_data, dict):
+                    resource_counts = resource_counts_data
+                elif isinstance(resource_counts_data, str):
+                    import json
+                    resource_counts = json.loads(resource_counts_data)
+        
+        # Extract values from summary table
+        billing_resource_count = float(resource_counts.get('billingResourceCount', 0) or 0)
+        billable_resource_count = float(resource_counts.get('billableResourceCount', 0) or 0)
+        bench_resource_count = float(resource_counts.get('benchResourceCount', 0) or 0)
+        shadow_count = float(resource_counts.get('shadowCount', 0) or 0)
+        intern_count = float(resource_counts.get('internsCount', 0) or 0)
+        
+        # Calculate billing utilization percentage
+        billing_utilization_percent = 0
+        if billable_resource_count > 0:
+            billing_utilization_percent = round((billing_resource_count / billable_resource_count) * 100, 0)
+        
+        # Calculate Allocated Utilization % using custom formula:
+        # Sum of all allocation_percentage (excluding Bench) / 100 / billable_resource_count * 100
+        allocated_utilization_percent = 0
+        if billable_resource_count > 0:
+            allocation_util_query = """
+                SELECT COALESCE(SUM(a.allocation_percentage), 0) as sum_allocation_non_bench
+                FROM allocations a
+                LEFT JOIN projects p ON a.project_id = p.id
+                WHERE a.is_active = true 
+                  AND a.deleted_at IS NULL
+                  AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
+                  AND (p.project_name IS NULL OR p.project_name <> 'Bench')
+            """
+            
+            allocation_util_result = query(allocation_util_query)
+            if allocation_util_result and len(allocation_util_result) > 0:
+                sum_allocation_non_bench = float(allocation_util_result[0].get('sum_allocation_non_bench', 0) or 0)
+                # (Sum / 100) / billable_count * 100 = Sum / billable_count
+                allocated_utilization_percent = round((sum_allocation_non_bench / billable_resource_count), 0)
+        
+        # Prepare billing stats row
+        billing_row = {
+            'billable_resource_count': billable_resource_count,
+            'billing_resource_count': billing_resource_count,
+            'billing_utilization_percent': billing_utilization_percent
+        }
+        
+        # Prepare allocation stats row
+        allocation_row = {
+            'billing_resource_count': billing_resource_count,
+            'critical_shadow_count': shadow_count,
+            'allocated_utilization_percent': allocated_utilization_percent,
+            'bench_resources': bench_resource_count,
+            'intern_count': intern_count
+        }
+        
+        # Query Bench Analysis (Name, Tier, Focused Area, Allocation, Track)
+        # Note: tier_id and track_id are stored on employees as INTEGER config IDs (not DB table references)
+        # Also includes track information for track-wise summary calculation
+        bench_analysis_query = """
+            WITH bench_allocations AS (
+                SELECT 
+                    a.employee_id,
+                    SUM(a.allocation_percentage) as bench_allocation_percentage,
+                    STRING_AGG(DISTINCT p.project_name, ', ') as focused_areas
+                FROM allocations a
+                LEFT JOIN projects p ON a.project_id = p.id
+                WHERE a.is_active = true 
+                  AND a.deleted_at IS NULL
+                  AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
+                  AND (a.billing_status_id = 3 OR p.is_bench_project = true)
+                GROUP BY a.employee_id
+            )
+            SELECT 
+                e.name,
+                e.tier_id,
+                e.track_id,
+                COALESCE(ba.focused_areas, 'Bench') as focused_area,
+                COALESCE(ba.bench_allocation_percentage, 0) as bench_allocation
+            FROM employees e
+            INNER JOIN bench_allocations ba ON e.id = ba.employee_id
+            WHERE e.status = 'Active'
+              AND e.deleted_at IS NULL
+            ORDER BY ba.bench_allocation_percentage DESC, e.name ASC
+        """
+        
+        bench_analysis = query(bench_analysis_query)
+        
+        # Calculate Track Wise Summary from bench_analysis results
+        # Group by track_id and resolve track names from configs
+        track_summary_dict = {}
+        for row in bench_analysis:
+            track_id = row.get('track_id')
+            track_name = get_track_name(track_id)
+            bench_allocation = float(row.get('bench_allocation', 0) or 0)
+            
+            if track_name not in track_summary_dict:
+                track_summary_dict[track_name] = 0
+            track_summary_dict[track_name] += bench_allocation
+        
+        # Convert to list format and divide by 100 to get count
+        track_summary = []
+        for track_name, total_bench_allocation in sorted(track_summary_dict.items()):
+            bench_count = round(total_bench_allocation / 100.0, 2)
+            track_summary.append({
+                'track_name': track_name,
+                'bench_count': bench_count
+            })
+        
+        # Create workbook
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Summary Report"
+        
+        current_row = 1
+        
+        # Title
+        ws.merge_cells(f'A{current_row}:D{current_row}')
+        title_cell = ws.cell(row=current_row, column=1, value="Resource Management Dashboard")
+        title_cell.font = Font(bold=True, size=16, color='FF0000')
+        title_cell.alignment = Alignment(horizontal='center')
+        current_row += 1
+        
+        # Date
+        date_cell = ws.cell(row=current_row, column=1, value=f"Date: {report_date}")
+        date_cell.font = Font(bold=True, size=12)
+        current_row += 2
+        
+        # Note about exclusions
+        note_cell = ws.cell(row=current_row, column=1, value="(Excluding Synergy, Interns, Shared Services)")
+        note_cell.font = Font(italic=True, size=10)
+        current_row += 2
+        
+        # Resource Billing Stats
+        ws.cell(row=current_row, column=1, value="Resource Billing Stats").font = Font(bold=True, size=12, color='FF0000')
+        current_row += 1
+        
+        billing_headers = ['Metric', 'Value']
+        for col, header in enumerate(billing_headers, 1):
+            cell = ws.cell(row=current_row, column=col, value=header)
+            apply_header_style(cell)
+        current_row += 1
+        
+        billing_data = [
+            ['Billable Resource Count', billing_row.get('billable_resource_count', 0)],
+            ['Billing Resource Count', billing_row.get('billing_resource_count', 0)],
+            ['Billing Utilization %', f"{billing_row.get('billing_utilization_percent', 0)}%"]
+        ]
+        
+        for row_data in billing_data:
+            for col_idx, value in enumerate(row_data, 1):
+                cell = ws.cell(row=current_row, column=col_idx, value=value)
+                apply_cell_style(cell)
+                # Highlight percentage in red if needed
+                if col_idx == 2 and isinstance(value, str) and '%' in value:
+                    cell.font = Font(color='FF0000', bold=True)
+            current_row += 1
+        
+        current_row += 1
+        
+        # Resource Allocation Stats
+        ws.cell(row=current_row, column=1, value="Resource Allocation Stats").font = Font(bold=True, size=12, color='FF0000')
+        current_row += 1
+        
+        allocation_headers = ['Metric', 'Value']
+        for col, header in enumerate(allocation_headers, 1):
+            cell = ws.cell(row=current_row, column=col, value=header)
+            apply_header_style(cell)
+        current_row += 1
+        
+        allocation_data = [
+            ['Billing Resource Count', allocation_row.get('billing_resource_count', 0)],
+            ['Critical Shadow Count', allocation_row.get('critical_shadow_count', 0)],
+            ['Allocated Utilization %', f"{allocation_row.get('allocated_utilization_percent', 0)}%"],
+            ['Bench Resources', allocation_row.get('bench_resources', 0)],
+            ['Intern Count', allocation_row.get('intern_count', 0)]
+        ]
+        
+        for row_data in allocation_data:
+            for col_idx, value in enumerate(row_data, 1):
+                cell = ws.cell(row=current_row, column=col_idx, value=value)
+                apply_cell_style(cell)
+                # Highlight percentage in red if needed
+                if col_idx == 2 and isinstance(value, str) and '%' in value:
+                    cell.font = Font(color='FF0000', bold=True)
+            current_row += 1
+        
+        current_row += 1
+        
+        # Bench Analysis
+        ws.cell(row=current_row, column=1, value="Bench Analysis").font = Font(bold=True, size=12, color='FF0000')
+        current_row += 1
+        
+        bench_headers = ['Name', 'Tier', 'Focused Area', 'Allocation']
+        for col, header in enumerate(bench_headers, 1):
+            cell = ws.cell(row=current_row, column=col, value=header)
+            apply_header_style(cell)
+        current_row += 1
+        
+        for row_data in bench_analysis:
+            tier_id = row_data.get('tier_id')
+            tier_display = get_tier_name(tier_id)
+            cells = [
+                row_data.get('name', ''),
+                tier_display,
+                row_data.get('focused_area', 'Bench'),
+                f"{row_data.get('bench_allocation', 0)}%"
+            ]
+            for col_idx, value in enumerate(cells, 1):
+                cell = ws.cell(row=current_row, column=col_idx, value=value)
+                apply_cell_style(cell)
+            current_row += 1
+        
+        current_row += 1
+        
+        # Track Wise Summary
+        ws.cell(row=current_row, column=1, value="Track Wise Summary").font = Font(bold=True, size=12, color='FF0000')
+        current_row += 1
+        
+        track_headers = ['Track', 'Bench Resource Count']
+        for col, header in enumerate(track_headers, 1):
+            cell = ws.cell(row=current_row, column=col, value=header)
+            apply_header_style(cell)
+        current_row += 1
+        
+        # Use all tracks from the query result
+        if track_summary:
+            for track_row in track_summary:
+                track_name = track_row.get('track_name', 'Unassigned')
+                bench_count = float(track_row.get('bench_count', 0) or 0)
+                track_data = [track_name, bench_count]
+                
+                for col_idx, value in enumerate(track_data, 1):
+                    cell = ws.cell(row=current_row, column=col_idx, value=value)
+                    apply_cell_style(cell)
+                current_row += 1
+        else:
+            # Fallback if no data
+            track_data = [['No data', 0]]
+            for row_data in track_data:
+                for col_idx, value in enumerate(row_data, 1):
+                    cell = ws.cell(row=current_row, column=col_idx, value=value)
+                    apply_cell_style(cell)
+                current_row += 1
+        
+        auto_column_width(ws)
+        
+        # Save to bytes
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+        
+        filename = f"summary_report_{datetime.now().strftime('%Y%m%d')}.xlsx"
+        
+        return file_response(
+            output.getvalue(),
+            filename,
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to generate summary report: {str(e)}", exc_info=True)
+        return error(f"Failed to generate summary report: {str(e)}")
+    finally:
+        close_connection()
+
+
+def generate_projects_report(event, context):
+    """
+    Generate projects report in Excel format
+    GET /documents/excel/projects
+    """
+    try:
+        # Query all projects with related data
+        sql = """
+            SELECT 
+                p.project_name,
+                p.id as project_id,
+                pt.name as project_type,
+                c.client_name,
+                p.project_start_date,
+                p.project_end_date,
+                p.status,
+                CONCAT(am.name, ' (', am.epf_no, ')') as account_manager,
+                p.account_type,
+                p.account_reg_sales_owner,
+                p.team_size,
+                p.budget,
+                bs.name as billing_status,
+                p.description,
+                p.project_code,
+                p.is_bench_project,
+                p.is_default,
+                p.created_at,
+                p.updated_at
+            FROM projects p
+            LEFT JOIN clients c ON p.client_id = c.id
+            LEFT JOIN employees am ON p.account_manager_id = am.id
+            LEFT JOIN project_types pt ON p.project_type_id = pt.id
+            LEFT JOIN billing_statuses bs ON p.billing_status_id = bs.id
+            WHERE p.deleted_at IS NULL
+            ORDER BY p.status ASC, p.project_name ASC
+        """
+        
+        data = query(sql)
+        
+        # Create workbook
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Projects"
+        
+        # Title
+        ws.merge_cells('A1:S1')
+        title_cell = ws.cell(row=1, column=1, value="Project Details Report")
+        title_cell.font = Font(bold=True, size=16, color='FF0000')
+        title_cell.alignment = Alignment(horizontal='center')
+        
+        # Date and count
+        ws.cell(row=2, column=1, value=f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        ws.cell(row=2, column=15, value=f"Total Projects: {len(data)}")
+        
+        # Headers
+        headers = [
+            'Project Name',
+            'Project ID',
+            'Project Type',
+            'Client Name',
+            'Project Start Date',
+            'Project End Date',
+            'Status',
+            'Account Manager',
+            'Account Type',
+            'Account Reg Sales Owner',
+            'Team Size',
+            'Budget',
+            'Billing Status',
+            'Description',
+            'Project Code',
+            'Is Bench Project',
+            'Is Default',
+            'Created At',
+            'Updated At'
+        ]
+        
+        for col, header in enumerate(headers, 1):
+            cell = ws.cell(row=4, column=col, value=header)
+            apply_header_style(cell)
+        
+        # Data
+        for row_idx, row in enumerate(data, 5):
+            cells = [
+                row.get('project_name', ''),
+                row.get('project_id', ''),
+                row.get('project_type', ''),
+                row.get('client_name', ''),
+                str(row.get('project_start_date', ''))[:10] if row.get('project_start_date') else '',
+                str(row.get('project_end_date', ''))[:10] if row.get('project_end_date') else '',
+                row.get('status', ''),
+                row.get('account_manager', ''),
+                row.get('account_type', ''),
+                row.get('account_reg_sales_owner', ''),
+                row.get('team_size', 0),
+                float(row.get('budget', 0) or 0),
+                row.get('billing_status', ''),
+                row.get('description', ''),
+                row.get('project_code', ''),
+                'Yes' if row.get('is_bench_project') else 'No',
+                'Yes' if row.get('is_default') else 'No',
+                str(row.get('created_at', ''))[:19] if row.get('created_at') else '',
+                str(row.get('updated_at', ''))[:19] if row.get('updated_at') else ''
+            ]
+            
+            for col_idx, value in enumerate(cells, 1):
+                cell = ws.cell(row=row_idx, column=col_idx, value=value)
+                apply_cell_style(cell)
+                
+                # Format budget as currency
+                if col_idx == 12 and value:
+                    cell.number_format = '$#,##0.00'
+                
+                # Highlight status
+                if col_idx == 7:
+                    if value == 'Active':
+                        cell.font = Font(color='008000', bold=True)
+                    elif value == 'Inactive':
+                        cell.font = Font(color='FF0000')
+                    elif value == 'Completed':
+                        cell.font = Font(color='0000FF')
+        
+        auto_column_width(ws)
+        
+        # Save to bytes
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+        
+        filename = f"projects_report_{datetime.now().strftime('%Y%m%d')}.xlsx"
+        
+        return file_response(
+            output.getvalue(),
+            filename,
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to generate projects report: {str(e)}", exc_info=True)
+        return error(f"Failed to generate projects report: {str(e)}")
     finally:
         close_connection()

@@ -86,6 +86,7 @@ export const transformAllocationData = (allocationsData) => {
       allocatedDate: allocation.allocated_date ? dayjs(allocation.allocated_date).format('DD MMM YYYY') : '',
       deallocatedDate: allocation.deallocated_date ? dayjs(allocation.deallocated_date).format('DD MMM YYYY') : '',
       billingStatus,
+      billing_status_id: allocation.billing_status_id,
       billingPercentage: billingPercentage ? `${billingPercentage.toFixed(2)}%` : '0.00%',
       projectAllocation: allocationPercentage ? `${allocationPercentage.toFixed(2)}%` : '0.00%',
       totalAllocation: `${totalAllocation.toFixed(2)}%`,

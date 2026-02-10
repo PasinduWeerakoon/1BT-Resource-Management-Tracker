@@ -1,21 +1,41 @@
-import React from 'react';
-import { Card } from 'antd';
+import React, { useState } from 'react';
+import { Row, Col, Card, Select, Button } from 'antd';
+import { DownloadOutlined } from '@ant-design/icons';
+import { useSelector } from 'react-redux';
 import CustomTable from '@components/Table';
-import { reportsService } from '@api';
+import { reportsService, documentsService } from '@api';
+import { selectTracks } from '@redux/slices/configSlice';
 import { useReportFilters, useReportData } from '@hooks/reports';
 import { FilterSection, ReportHeader, SummaryCards } from '@components/ReportLayout';
+import { showSuccessToast, showErrorToast } from '@utils/toast.utils';
+import NonBillingCharts from './components/NonBillingCharts';
 import '@styles/pages/NonBillingReport.scss';
 
+const { Option } = Select;
+
 const NonBillingReport = () => {
-  const defaultFilters = {};
+  const defaultFilters = {
+    track_id: undefined,
+  };
   
   // Use shared hooks
   const {
+    filters,
+    setFilters,
     activeFiltersCount,
     handleResetFilters,
     filtersExpanded,
     toggleFiltersExpanded,
   } = useReportFilters(defaultFilters);
+
+  // Get tracks from Redux (cached on login)
+  const tracksList = useSelector(selectTracks);
+
+  // Store chart data from API response
+  const [chartData, setChartData] = useState({
+    nonBillingResourcesByTrack: [],
+    nonBillingResourcesByTechStack: [],
+  });
 
   // Transform function for report data
   const transformReportData = (item, index) => {
@@ -35,16 +55,44 @@ const NonBillingReport = () => {
       allocationPercentageFormatted: `${allocationPercentage.toFixed(2)}%`,
       billingPercentage: billingPercentage,
       billingPercentageFormatted: `${billingPercentage.toFixed(2)}%`,
-      startDate: item.start_date ? new Date(item.start_date).toLocaleDateString() : 'N/A',
-      endDate: item.end_date ? new Date(item.end_date).toLocaleDateString() : 'Ongoing',
+      startDate: item.allocated_date ? new Date(item.allocated_date).toLocaleDateString() : 'N/A',
+      endDate: item.deallocated_date ? new Date(item.deallocated_date).toLocaleDateString() : 'Ongoing',
     };
   };
 
   // Fetch report data
   const { data: reportData, loading } = useReportData(
-    () => reportsService.getNonBilling(defaultFilters),
+    async () => {
+      const queryParams = {};
+      if (filters.track_id) {
+        queryParams.track_id = filters.track_id;
+      }
+      const response = await reportsService.getNonBilling(queryParams);
+      
+      // Extract chart data from API response
+      // Backend returns: { success: true, data: { data: [...], charts: {...}, total: number } }
+      // reportsService.getNonBilling returns: response.data || response
+      // So response structure is: { data: [...], charts: {...}, total: number }
+      if (response?.charts) {
+        setChartData({
+          nonBillingResourcesByTrack: response.charts.nonBillingResourcesByTrack || [],
+          nonBillingResourcesByTechStack: response.charts.nonBillingResourcesByTechStack || [],
+        });
+      } else {
+        // Reset charts if not available
+        setChartData({
+          nonBillingResourcesByTrack: [],
+          nonBillingResourcesByTechStack: [],
+        });
+      }
+      
+      return response;
+    },
     transformReportData,
-    { autoFetch: true }
+    {
+      autoFetch: true,
+      dependencies: [filters.track_id],
+    }
   );
 
   // Table columns
@@ -139,18 +187,79 @@ const NonBillingReport = () => {
     { value: reportData.length, label: 'TOTAL NON-BILLING RESOURCES' },
   ];
 
+  // Excel download handler
+  const [isDownloading, setIsDownloading] = useState(false);
+
+  const handleDownloadExcel = async () => {
+    setIsDownloading(true);
+    try {
+      // Pass current filters to the download
+      const params = {};
+      if (filters.track_id) {
+        params.track_id = filters.track_id;
+      }
+      
+      await documentsService.downloadNonBillingExcel(params);
+      showSuccessToast('Excel report downloaded successfully');
+    } catch (error) {
+      console.error('Failed to download Excel:', error);
+      showErrorToast('Failed to download Excel report');
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
   return (
     <div className="non-billing-report-page">
-      <ReportHeader title="NON-BILLING REPORT" />
+      <ReportHeader 
+        title="NON-BILLING REPORT"
+        extra={
+          <Button
+            type="primary"
+            icon={<DownloadOutlined />}
+            onClick={handleDownloadExcel}
+            loading={isDownloading}
+          >
+            Download Excel
+          </Button>
+        }
+      />
 
       <FilterSection
         expanded={filtersExpanded}
         onToggle={toggleFiltersExpanded}
         activeFiltersCount={activeFiltersCount}
         onReset={handleResetFilters}
-      />
+      >
+        <Row gutter={[16, 16]} className="filters-row">
+          <Col xs={24} sm={12} md={8} lg={6}>
+            <div className="filter-item">
+              <label>Track</label>
+              <Select
+                value={filters.track_id}
+                onChange={(value) => setFilters({ ...filters, track_id: value || undefined })}
+                style={{ width: '100%' }}
+                allowClear
+                placeholder="All Tracks"
+              >
+                {tracksList.map((track) => (
+                  <Option key={track.id} value={track.id}>
+                    {track.name}
+                  </Option>
+                ))}
+              </Select>
+            </div>
+          </Col>
+        </Row>
+      </FilterSection>
 
       <SummaryCards cards={summaryCards} />
+
+      {/* Charts Section */}
+      <NonBillingCharts
+        trackData={chartData.nonBillingResourcesByTrack}
+        techStackData={chartData.nonBillingResourcesByTechStack}
+      />
 
       {/* Table Section */}
       <Card className="table-card" title="Non-Billing Resources">

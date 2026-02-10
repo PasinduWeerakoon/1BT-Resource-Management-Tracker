@@ -20,6 +20,12 @@ const useAllocationManagement = ({
   const [selectedAllocation, setSelectedAllocation] = useState(null);
   const [allocationForm] = Form.useForm();
   const [isSubmittingAllocation, setIsSubmittingAllocation] = useState(false);
+  
+  // Delete allocation modal state
+  const [isDeleteAllocationModalVisible, setIsDeleteAllocationModalVisible] = useState(false);
+  const [allocationToDelete, setAllocationToDelete] = useState(null);
+  const [deleteAllocationForm] = Form.useForm();
+  const [isDeletingAllocation, setIsDeletingAllocation] = useState(false);
 
   // ─── Add allocation ───
   const handleAddAllocation = useCallback(() => {
@@ -53,51 +59,70 @@ const useAllocationManagement = ({
       start_date: record.allocatedDate ? dayjs(record.allocatedDate, 'DD MMM YYYY') : null,
       end_date: record.deallocatedDate ? dayjs(record.deallocatedDate, 'DD MMM YYYY') : null,
       is_active: record.status === 'Active',
-      billing_status_id: undefined,
-      notes: '',
+      billing_status_id: record.billing_status_id,
+      notes: record.notes || '',
     });
     setIsAllocationModalVisible(true);
   }, [allocationForm, resourcesList, projectsForFilter]);
 
   // ─── Delete allocation ───
   const handleDeleteAllocation = useCallback((record) => {
-    const modal = Modal.confirm({
-      title: 'Delete Allocation',
-      content: `Are you sure you want to delete the allocation for "${record.employeeName}"? This action cannot be undone.`,
-      okText: 'Delete',
-      okType: 'danger',
-      cancelText: 'Cancel',
-      onOk: async () => {
-        try {
-          modal.update({
-            okButtonProps: { loading: true, disabled: true },
-            cancelButtonProps: { disabled: true },
-          });
-
-          const response = await allocationsService.delete(record.id);
-
-          if (response && (response.success !== false || response.message)) {
-            showSuccessToast('Allocation deleted successfully');
-            onSuccess?.();
-            modal.destroy();
-          } else {
-            showErrorToast(response?.message || 'Failed to delete allocation');
-            modal.update({
-              okButtonProps: { loading: false, disabled: false },
-              cancelButtonProps: { disabled: false },
-            });
-          }
-        } catch (error) {
-          logger.error('Failed to delete allocation:', error);
-          showErrorToast(error?.response?.data?.message || error?.message || 'Failed to delete allocation');
-          modal.update({
-            okButtonProps: { loading: false, disabled: false },
-            cancelButtonProps: { disabled: false },
-          });
-        }
-      },
+    // Skip if project is Bench (should be disabled in UI, but double-check)
+    if (record.project === 'Bench') {
+      showErrorToast('Cannot delete Bench allocations');
+      return;
+    }
+    
+    // Set the allocation to delete and show modal
+    setAllocationToDelete(record);
+    deleteAllocationForm.resetFields();
+    deleteAllocationForm.setFieldsValue({
+      effective_date: dayjs(),
     });
-  }, [onSuccess]);
+    setIsDeleteAllocationModalVisible(true);
+  }, [deleteAllocationForm]);
+
+  // ─── Submit delete allocation (with effective date) ───
+  const handleDeleteAllocationSubmit = useCallback(async () => {
+    if (!allocationToDelete) return;
+
+    try {
+      setIsDeletingAllocation(true);
+      const values = await deleteAllocationForm.validateFields();
+      const effectiveDate = values.effective_date ? values.effective_date.format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD');
+
+      // Use update endpoint to set deallocated_date with effective_date
+      // This effectively deallocates the resource on the selected date
+      const updatePayload = {
+        end_date: effectiveDate, // Maps to deallocated_date in backend
+        effective_date: effectiveDate,
+        is_active: false,
+      };
+
+      const response = await allocationsService.update(allocationToDelete.id, updatePayload);
+
+      if (response && (response.success !== false || response.data)) {
+        showSuccessToast('Allocation will be deallocated on the selected date');
+        handleDeleteAllocationModalCancel();
+        onSuccess?.();
+      } else {
+        showErrorToast(response?.message || 'Failed to delete allocation');
+      }
+    } catch (error) {
+      logger.error('Failed to delete allocation:', error);
+      if (error.errorFields) return; // Form validation errors
+      showErrorToast(error?.response?.data?.message || error?.message || 'Failed to delete allocation');
+    } finally {
+      setIsDeletingAllocation(false);
+    }
+  }, [allocationToDelete, deleteAllocationForm, onSuccess]);
+
+  // ─── Close delete allocation modal ───
+  const handleDeleteAllocationModalCancel = useCallback(() => {
+    setIsDeleteAllocationModalVisible(false);
+    deleteAllocationForm.resetFields();
+    setAllocationToDelete(null);
+  }, [deleteAllocationForm]);
 
   // ─── Close modal ───
   const handleAllocationModalCancel = useCallback(() => {
@@ -177,6 +202,13 @@ const useAllocationManagement = ({
     handleDeleteAllocation,
     handleAllocationModalCancel,
     handleAllocationSubmit,
+    // Delete allocation modal
+    isDeleteAllocationModalVisible,
+    allocationToDelete,
+    deleteAllocationForm,
+    isDeletingAllocation,
+    handleDeleteAllocationSubmit,
+    handleDeleteAllocationModalCancel,
   };
 };
 
