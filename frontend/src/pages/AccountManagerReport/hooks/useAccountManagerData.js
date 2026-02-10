@@ -192,28 +192,35 @@ const useAccountManagerData = () => {
   }, []);
 
   // ─── Fetch projects for filter ───
-  useEffect(() => {
+  const fetchProjectsForFilterFn = useCallback(async () => {
     if (fetchProjectsFilterRef.current) return;
-    const fetch = async () => {
-      try {
-        fetchProjectsFilterRef.current = true;
-        setLoadingProjectsForFilter(true);
-        const response = await projectsService.getAll({ limit: 100 });
-        const data = parseResponseData(response);
-        const projects = data
-          .map((p) => ({ id: p.id, name: p.project_name || p.name }))
-          .filter((p) => p.id && p.name);
-        setProjectsForFilter(projects);
-      } catch (error) {
-        logger.error('Failed to fetch projects for filter:', error);
-        showErrorToast('Failed to load projects');
-      } finally {
-        setLoadingProjectsForFilter(false);
-        fetchProjectsFilterRef.current = false;
-      }
-    };
-    fetch();
+    try {
+      fetchProjectsFilterRef.current = true;
+      setLoadingProjectsForFilter(true);
+      const response = await projectsService.getAll({ limit: 100 });
+      const data = parseResponseData(response);
+      const projects = data
+        .map((p) => ({ id: p.id, name: p.project_name || p.name }))
+        .filter((p) => p.id && p.name);
+      setProjectsForFilter(projects);
+    } catch (error) {
+      logger.error('Failed to fetch projects for filter:', error);
+      showErrorToast('Failed to load projects');
+    } finally {
+      setLoadingProjectsForFilter(false);
+      fetchProjectsFilterRef.current = false;
+    }
   }, []);
+
+  useEffect(() => {
+    fetchProjectsForFilterFn();
+  }, [fetchProjectsForFilterFn]);
+
+  // ─── Refetch projects for filter (for use after CRUD operations) ───
+  const refetchProjectsForFilter = useCallback(() => {
+    fetchProjectsFilterRef.current = false;
+    fetchProjectsForFilterFn();
+  }, [fetchProjectsForFilterFn]);
 
   // ─── Fetch resources ───
   // Filters to billable, active resources for project allocation
@@ -465,6 +472,7 @@ const useAccountManagerData = () => {
     loadingAccountManagers,
     projectsForFilter,
     loadingProjectsForFilter,
+    refetchProjectsForFilter,
     resourcesList,
 
     // Report

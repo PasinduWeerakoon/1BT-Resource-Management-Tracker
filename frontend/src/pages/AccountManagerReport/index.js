@@ -44,6 +44,7 @@ const AccountManagerReport = () => {
     clientsList: data.clientsList,
     accountManagersList: data.accountManagersList,
     onSuccess: data.fetchAccountManagerReport,
+    onProjectCreated: data.refetchProjectsForFilter,
   });
 
   // ─── Team management hook ───

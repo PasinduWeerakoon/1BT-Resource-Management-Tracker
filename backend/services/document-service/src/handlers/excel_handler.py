@@ -330,7 +330,7 @@ def generate_bench_report(event, context):
 def generate_non_billing_report(event, context):
     """
     Generate non-billing (Critical Shadows) report in Excel format
-    Critical Shadows are resources whose total billing percentage is less than 100%
+    Critical Shadows are resources whose non-bench allocation exceeds billing percentage
     GET /documents/excel/non-billing
     """
     try:
@@ -347,6 +347,7 @@ def generate_non_billing_report(event, context):
         
         # Query Critical Shadows: Resources whose total_resource_billing < 100%
         # Using pre-calculated field from employees table for better performance
+        # Excludes bench project allocations from the output
         sql = f"""
             SELECT 
                 e.name,
@@ -365,8 +366,10 @@ def generate_non_billing_report(event, context):
               AND e.status = 'Active'
               AND a.is_active = true
               AND a.deleted_at IS NULL
+              AND p.deleted_at IS NULL
               AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
               AND e.deleted_at IS NULL
+              AND p.is_bench_project = false
               {track_filter}
             ORDER BY e.total_resource_billing ASC, e.name ASC
         """
