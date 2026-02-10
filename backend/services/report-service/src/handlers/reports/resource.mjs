@@ -121,6 +121,8 @@ export const getBenchReport = async (event) => {
             WHERE r.status = 'Active'
             AND r.deleted_at IS NULL
             AND r.track_id = ANY(ARRAY[${BENCH_ELIGIBLE_TRACK_IDS.join(',')}])
+            AND r.employee_type_id != 3 -- Exclude Interns
+            AND r.is_external = false -- Exclude External Resources
             ${trackFilterClause}
             ORDER BY ba.bench_allocation_percentage DESC, r.name ASC
         `;
@@ -147,6 +149,8 @@ export const getBenchReport = async (event) => {
             WHERE r.status = 'Active'
             AND r.deleted_at IS NULL
             AND r.track_id = ANY(ARRAY[${BENCH_ELIGIBLE_TRACK_IDS.join(',')}])
+            AND r.employee_type_id != 3 -- Exclude Interns
+            AND r.is_external = false -- Exclude External Resources
             ${trackFilterClause}
             AND r.track_id IS NOT NULL
             GROUP BY r.track_id
@@ -174,6 +178,8 @@ export const getBenchReport = async (event) => {
             WHERE r.status = 'Active'
             AND r.deleted_at IS NULL
             AND r.track_id = ANY(ARRAY[${BENCH_ELIGIBLE_TRACK_IDS.join(',')}])
+            AND r.employee_type_id != 3 -- Exclude Interns
+            AND r.is_external = false -- Exclude External Resources
             ${trackFilterClause}
             AND r.tech_stack_id IS NOT NULL
             GROUP BY r.tech_stack_id
@@ -187,6 +193,7 @@ export const getBenchReport = async (event) => {
             AND r.deleted_at IS NULL
             AND r.track_id IN (1, 2, 3, 4, 5, 8, 11) -- Billable Tracks (Excludes Support=6, Delivery=10)
             AND r.employee_type_id != 3 -- Exclude Interns
+            AND r.is_external = false -- Exclude External Resources
             ${trackFilterClause}
         `;
 
