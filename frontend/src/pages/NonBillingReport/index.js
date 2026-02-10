@@ -3,7 +3,7 @@ import { Row, Col, Card, Select } from 'antd';
 import { useSelector } from 'react-redux';
 import CustomTable from '@components/Table';
 import { reportsService } from '@api';
-import { selectTracks } from '@redux/slices/configSlice';
+import { selectTracks, selectTechStacks } from '@redux/slices/configSlice';
 import { useReportFilters, useReportData } from '@hooks/reports';
 import { FilterSection, ReportHeader, SummaryCards } from '@components/ReportLayout';
 import NonBillingCharts from './components/NonBillingCharts';
@@ -14,6 +14,7 @@ const { Option } = Select;
 const NonBillingReport = () => {
   const defaultFilters = {
     track_id: undefined,
+    tech_stack_id: undefined,
   };
   
   // Use shared hooks
@@ -26,8 +27,9 @@ const NonBillingReport = () => {
     toggleFiltersExpanded,
   } = useReportFilters(defaultFilters);
 
-  // Get tracks from Redux (cached on login)
+  // Get tracks and tech stacks from Redux (cached on login)
   const tracksList = useSelector(selectTracks);
+  const techStacksList = useSelector(selectTechStacks);
 
   // Store chart data from API response
   const [chartData, setChartData] = useState({
@@ -48,6 +50,7 @@ const NonBillingReport = () => {
       email: item.email || 'N/A',
       designation: item.designation || 'N/A',
       track: item.track || 'N/A',
+      techStack: item.tech_stack || 'N/A',
       projectName: item.project_name || 'N/A',
       allocationPercentage: allocationPercentage,
       allocationPercentageFormatted: `${allocationPercentage.toFixed(2)}%`,
@@ -64,6 +67,9 @@ const NonBillingReport = () => {
       const queryParams = {};
       if (filters.track_id) {
         queryParams.track_id = filters.track_id;
+      }
+      if (filters.tech_stack_id) {
+        queryParams.tech_stack_id = filters.tech_stack_id;
       }
       const response = await reportsService.getNonBilling(queryParams);
       
@@ -89,7 +95,7 @@ const NonBillingReport = () => {
     transformReportData,
     {
       autoFetch: true,
-      dependencies: [filters.track_id],
+      dependencies: [filters.track_id, filters.tech_stack_id],
     }
   );
 
@@ -125,6 +131,12 @@ const NonBillingReport = () => {
       title: 'Track',
       dataIndex: 'track',
       key: 'track',
+      width: 120,
+    },
+    {
+      title: 'Tech Stack',
+      dataIndex: 'techStack',
+      key: 'techStack',
       width: 120,
     },
     {
@@ -209,6 +221,24 @@ const NonBillingReport = () => {
                 {tracksList.map((track) => (
                   <Option key={track.id} value={track.id}>
                     {track.name}
+                  </Option>
+                ))}
+              </Select>
+            </div>
+          </Col>
+          <Col xs={24} sm={12} md={8} lg={6}>
+            <div className="filter-item">
+              <label>Tech Stack</label>
+              <Select
+                value={filters.tech_stack_id}
+                onChange={(value) => setFilters({ ...filters, tech_stack_id: value || undefined })}
+                style={{ width: '100%' }}
+                allowClear
+                placeholder="All Tech Stacks"
+              >
+                {techStacksList.map((techStack) => (
+                  <Option key={techStack.id} value={techStack.id}>
+                    {techStack.name || techStack.label}
                   </Option>
                 ))}
               </Select>
