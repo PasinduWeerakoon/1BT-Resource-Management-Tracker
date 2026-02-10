@@ -604,7 +604,7 @@ export const getInternReport = async (event) => {
 /**
  * Get External Consultants Report
  * Returns comprehensive report of all external consultant resources
- * Note: Uses employee_type_id to identify consultants (employee_types table has 'Consultant' type)
+ * Note: Uses is_external flag to identify external consultants
  */
 export const getExternalConsultantsReport = async (event) => {
     const log = logger.child({ handler: 'reports.externalConsultants' });
@@ -624,7 +624,7 @@ export const getExternalConsultantsReport = async (event) => {
         } = queryParams;
 
         // Base query for external consultants with their current allocations
-        // Uses employee_type_id to identify consultants
+        // Uses is_external flag to identify external consultants
         let query = `
             SELECT 
                 r.id as resource_id,
@@ -655,7 +655,7 @@ export const getExternalConsultantsReport = async (event) => {
             LEFT JOIN projects p ON a.project_id = p.id
             LEFT JOIN project_types pt ON p.project_type_id = pt.id
             LEFT JOIN employees am ON p.account_manager_id = am.id
-            WHERE et.name = 'Consultant'
+            WHERE r.is_external = true
                 AND r.status = 'Active'
                 AND r.deleted_at IS NULL
         `;
@@ -721,11 +721,10 @@ export const getExternalConsultantsReport = async (event) => {
                 COALESCE(SUM(CASE WHEN pt.name = 'Client' THEN a.allocation_percentage ELSE 0 END), 0) as total_billing_allocation,
                 COALESCE(SUM(CASE WHEN pt.name != 'Client' THEN a.allocation_percentage ELSE 0 END), 0) as total_non_billing_allocation
             FROM employees r
-            LEFT JOIN employee_types et ON r.employee_type_id = et.id
             LEFT JOIN allocations a ON r.id = a.employee_id AND a.is_active = true
             LEFT JOIN projects p ON a.project_id = p.id
             LEFT JOIN project_types pt ON p.project_type_id = pt.id
-            WHERE et.name = 'Consultant'
+            WHERE r.is_external = true
                 AND r.status = 'Active'
                 AND r.deleted_at IS NULL
         `;

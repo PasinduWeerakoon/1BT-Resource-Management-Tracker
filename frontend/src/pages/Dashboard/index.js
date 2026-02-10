@@ -1,10 +1,10 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { Card, Spin } from 'antd';
-import { DownOutlined, UpOutlined } from '@ant-design/icons';
+import { Card, Spin, Button } from 'antd';
+import { DownOutlined, UpOutlined, DownloadOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { commonOptions, colors } from '@utils/chartConfig';
-import { futureAllocationsService, reportsService, summaryService } from '@api';
-import { showErrorToast } from '@utils/toast.utils';
+import { futureAllocationsService, reportsService, summaryService, documentsService } from '@api';
+import { showErrorToast, showSuccessToast } from '@utils/toast.utils';
 import logger from '@utils/logger';
 import { COLUMN_WIDTHS, LABELS } from '@constants/dashboard';
 import { COMMON, PAGINATION, TABLE, UI } from '@constants/app';
@@ -421,9 +421,63 @@ const Dashboard = () => {
     }));
   }, [futureAllocations]);
 
+  const [downloading, setDownloading] = useState(false);
+  const [downloadingProjects, setDownloadingProjects] = useState(false);
+
+  const handleDownloadExcel = useCallback(async () => {
+    try {
+      setDownloading(true);
+      await documentsService.downloadSummaryExcel();
+      showSuccessToast('Summary report downloaded successfully');
+    } catch (error) {
+      logger.error('Failed to download summary Excel', error);
+      showErrorToast('Failed to download summary report');
+    } finally {
+      setDownloading(false);
+    }
+  }, []);
+
+  const handleDownloadProjectsExcel = useCallback(async () => {
+    try {
+      setDownloadingProjects(true);
+      await documentsService.downloadProjectsExcel();
+      showSuccessToast('Projects report downloaded successfully');
+    } catch (error) {
+      logger.error('Failed to download projects Excel', error);
+      showErrorToast('Failed to download projects report');
+    } finally {
+      setDownloadingProjects(false);
+    }
+  }, []);
+
+  const downloadButtons = (
+    <div style={{ display: 'flex', gap: '8px' }}>
+      <Button
+        type="primary"
+        icon={<DownloadOutlined />}
+        onClick={handleDownloadExcel}
+        loading={downloading}
+      >
+        Download Summary
+      </Button>
+      <Button
+        type="default"
+        icon={<DownloadOutlined />}
+        onClick={handleDownloadProjectsExcel}
+        loading={downloadingProjects}
+      >
+        Download Projects
+      </Button>
+    </div>
+  );
+
   return (
     <div className="dashboard-page">
-      <ReportHeader title={LABELS.SUMMARY_VIEW} className="dashboard-header" />
+      <ReportHeader 
+        title={LABELS.SUMMARY_VIEW} 
+        className="dashboard-header"
+        extra={downloadButtons}
+      />
 
       <div className="dashboard-content">
         <Spin spinning={summaryLoading}>

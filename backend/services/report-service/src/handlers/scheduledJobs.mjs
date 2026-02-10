@@ -58,19 +58,9 @@ export const calculateDailyStats = async (event) => {
                   AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
                 GROUP BY a.employee_id
             ),
-            -- Employee tags for Synergy detection
-            synergy_employees AS (
-                SELECT DISTINCT et.employee_id
-                FROM employee_tags et
-                JOIN tags t ON et.tag_id = t.id
-                WHERE LOWER(t.name) = 'synergy'
-            ),
             -- Get employee types
-            consultant_type AS (
-                SELECT id FROM employee_types WHERE LOWER(name) LIKE '%consultant%' LIMIT 1
-            ),
-            intern_designations AS (
-                SELECT id FROM designations WHERE is_intern_role = true
+            intern_type AS (
+                SELECT id FROM employee_types WHERE LOWER(name) = 'intern' LIMIT 1
             )
             SELECT
                 -- Billing Resource Count (employees with billing allocations)
@@ -88,8 +78,8 @@ export const calculateDailyStats = async (event) => {
                 -- Shadow Count (employees with shadow allocations)
                 COALESCE(SUM(CASE WHEN COALESCE(ea.shadow_allocation, 0) > 0 THEN 1 ELSE 0 END), 0)::DECIMAL(10,1) as shadow_count,
                 
-                -- External Consultant Count
-                COALESCE(SUM(CASE WHEN ae.employee_type_id IN (SELECT id FROM consultant_type) THEN 1 ELSE 0 END), 0)::DECIMAL(10,1) as external_consultant_count,
+                -- External Consultant Count (based on is_external = true)
+                COALESCE(SUM(CASE WHEN ae.is_external = true THEN 1 ELSE 0 END), 0)::DECIMAL(10,1) as external_consultant_count,
                 
                 -- Bench Resource Count (allocation < 100 or no allocation)
                 COALESCE(SUM(CASE WHEN COALESCE(ea.total_allocation, 0) < 100 THEN 1 ELSE 0 END), 0)::DECIMAL(10,1) as bench_resource_count,
@@ -106,22 +96,14 @@ export const calculateDailyStats = async (event) => {
                       AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
                 ), 0)::DECIMAL(10,1) as training_resource_count,
                 
-                -- Interns Count
-                COALESCE(SUM(CASE WHEN ae.designation_id IN (SELECT id FROM intern_designations) THEN 1 ELSE 0 END), 0)::DECIMAL(10,1) as interns_count,
+                -- Interns Count (based on employee_type_id)
+                COALESCE(SUM(CASE WHEN ae.employee_type_id IN (SELECT id FROM intern_type) THEN 1 ELSE 0 END), 0)::DECIMAL(10,1) as interns_count,
                 
-                -- Synergy Count
-                COALESCE(SUM(CASE WHEN ae.id IN (SELECT employee_id FROM synergy_employees) THEN 1 ELSE 0 END), 0)::DECIMAL(10,1) as synergy_count,
+                -- Synergy Count (based on tier_id = 7)
+                COALESCE(SUM(CASE WHEN ae.tier_id = 7 THEN 1 ELSE 0 END), 0)::DECIMAL(10,1) as synergy_count,
                 
-                -- Shared Services Count (employees allocated to internal projects)
-                COALESCE((
-                    SELECT COUNT(DISTINCT a.employee_id)
-                    FROM allocations a
-                    JOIN projects p ON a.project_id = p.id
-                    WHERE a.is_active = true 
-                      AND a.deleted_at IS NULL
-                      AND p.account_type = 'Internal'
-                      AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
-                ), 0)::DECIMAL(10,1) as shared_services_count,
+                -- Shared Services Count (based on Support track_id = 6)
+                COALESCE(SUM(CASE WHEN ae.track_id = 6 THEN 1 ELSE 0 END), 0)::DECIMAL(10,1) as shared_services_count,
                 
                 -- Total active employees for percentage calculations
                 COUNT(*)::INTEGER as total_active_employees
