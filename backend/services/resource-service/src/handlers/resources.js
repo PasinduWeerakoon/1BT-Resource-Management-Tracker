@@ -237,30 +237,13 @@ export const list = async (event) => {
         const validated = validate(queryParams, resourceSchemas.list);
         const { page, limit, search, track_id, designation_id, status, tier, employee_number, name } = validated;
         const offset = (page - 1) * limit;
-        
-        // New parameter: include_all to bypass billable filtering (for admin/reports)
-        const includeAll = queryParams.include_all === 'true';
 
-        log.info('Listing resources', { page, limit, filters: { search, track_id, designation_id, status, tier, employee_number, name, includeAll } });
+        log.info('Listing resources', { page, limit, filters: { search, track_id, designation_id, status, tier, employee_number, name } });
 
         // Build dynamic query
-        // By default: Only billable resources (excludes Support=6, Delivery=10, Execs=9)
-        //             Only Active status
-        //             Exclude Interns (employee_type_id = 3)
         let whereClause = 'WHERE r.deleted_at IS NULL';
         const params = [];
         let paramIndex = 1;
-        
-        // Apply default filters unless include_all is true
-        if (!includeAll) {
-            // Only billable tracks: QA(1), Dev(2), UI(3), BA(4), PM(5), UX(8), Functional Consultant(11)
-            whereClause += ` AND r.track_id = ANY(ARRAY[1, 2, 3, 4, 5, 8, 11])`;
-            
-            // Only Active resources
-            whereClause += ` AND r.status = 'Active'`;
-            
-            // Note: Interns are included (not filtered out)
-        }
 
         if (search) {
             // Case-insensitive search across name, email, employee_id, and employee_number
