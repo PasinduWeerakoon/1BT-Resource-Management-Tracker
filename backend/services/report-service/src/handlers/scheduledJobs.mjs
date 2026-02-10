@@ -46,13 +46,20 @@ export const calculateDailyStats = async (event) => {
             employee_allocations AS (
                 SELECT 
                     a.employee_id,
-                    SUM(a.allocation_percentage) as total_allocation,
+                    SUM(CASE 
+                        WHEN LOWER(p.project_name) = 'bench' THEN 0
+                        WHEN LOWER(bs.name) = 'training' THEN 0
+                        WHEN LOWER(pt.name) = 'training' THEN 0
+                        ELSE a.allocation_percentage 
+                    END) as total_allocation,
                     SUM(a.billing_percentage) as total_billing,
                     SUM(CASE WHEN a.is_critical_shadow THEN a.allocation_percentage ELSE 0 END) as shadow_allocation,
                     COUNT(DISTINCT a.project_id) as project_count,
                     BOOL_OR(bs.name = 'Billing') as has_billing_allocation
                 FROM allocations a
                 LEFT JOIN billing_statuses bs ON a.billing_status_id = bs.id
+                LEFT JOIN projects p ON a.project_id = p.id
+                LEFT JOIN project_types pt ON p.project_type_id = pt.id
                 WHERE a.is_active = true 
                   AND a.deleted_at IS NULL
                   AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
@@ -63,53 +70,60 @@ export const calculateDailyStats = async (event) => {
                 SELECT id FROM employee_types WHERE LOWER(name) = 'intern' LIMIT 1
             )
             SELECT
-                -- Billing Resource Count (employees with billing allocations)
-                COALESCE(SUM(CASE WHEN ea.has_billing_allocation THEN 1 ELSE 0 END), 0)::DECIMAL(10,1) as billing_resource_count,
+                -- Billing Resource Count (FTE): Sum of Billing % / 100
+                COALESCE(SUM(COALESCE(ea.total_billing, 0) / 100.0), 0)::DECIMAL(10,1) as billing_resource_count,
                 
-                -- Allocated Resource Count (employees with any allocation > 0)
+                -- Allocated Resource Count (FTE): Sum of Allocation % / 100
                 COALESCE(SUM(COALESCE(ea.total_allocation, 0) / 100.0), 0)::DECIMAL(10,1) as allocated_resource_count,
                 
-                -- Billable Resource Count (excludes Delivery=10 & Interns)
+                -- Billable Resource Count (Headcount): Billable Tracks (Excl. Support, Delivery, Interns)
                 COALESCE(SUM(CASE 
                     WHEN ae.track_id IN (1, 2, 3, 4, 5, 8, 11)  -- BILLABLE_RESOURCE_TRACK_IDS: excludes Delivery
-                    AND ae.designation_id NOT IN (SELECT id FROM intern_designations)
+                    AND ae.employee_type_id NOT IN (SELECT id FROM intern_type)
                     THEN 1 ELSE 0 
                 END), 0)::DECIMAL(10,1) as billable_resource_count,
                 
-                -- Shadow Count (employees with shadow allocations)
-                COALESCE(SUM(CASE WHEN COALESCE(ea.shadow_allocation, 0) > 0 THEN 1 ELSE 0 END), 0)::DECIMAL(10,1) as shadow_count,
+                -- Shadow Count (FTE): Sum of (Allocation % - Billing %) / 100
+                COALESCE(SUM((COALESCE(ea.total_allocation, 0) - COALESCE(ea.total_billing, 0)) / 100.0), 0)::DECIMAL(10,1) as shadow_count,
                 
-                -- External Consultant Count (based on is_external = true)
+                -- External Consultant Count (Headcount): Active External Employees
                 COALESCE(SUM(CASE WHEN ae.is_external = true THEN 1 ELSE 0 END), 0)::DECIMAL(10,1) as external_consultant_count,
                 
-                -- Bench Resource Count (allocation < 100 or no allocation)
-                -- Bench Resource Count (allocation < 100, eligible tracks only, no interns)
-                COALESCE(SUM(CASE 
-                    WHEN COALESCE(ea.total_allocation, 0) < 100 
-                    AND ae.track_id IN (1, 2, 3, 4, 5, 8, 10, 11) -- BENCH_ELIGIBLE_TRACK_IDS
-                    AND ae.designation_id NOT IN (SELECT id FROM intern_designations)
-                    THEN 1 ELSE 0 
-                END), 0)::DECIMAL(10,1) as bench_resource_count,
-                
-                -- Training Resource Count (employees allocated to training projects)
-                COALESCE((
-                    SELECT COUNT(DISTINCT a.employee_id)
+                -- Bench Resource Count (FTE): Sum of Bench Allocation % / 100
+                (
+                    SELECT COALESCE(SUM(a.allocation_percentage) / 100.0, 0)
                     FROM allocations a
                     JOIN projects p ON a.project_id = p.id
-                    JOIN project_types pt ON p.project_type_id = pt.id
+                    JOIN employees e ON a.employee_id = e.id
+                    WHERE p.project_name = 'Bench'
+                      AND a.is_active = true
+                      AND a.deleted_at IS NULL
+                      AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
+                      AND e.status = 'Active' AND e.deleted_at IS NULL
+                      AND e.track_id IN (1, 2, 3, 4, 5, 8, 10, 11) -- BENCH_ELIGIBLE_TRACK_IDS (Includes Delivery)
+                      AND e.employee_type_id NOT IN (SELECT id FROM intern_type) -- Exclude Interns
+                )::DECIMAL(10,1) as bench_resource_count,
+                
+                -- Training Resource Count (FTE): Sum of Allocation % / 100 where Billing Status = 'Training'
+                COALESCE((
+                    SELECT SUM(a.allocation_percentage) / 100.0
+                    FROM allocations a
+                    JOIN employees e ON a.employee_id = e.id
+                    JOIN billing_statuses bs ON a.billing_status_id = bs.id
                     WHERE a.is_active = true 
                       AND a.deleted_at IS NULL
-                      AND LOWER(pt.name) = 'training'
                       AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
+                      AND LOWER(bs.name) = 'training'
+                      AND e.status = 'Active' AND e.deleted_at IS NULL
                 ), 0)::DECIMAL(10,1) as training_resource_count,
                 
-                -- Interns Count (based on employee_type_id)
+                -- Interns Count (Headcount): Employee Type Intern
                 COALESCE(SUM(CASE WHEN ae.employee_type_id IN (SELECT id FROM intern_type) THEN 1 ELSE 0 END), 0)::DECIMAL(10,1) as interns_count,
                 
-                -- Synergy Count (based on tier_id = 7)
+                -- Synergy Count (Headcount): Tier ID 7
                 COALESCE(SUM(CASE WHEN ae.tier_id = 7 THEN 1 ELSE 0 END), 0)::DECIMAL(10,1) as synergy_count,
                 
-                -- Shared Services Count (based on Support track_id = 6)
+                -- Shared Services Count (Headcount): Support Track (ID 6)
                 COALESCE(SUM(CASE WHEN ae.track_id = 6 THEN 1 ELSE 0 END), 0)::DECIMAL(10,1) as shared_services_count,
                 
                 -- Total active employees for percentage calculations
@@ -133,25 +147,35 @@ export const calculateDailyStats = async (event) => {
                 SELECT e.id, 
                        COALESCE(e.total_allocation, 0) as current_allocation,
                        COALESCE(e.total_resource_billing, 0) as current_billing,
+                       e.project_id as project_id_placeholder, -- keeping structure consistent if needed, or just add column
                        e.track_id, 
-                       e.designation_id
+                       e.designation_id,
+                       e.employee_type_id
                 FROM employees e
                 WHERE e.status = 'Active' AND e.deleted_at IS NULL
             ),
             employee_allocations AS (
                 SELECT 
                     a.employee_id,
-                    SUM(a.allocation_percentage) as total_allocation,
+                    SUM(CASE 
+                        WHEN LOWER(p.project_name) = 'bench' THEN 0
+                        WHEN LOWER(bs.name) = 'training' THEN 0
+                        WHEN LOWER(pt.name) = 'training' THEN 0
+                        ELSE a.allocation_percentage 
+                    END) as total_allocation,
                     SUM(a.billing_percentage) as total_billing,
                     SUM(CASE WHEN a.is_critical_shadow THEN a.allocation_percentage ELSE 0 END) as shadow_percentage
                 FROM allocations a
+                LEFT JOIN billing_statuses bs ON a.billing_status_id = bs.id
+                LEFT JOIN projects p ON a.project_id = p.id
+                LEFT JOIN project_types pt ON p.project_type_id = pt.id
                 WHERE a.is_active = true 
                   AND a.deleted_at IS NULL
                   AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
                 GROUP BY a.employee_id
             ),
-            intern_designations AS (
-                SELECT id FROM designations WHERE is_intern_role = true
+            intern_type AS (
+                SELECT id FROM employee_types WHERE LOWER(name) = 'intern' LIMIT 1
             ),
             totals AS (
                 SELECT 
@@ -163,7 +187,7 @@ export const calculateDailyStats = async (event) => {
                     -- Billable count for bench % denominator (excludes Delivery=10 & Interns)
                     COALESCE(SUM(CASE 
                         WHEN ae.track_id IN (1, 2, 3, 4, 5, 8, 11) 
-                        AND ae.designation_id NOT IN (SELECT id FROM intern_designations)
+                        AND ae.employee_type_id NOT IN (SELECT id FROM intern_type)
                         THEN 1 ELSE 0 
                     END), 0) as billable_count,
                     -- Bench allocation sum for bench % numerator
@@ -177,7 +201,7 @@ export const calculateDailyStats = async (event) => {
                           AND a.deleted_at IS NULL
                           AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
                           AND e.track_id IN (1, 2, 3, 4, 5, 8, 11) -- Only billable tracks
-                          AND e.designation_id NOT IN (SELECT id FROM intern_designations) -- Exclude interns
+                          AND e.employee_type_id NOT IN (SELECT id FROM intern_type) -- Exclude interns
                     ) as sum_bench
                 FROM active_employees ae
                 LEFT JOIN employee_allocations ea ON ae.id = ea.employee_id
@@ -191,8 +215,17 @@ export const calculateDailyStats = async (event) => {
                     THEN ROUND((sum_billing::DECIMAL / 100.0) / billable_count * 100, 1)
                     ELSE 0 
                 END as billable_percentage,
-                CASE WHEN sum_allocation > 0 
-                    THEN ROUND((sum_shadow::DECIMAL / sum_allocation) * 100, 1)
+                CASE WHEN billable_count > 0 
+                    THEN ROUND((sum_allocation::DECIMAL / 100.0) / billable_count * 100, 1)
+                    ELSE 0 
+                END as allocation_percentage,
+                CASE WHEN billable_count > 0 
+                    THEN ROUND((sum_billing::DECIMAL / 100.0) / billable_count * 100, 1)
+                    ELSE 0 
+                END as billable_percentage,
+                -- Shadow % = Allocation % - Billable %
+                CASE WHEN billable_count > 0 
+                    THEN ROUND(((sum_allocation::DECIMAL / 100.0) / billable_count * 100) - ((sum_billing::DECIMAL / 100.0) / billable_count * 100), 1)
                     ELSE 0 
                 END as shadow_percentage,
                 CASE WHEN billable_count > 0 

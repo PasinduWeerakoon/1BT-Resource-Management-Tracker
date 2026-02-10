@@ -180,11 +180,22 @@ export const getBenchReport = async (event) => {
             ORDER BY count DESC
         `;
 
+        const billableCountQuery = `
+            SELECT COUNT(*) as count
+            FROM employees r
+            WHERE r.status = 'Active'
+            AND r.deleted_at IS NULL
+            AND r.track_id IN (1, 2, 3, 4, 5, 8, 11) -- Billable Tracks (Excludes Support=6, Delivery=10)
+            AND r.employee_type_id != 3 -- Exclude Interns
+            ${trackFilterClause}
+        `;
+
         // Execute all queries in parallel for better performance
-        const [result, trackChartResult, techStackChartResult] = await Promise.all([
+        const [result, trackChartResult, techStackChartResult, billableCountResult] = await Promise.all([
             db.query(query, queryParamsArray),
             db.query(trackChartQuery, queryParamsArray),
-            db.query(techStackChartQuery, queryParamsArray)
+            db.query(techStackChartQuery, queryParamsArray),
+            db.query(billableCountQuery, queryParamsArray)
         ]);
 
         // Transform results with config resolution
@@ -200,6 +211,14 @@ export const getBenchReport = async (event) => {
         // partialBench: Has bench allocation but also has other project allocations
         const fullBench = data.filter(r => parseInt(r.bench_allocation_percentage) === 100 || parseInt(r.non_bench_allocation) === 0);
         const partialBench = data.filter(r => parseInt(r.bench_allocation_percentage) < 100 && parseInt(r.non_bench_allocation) > 0);
+
+        const totalBenchAllocationSum = data.reduce((sum, r) => sum + parseFloat(r.bench_allocation_percentage), 0);
+        const billableCount = parseInt(billableCountResult.rows[0]?.count || 0);
+
+        // Bench % = (Sum Bench Allocation / 100) / Billable Count
+        const benchPercentage = billableCount > 0
+            ? ((totalBenchAllocationSum / 100.0) / billableCount * 100).toFixed(1)
+            : '0.0';
 
         // Format charts - resolve IDs to labels using configs
         const charts = {
@@ -228,8 +247,10 @@ export const getBenchReport = async (event) => {
                 fullBench: fullBench.length,
                 partialBench: partialBench.length,
                 avgBenchAllocation: data.length > 0
-                    ? Math.round(data.reduce((sum, r) => sum + parseInt(r.bench_allocation_percentage), 0) / data.length)
-                    : 0
+                    ? Math.round(totalBenchAllocationSum / data.length)
+                    : 0,
+                benchPercentage: parseFloat(benchPercentage), // New field for correct Bench %
+                billableCount // Useful for debugging/display
             },
             charts,
             generatedAt: new Date().toISOString()
