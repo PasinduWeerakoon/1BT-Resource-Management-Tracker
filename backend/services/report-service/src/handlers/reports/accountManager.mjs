@@ -205,16 +205,20 @@ export const getAccountManagerReport = async (event) => {
             // Summary statistics
             db.query(`
                 SELECT 
-                    COUNT(DISTINCT CASE WHEN bs.name = 'Billing' THEN r.id END) as billable_resources,
+                    -- Billable Resources: Headcount of Billable Tracks (Excluding Interns)
+                    COUNT(DISTINCT CASE 
+                        WHEN r.track_id IN (1, 2, 3, 4, 5, 8, 11) AND r.employee_type_id != 3 THEN r.id 
+                    END) as billable_resources,
+
+                    -- Allocated Count: Sum of Allocation % / 100 (Exclude Bench)
                     ROUND(SUM(CASE 
                         WHEN LOWER(p.project_name) = 'bench' THEN 0
-                        WHEN LOWER(bs.name) = 'training' THEN 0
-                        WHEN LOWER(pt.name) = 'training' THEN 0
                         ELSE a.allocation_percentage 
                     END) / 100.0, 1) as allocated_resource_count,
-                    COUNT(DISTINCT CASE WHEN bs.name = 'Billing' THEN p.id END) as billable_count,
-                    ROUND(AVG(CASE WHEN a.is_active = true THEN a.allocation_percentage ELSE NULL END)::numeric, 1) as avg_project_allocation,
-                    ROUND(AVG(CASE WHEN bs.name = 'Billing' THEN a.billing_percentage ELSE NULL END)::numeric, 1) as avg_billing_percentage
+
+                    -- Billable Count: Sum of Billing % / 100
+                    ROUND(SUM(a.billing_percentage) / 100.0, 1) as billable_count_fte
+
                 FROM projects p
                 LEFT JOIN billing_statuses bs ON p.billing_status_id = bs.id
                 LEFT JOIN project_types pt ON p.project_type_id = pt.id
@@ -388,12 +392,23 @@ export const getAccountManagerReport = async (event) => {
         ]);
 
         // Format summary
+        // Format summary
+        const billableResources = parseInt(summaryResult.rows[0]?.billable_resources || 0);
+        const allocatedCount = parseFloat(summaryResult.rows[0]?.allocated_resource_count || 0);
+        const billableCount = parseFloat(summaryResult.rows[0]?.billable_count_fte || 0);
+
         const summary = {
-            billableResources: parseInt(summaryResult.rows[0]?.billable_resources || 0),
-            allocatedCount: parseFloat(summaryResult.rows[0]?.allocated_resource_count || 0),
-            billableCount: parseInt(summaryResult.rows[0]?.billable_count || 0),
-            averageProjectAllocation: parseFloat(summaryResult.rows[0]?.avg_project_allocation || 0),
-            averageBillingPercentage: parseFloat(summaryResult.rows[0]?.avg_billing_percentage || 0)
+            billableResources,
+            allocatedCount,
+            billableCount, // This is now FTE of billing %
+            // Avg Project Allocation = Allocated Count / Billable Resources
+            averageProjectAllocation: billableResources > 0
+                ? parseFloat((allocatedCount / billableResources * 100).toFixed(1))
+                : 0,
+            // Avg Billing Percentage = Billable Count (FTE) / Billable Resources
+            averageBillingPercentage: billableResources > 0
+                ? parseFloat((billableCount / billableResources * 100).toFixed(1))
+                : 0
         };
 
         // Format charts - resolve IDs to labels using configs
