@@ -248,6 +248,7 @@ const AccountManagerReport = () => {
         selectedResourceTotalBilling={resourceAlloc.selectedResourceTotalBilling}
         resourceAllocationsData={resourceAlloc.resourceAllocationsData}
         loadingResourceAllocations={resourceAlloc.loadingResourceAllocations}
+        billingStatusesList={data.resourceBillingStatuses}
       />
     </div>
   );

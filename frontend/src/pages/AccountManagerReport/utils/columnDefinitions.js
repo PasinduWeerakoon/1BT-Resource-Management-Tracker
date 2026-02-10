@@ -203,7 +203,7 @@ export const getAllocationColumns = ({ onView, onEdit, onDelete }) => [
 /**
  * Get resource allocation detail columns (for the Resource Allocations Modal - active)
  */
-export const getResourceAllocationColumns = () => [
+export const getResourceAllocationColumns = (billingStatusesList = []) => [
   {
     title: 'Project',
     dataIndex: 'project',
@@ -225,25 +225,29 @@ export const getResourceAllocationColumns = () => [
   },
   {
     title: 'Billing Status',
-    dataIndex: 'billingStatus',
-    key: 'billingStatus',
+    dataIndex: 'billing_status_id',
+    key: 'billing_status_id',
     width: 120,
-    render: (text) => (
-      <span style={{
-        padding: '2px 8px',
-        borderRadius: 4,
-        fontSize: 12,
-        fontWeight: 500,
-        backgroundColor: text === 'Billing' ? '#e6f7ff' :
-          text === 'Bench' ? '#fff7e6' :
-            text === 'Presale' ? '#f9f0ff' : '#f0f0f0',
-        color: text === 'Billing' ? '#1890ff' :
-          text === 'Bench' ? '#fa8c16' :
-            text === 'Presale' ? '#722ed1' : '#595959'
-      }}>
-        {text}
-      </span>
-    ),
+    render: (billing_status_id) => {
+      const billingStatus = billingStatusesList.find(bs => bs.id === billing_status_id);
+      const text = billingStatus?.label || billingStatus?.name || 'Non-Billing';
+      return (
+        <span style={{
+          padding: '2px 8px',
+          borderRadius: 4,
+          fontSize: 12,
+          fontWeight: 500,
+          backgroundColor: text === 'Billing' ? '#e6f7ff' :
+            text === 'Bench' ? '#fff7e6' :
+              text === 'Presale' ? '#f9f0ff' : '#f0f0f0',
+          color: text === 'Billing' ? '#1890ff' :
+            text === 'Bench' ? '#fa8c16' :
+              text === 'Presale' ? '#722ed1' : '#595959'
+        }}>
+          {text}
+        </span>
+      );
+    },
   },
   {
     title: 'Billing %',
@@ -291,7 +295,7 @@ export const getResourceAllocationColumns = () => [
 /**
  * Get future allocation columns (for the Resource Allocations Modal - future)
  */
-export const getFutureAllocationColumns = () => [
+export const getFutureAllocationColumns = (billingStatusesList = []) => [
   {
     title: 'Project',
     dataIndex: 'project',
@@ -329,25 +333,29 @@ export const getFutureAllocationColumns = () => [
   },
   {
     title: 'Billing Status',
-    dataIndex: 'billingStatus',
-    key: 'billingStatus',
+    dataIndex: 'billing_status_id',
+    key: 'billing_status_id',
     width: 120,
-    render: (text) => (
-      <span style={{
-        padding: '2px 8px',
-        borderRadius: 4,
-        fontSize: 12,
-        fontWeight: 500,
-        backgroundColor: text === 'Billing' ? '#e6f7ff' :
-          text === 'Bench' ? '#fff7e6' :
-            text === 'Presale' ? '#f9f0ff' : '#f0f0f0',
-        color: text === 'Billing' ? '#1890ff' :
-          text === 'Bench' ? '#fa8c16' :
-            text === 'Presale' ? '#722ed1' : '#595959'
-      }}>
-        {text}
-      </span>
-    ),
+    render: (billing_status_id) => {
+      const billingStatus = billingStatusesList.find(bs => bs.id === billing_status_id);
+      const text = billingStatus?.label || billingStatus?.name || 'Non-Billing';
+      return (
+        <span style={{
+          padding: '2px 8px',
+          borderRadius: 4,
+          fontSize: 12,
+          fontWeight: 500,
+          backgroundColor: text === 'Billing' ? '#e6f7ff' :
+            text === 'Bench' ? '#fff7e6' :
+              text === 'Presale' ? '#f9f0ff' : '#f0f0f0',
+          color: text === 'Billing' ? '#1890ff' :
+            text === 'Bench' ? '#fa8c16' :
+              text === 'Presale' ? '#722ed1' : '#595959'
+        }}>
+          {text}
+        </span>
+      );
+    },
   },
   {
     title: 'Allocation %',
