@@ -4,7 +4,7 @@ import { DownloadOutlined } from '@ant-design/icons';
 import { useSelector } from 'react-redux';
 import CustomTable from '@components/Table';
 import { reportsService, documentsService } from '@api';
-import { selectTracks } from '@redux/slices/configSlice';
+import { selectTracks, selectTechStacks } from '@redux/slices/configSlice';
 import { useReportFilters, useReportData } from '@hooks/reports';
 import { FilterSection, ReportHeader, SummaryCards } from '@components/ReportLayout';
 import { showSuccessToast, showErrorToast } from '@utils/toast.utils';
@@ -16,8 +16,9 @@ const { Option } = Select;
 const NonBillingReport = () => {
   const defaultFilters = {
     track_id: undefined,
+    tech_stack_id: undefined,
   };
-  
+
   // Use shared hooks
   const {
     filters,
@@ -28,8 +29,9 @@ const NonBillingReport = () => {
     toggleFiltersExpanded,
   } = useReportFilters(defaultFilters);
 
-  // Get tracks from Redux (cached on login)
+  // Get tracks and tech stacks from Redux (cached on login)
   const tracksList = useSelector(selectTracks);
+  const techStacksList = useSelector(selectTechStacks);
 
   // Store chart data from API response
   const [chartData, setChartData] = useState({
@@ -41,7 +43,7 @@ const NonBillingReport = () => {
   const transformReportData = (item, index) => {
     const allocationPercentage = parseFloat(item.allocation_percentage || 0);
     const billingPercentage = parseFloat(item.billing_percentage || 0);
-    
+
     return {
       key: item.id || `non-billing-${index}`,
       id: item.id,
@@ -50,6 +52,7 @@ const NonBillingReport = () => {
       email: item.email || 'N/A',
       designation: item.designation || 'N/A',
       track: item.track || 'N/A',
+      techStack: item.tech_stack || 'N/A',
       projectName: item.project_name || 'N/A',
       allocationPercentage: allocationPercentage,
       allocationPercentageFormatted: `${allocationPercentage.toFixed(2)}%`,
@@ -67,8 +70,11 @@ const NonBillingReport = () => {
       if (filters.track_id) {
         queryParams.track_id = filters.track_id;
       }
+      if (filters.tech_stack_id) {
+        queryParams.tech_stack_id = filters.tech_stack_id;
+      }
       const response = await reportsService.getNonBilling(queryParams);
-      
+
       // Extract chart data from API response
       // Backend returns: { success: true, data: { data: [...], charts: {...}, total: number } }
       // reportsService.getNonBilling returns: response.data || response
@@ -85,13 +91,13 @@ const NonBillingReport = () => {
           nonBillingResourcesByTechStack: [],
         });
       }
-      
+
       return response;
     },
     transformReportData,
     {
       autoFetch: true,
-      dependencies: [filters.track_id],
+      dependencies: [filters.track_id, filters.tech_stack_id],
     }
   );
 
@@ -130,6 +136,12 @@ const NonBillingReport = () => {
       width: 120,
     },
     {
+      title: 'Tech Stack',
+      dataIndex: 'techStack',
+      key: 'techStack',
+      width: 120,
+    },
+    {
       title: 'Project Name',
       dataIndex: 'projectName',
       key: 'projectName',
@@ -155,7 +167,7 @@ const NonBillingReport = () => {
       width: 150,
       sorter: (a, b) => a.billingPercentage - b.billingPercentage,
       render: (text, record) => (
-        <span style={{ 
+        <span style={{
           color: record.billingPercentage === 0 ? '#ff4d4f' : '#999',
           fontWeight: record.billingPercentage === 0 ? 'bold' : 'normal'
         }}>
@@ -198,7 +210,7 @@ const NonBillingReport = () => {
       if (filters.track_id) {
         params.track_id = filters.track_id;
       }
-      
+
       await documentsService.downloadNonBillingExcel(params);
       showSuccessToast('Excel report downloaded successfully');
     } catch (error) {
@@ -211,7 +223,7 @@ const NonBillingReport = () => {
 
   return (
     <div className="non-billing-report-page">
-      <ReportHeader 
+      <ReportHeader
         title="NON-BILLING REPORT"
         extra={
           <Button
@@ -245,6 +257,24 @@ const NonBillingReport = () => {
                 {tracksList.map((track) => (
                   <Option key={track.id} value={track.id}>
                     {track.name}
+                  </Option>
+                ))}
+              </Select>
+            </div>
+          </Col>
+          <Col xs={24} sm={12} md={8} lg={6}>
+            <div className="filter-item">
+              <label>Tech Stack</label>
+              <Select
+                value={filters.tech_stack_id}
+                onChange={(value) => setFilters({ ...filters, tech_stack_id: value || undefined })}
+                style={{ width: '100%' }}
+                allowClear
+                placeholder="All Tech Stacks"
+              >
+                {techStacksList.map((techStack) => (
+                  <Option key={techStack.id} value={techStack.id}>
+                    {techStack.name || techStack.label}
                   </Option>
                 ))}
               </Select>
