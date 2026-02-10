@@ -553,7 +553,8 @@ export const getInternReport = async (event) => {
                 internData.push({
                     key: `${intern.id}-no-project`,
                     employeeName: intern.employeeName,
-                    techStack: intern.techStack,
+                    techStack: intern.techStack || 'Unassigned',
+                    techStackId: intern.techStackId,
                     project: 'Bench',
                     allocatedDate: '',
                     deallocatedDate: '',
@@ -569,7 +570,8 @@ export const getInternReport = async (event) => {
                     internData.push({
                         key: `${intern.id}-${project.projectId}-${index}`,
                         employeeName: intern.employeeName,
-                        techStack: intern.techStack,
+                        techStack: intern.techStack || 'Unassigned',
+                        techStackId: intern.techStackId,
                         project: project.project,
                         allocatedDate: project.allocatedDate,
                         deallocatedDate: project.deallocatedDate || '',
@@ -583,13 +585,51 @@ export const getInternReport = async (event) => {
             }
         });
 
+        // Sort by Tech Stack first, then by Employee Name
+        internData.sort((a, b) => {
+            // First sort by tech stack (Unassigned goes last)
+            const techStackA = a.techStack || 'Unassigned';
+            const techStackB = b.techStack || 'Unassigned';
+            
+            if (techStackA === 'Unassigned' && techStackB !== 'Unassigned') return 1;
+            if (techStackA !== 'Unassigned' && techStackB === 'Unassigned') return -1;
+            if (techStackA !== techStackB) {
+                return techStackA.localeCompare(techStackB);
+            }
+            
+            // If same tech stack, sort by employee name
+            return a.employeeName.localeCompare(b.employeeName);
+        });
+
+        // Group by Tech Stack for structured response
+        const groupedByTechStack = {};
+        internData.forEach((row) => {
+            const techStack = row.techStack || 'Unassigned';
+            if (!groupedByTechStack[techStack]) {
+                groupedByTechStack[techStack] = {
+                    techStack: techStack,
+                    techStackId: row.techStackId,
+                    interns: []
+                };
+            }
+            groupedByTechStack[techStack].interns.push(row);
+        });
+
+        // Convert grouped object to array, sorted by tech stack name
+        const groupedByTechStackArray = Object.values(groupedByTechStack).sort((a, b) => {
+            if (a.techStack === 'Unassigned' && b.techStack !== 'Unassigned') return 1;
+            if (a.techStack !== 'Unassigned' && b.techStack === 'Unassigned') return -1;
+            return a.techStack.localeCompare(b.techStack);
+        });
+
         return success({
             summary: {
                 totalInternCount: totalInterns,
                 totalEmployees: totalEmployees,
                 internPercentage: parseFloat(internPercentage)
             },
-            data: internData,
+            data: internData, // Flat array sorted by tech stack, then employee name
+            groupedByTechStack: groupedByTechStackArray, // Grouped structure by tech stack
             total: internData.length,
             filters: queryParams,
             generatedAt: new Date().toISOString()
