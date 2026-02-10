@@ -590,13 +590,13 @@ export const getInternReport = async (event) => {
             // First sort by tech stack (Unassigned goes last)
             const techStackA = a.techStack || 'Unassigned';
             const techStackB = b.techStack || 'Unassigned';
-            
+
             if (techStackA === 'Unassigned' && techStackB !== 'Unassigned') return 1;
             if (techStackA !== 'Unassigned' && techStackB === 'Unassigned') return -1;
             if (techStackA !== techStackB) {
                 return techStackA.localeCompare(techStackB);
             }
-            
+
             // If same tech stack, sort by employee name
             return a.employeeName.localeCompare(b.employeeName);
         });
