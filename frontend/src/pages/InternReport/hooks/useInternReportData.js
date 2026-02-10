@@ -10,9 +10,9 @@ import logger from '@utils/logger';
 
 /**
  * Custom hook for Intern Report
- * Handles data fetching, summary extraction, and tech stack extraction
+ * Handles data fetching and summary extraction
  */
-export const useInternReportData = (filters, setTechStacks) => {
+export const useInternReportData = (filters) => {
   const [internData, setInternData] = useState([]);
   const [totalInternCount, setTotalInternCount] = useState(0);
   const [internPercentage, setInternPercentage] = useState('0.0');
@@ -29,30 +29,36 @@ export const useInternReportData = (filters, setTechStacks) => {
         fetchReportInProgressRef.current = true;
         setLoadingReport(true);
 
-        // Build query params from filters
+        // Build query params from filters - send IDs to backend
         const params = {};
         if (filters.projectName && filters.projectName !== 'All') {
-          params.project_name = filters.projectName;
+          params.project_id = filters.projectName;
         }
         if (filters.accountManager && filters.accountManager !== 'All') {
-          params.account_manager = filters.accountManager;
+          params.account_manager_id = filters.accountManager;
         }
         if (filters.track && filters.track !== 'All') {
-          params.track = filters.track;
+          params.track_id = filters.track;
         }
         if (filters.techStack && filters.techStack !== 'All') {
-          params.tech_stack = filters.techStack;
+          params.tech_stack_id = filters.techStack;
         }
 
         const response = await reportsService.getIntern(params);
 
         // Handle response structure
+        // API returns: { success: true, data: { summary: {...}, data: [...], total: number } }
+        // reportsService.getIntern returns: response.data || response
+        // So response structure is: { summary: {...}, data: [...], total: number }
         let reportData = null;
         if (response) {
-          if (response.data) {
-            reportData = response.data;
-          } else if (response.summary || response.data) {
+          // Check if response has the expected structure
+          if (response.summary || (response.data && Array.isArray(response.data))) {
+            // Standard structure: { summary: {...}, data: [...], total: number }
             reportData = response;
+          } else if (response.data && (response.data.summary || response.data.data)) {
+            // Double nested: { data: { summary: {...}, data: [...] } }
+            reportData = response.data;
           }
         }
 
@@ -64,35 +70,17 @@ export const useInternReportData = (filters, setTechStacks) => {
           }
 
           // Update intern data for table
-          if (reportData.data && Array.isArray(reportData.data)) {
-            setInternData(reportData.data);
+          // Data is at reportData.data (array of intern records)
+          const tableData = reportData.data && Array.isArray(reportData.data)
+            ? reportData.data
+            : [];
 
-            // Extract unique tech stacks from intern data for filter dropdown
-            const hasNoFilters = filters.projectName === 'All' &&
-              filters.accountManager === 'All' &&
-              filters.track === 'All' &&
-              filters.techStack === 'All';
-
-            if (hasNoFilters && reportData.data.length > 0) {
-              // Get unique tech stacks from the intern data
-              const uniqueInterns = new Map();
-              reportData.data.forEach((row) => {
-                if (!uniqueInterns.has(row.employeeName)) {
-                  uniqueInterns.set(row.employeeName, row);
-                }
-              });
-
-              const uniqueTechStacks = [...new Set(
-                Array.from(uniqueInterns.values())
-                  .map((intern) => intern.techStack || intern.tech_stack)
-                  .filter((techStack) => techStack && techStack.trim() !== '')
-              )].sort();
-
-              if (uniqueTechStacks.length > 0) {
-                setTechStacks(uniqueTechStacks.map((techStack) => ({ name: techStack })));
-              }
-            }
-          }
+          setInternData(tableData);
+        } else {
+          // No data received
+          setInternData([]);
+          setTotalInternCount(0);
+          setInternPercentage('0.0');
         }
       } catch (error) {
         logger.error('Failed to fetch intern report', error);
@@ -104,7 +92,7 @@ export const useInternReportData = (filters, setTechStacks) => {
     };
 
     fetchInternReport();
-  }, [filters.projectName, filters.accountManager, filters.track, filters.techStack, setTechStacks]);
+  }, [filters.projectName, filters.accountManager, filters.track, filters.techStack]);
 
   return {
     internData,

@@ -346,7 +346,7 @@ export const getInternReport = async (event) => {
 
     try {
         const queryParams = event.queryStringParameters || {};
-        const { project_name, account_manager, track, track_id, tech_stack, tech_stack_id } = queryParams;
+        const { project_id, project_name, account_manager_id, account_manager, track, track_id, tech_stack, tech_stack_id } = queryParams;
 
         log.info('Getting intern report', { filters: queryParams });
 
@@ -382,17 +382,31 @@ export const getInternReport = async (event) => {
             }
         }
 
-        // Project Name filter (applied to allocation join)
-        if (project_name && project_name !== 'All' && project_name !== '') {
-            allocationWhereClause += ` AND p.project_name = $${paramIndex}`;
-            params.push(project_name);
+        // Project filter - accept both project_id (ID) and project_name (name) for backward compatibility
+        const projectFilter = project_id || project_name;
+        if (projectFilter && projectFilter !== 'All' && projectFilter !== '') {
+            // If it's a number, use as ID; otherwise use as name
+            if (!isNaN(projectFilter)) {
+                allocationWhereClause += ` AND p.id = $${paramIndex}`;
+                params.push(parseInt(projectFilter));
+            } else {
+                allocationWhereClause += ` AND p.project_name = $${paramIndex}`;
+                params.push(projectFilter);
+            }
             paramIndex++;
         }
 
-        // Account Manager filter (applied to allocation join)
-        if (account_manager && account_manager !== 'All' && account_manager !== '') {
-            allocationWhereClause += ` AND am.name = $${paramIndex}`;
-            params.push(account_manager);
+        // Account Manager filter - accept both account_manager_id (ID) and account_manager (name) for backward compatibility
+        const accountManagerFilter = account_manager_id || account_manager;
+        if (accountManagerFilter && accountManagerFilter !== 'All' && accountManagerFilter !== '') {
+            // If it's a number, use as ID; otherwise use as name
+            if (!isNaN(accountManagerFilter)) {
+                allocationWhereClause += ` AND p.account_manager_id = $${paramIndex}`;
+                params.push(parseInt(accountManagerFilter));
+            } else {
+                allocationWhereClause += ` AND am.name = $${paramIndex}`;
+                params.push(accountManagerFilter);
+            }
             paramIndex++;
         }
 
@@ -406,7 +420,8 @@ export const getInternReport = async (event) => {
 
         // Get total intern count - apply resource filters only
         // Interns are identified by tier_id = 5 only (proper tier mapping from designation)
-        const totalInternsQuery = project_name || account_manager
+        const needsAllocationJoin = project_id || project_name || account_manager_id || account_manager;
+        const totalInternsQuery = needsAllocationJoin
             ? `
                 SELECT COUNT(DISTINCT r.id) as total
                 FROM employees r
@@ -425,7 +440,7 @@ export const getInternReport = async (event) => {
             `;
 
         // Get intern details with their current projects
-        const internDetailsQuery = project_name || account_manager
+        const internDetailsQuery = needsAllocationJoin
             ? `
                 SELECT DISTINCT
                     r.id,
