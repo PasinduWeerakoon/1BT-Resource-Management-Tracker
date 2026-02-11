@@ -60,7 +60,7 @@ export const getBenchReport = async (event) => {
         }
 
         // Query resources with bench allocations
-        // Bench = allocation.billing_status_id = 3 OR project.is_bench_project = true
+        // Bench = project.is_bench_project = true
         const query = `
             WITH bench_allocations AS (
                 SELECT 
@@ -70,8 +70,7 @@ export const getBenchReport = async (event) => {
                 LEFT JOIN projects p ON a.project_id = p.id
                 WHERE a.is_active = true 
                 AND a.deleted_at IS NULL
-                AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
-                AND (a.billing_status_id = 3 OR p.is_bench_project = true)
+                AND p.is_bench_project = true
                 GROUP BY a.employee_id
             ),
             total_allocations AS (
@@ -81,7 +80,6 @@ export const getBenchReport = async (event) => {
                 FROM allocations
                 WHERE is_active = true 
                 AND deleted_at IS NULL
-                AND (deallocated_date IS NULL OR deallocated_date >= CURRENT_DATE)
                 GROUP BY employee_id
             ),
             non_bench_allocations AS (
@@ -92,8 +90,6 @@ export const getBenchReport = async (event) => {
                 LEFT JOIN projects p ON a.project_id = p.id
                 WHERE a.is_active = true 
                 AND a.deleted_at IS NULL
-                AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
-                AND a.billing_status_id != 3 
                 AND (p.is_bench_project = false OR p.is_bench_project IS NULL)
                 GROUP BY a.employee_id
             )
@@ -137,8 +133,7 @@ export const getBenchReport = async (event) => {
                 LEFT JOIN projects p ON a.project_id = p.id
                 WHERE a.is_active = true 
                 AND a.deleted_at IS NULL
-                AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
-                AND (a.billing_status_id = 3 OR p.is_bench_project = true)
+                AND p.is_bench_project = true
                 GROUP BY a.employee_id
             )
             SELECT 
@@ -166,8 +161,7 @@ export const getBenchReport = async (event) => {
                 LEFT JOIN projects p ON a.project_id = p.id
                 WHERE a.is_active = true 
                 AND a.deleted_at IS NULL
-                AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
-                AND (a.billing_status_id = 3 OR p.is_bench_project = true)
+                AND p.is_bench_project = true
                 GROUP BY a.employee_id
             )
             SELECT 
@@ -222,9 +216,11 @@ export const getBenchReport = async (event) => {
         const totalBenchAllocationSum = data.reduce((sum, r) => sum + parseFloat(r.bench_allocation_percentage), 0);
         const billableCount = parseInt(billableCountResult.rows[0]?.count || 0);
 
+        const totalBenchAllocationCount = totalBenchAllocationSum > 0 ? totalBenchAllocationSum / 100 : 0;
+
         // Bench % = (Sum Bench Allocation / 100) / Billable Count
-        const benchPercentage = billableCount > 0
-            ? ((totalBenchAllocationSum / 100.0) / billableCount * 100).toFixed(1)
+        const benchPercentage = billableCount > 0 && totalBenchAllocationCount > 0
+            ? ((totalBenchAllocationCount / billableCount )* 100).toFixed(1)
             : '0.0';
 
         // Format charts - resolve IDs to labels using configs
@@ -359,7 +355,7 @@ export const getInternReport = async (event) => {
 
         // Build WHERE clauses for all filters
         // Interns are identified by tier_id = 5 (Intern tier)
-        let resourceWhereClause = 'WHERE r.tier_id = 5 AND r.status = \'Active\' AND r.deleted_at IS NULL';
+        let resourceWhereClause = 'WHERE r.employee_type_id != 3 AND r.status = \'Active\' AND r.deleted_at IS NULL';
         let allocationWhereClause = '';
         const params = [];
         let paramIndex = 1;
