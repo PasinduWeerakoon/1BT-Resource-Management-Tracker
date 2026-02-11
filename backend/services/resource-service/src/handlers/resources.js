@@ -159,7 +159,8 @@ const getBenchProjectId = async () => {
  */
 const isBillableTrack = (trackId) => {
     if (!trackId) return false;
-    return BILLABLE_TRACK_IDS.includes(trackId);
+    // Safety: Ensure trackId is a number before checking inclusion
+    return BILLABLE_TRACK_IDS.includes(Number(trackId));
 };
 
 /**
@@ -215,7 +216,7 @@ const createInitialBenchAllocation = async (tx, resourceId, trackId, userId, log
             })
             .returning();
 
-        log.info('Initial bench allocation created', { resourceId, allocationId: result[0].id });
+        log.info('Initial bench allocation created', { resourceId, trackId, allocationId: result[0].id });
         return result[0];
     } catch (err) {
         log.error('Failed to create initial bench allocation', { resourceId, error: err.message });

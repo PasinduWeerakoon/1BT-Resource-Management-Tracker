@@ -15,6 +15,7 @@ import logger from '/opt/nodejs/logger/index.js';
 import { success, error } from '/opt/nodejs/utils/response.js';
 import futureAllocationService from '../services/futureAllocationService.js';
 import allocationHistoryService from '../services/allocationHistoryService.js';
+import { updateResourceTotals } from '../services/resourceTotalsService.js';
 
 const SERVICE_NAME = 'allocation-scheduler';
 
@@ -119,6 +120,9 @@ const processScheduledAllocation = async (futureAllocation, log) => {
                 newAllocationId: result.rows[0].id
             });
 
+            // Update resource totals
+            await updateResourceTotals(resource_id, log);
+
             return {
                 success: true,
                 action: 'NEW_ALLOCATION',
@@ -159,6 +163,9 @@ const processScheduledAllocation = async (futureAllocation, log) => {
                 newPercentage: allocation_percentage
             });
 
+            // Update resource totals
+            await updateResourceTotals(resource_id, log);
+
             return {
                 success: true,
                 action: 'MODIFY_PERCENTAGE',
@@ -198,6 +205,9 @@ const processScheduledAllocation = async (futureAllocation, log) => {
                 targetAllocationId: target_allocation_id,
                 newBillingPercentage: billing_percentage
             });
+
+            // Update resource totals
+            await updateResourceTotals(resource_id, log);
 
             return {
                 success: true,
@@ -249,6 +259,9 @@ const processScheduledAllocation = async (futureAllocation, log) => {
                 futureId: id,
                 targetAllocationId: target_allocation_id
             });
+
+            // Update resource totals
+            await updateResourceTotals(resource_id, log);
 
             return {
                 success: true,
@@ -327,6 +340,9 @@ const processScheduledAllocation = async (futureAllocation, log) => {
             }
 
             await futureAllocationService.markAsActivated(id);
+
+            // Update resource totals (even for bench adjustment, just to be safe/consistent)
+            await updateResourceTotals(resource_id, log);
 
             return {
                 success: true,

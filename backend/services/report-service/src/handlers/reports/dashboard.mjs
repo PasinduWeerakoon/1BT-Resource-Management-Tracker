@@ -212,8 +212,12 @@ export const getDashboardResourceCounts = async (event) => {
                     THEN 1 ELSE 0 
                 END), 0)::DECIMAL(10,1) as billable_resource_count,
                 
-                -- Shadow Count: Sum of (Allocation % - Billing %) / 100
-                COALESCE(SUM((COALESCE(ea.total_allocation, 0) - COALESCE(ea.total_billing, 0)) / 100.0), 0)::DECIMAL(10,1) as shadow_count,
+                -- Shadow Count: Sum of (Allocation % - Billing %) / 100 (Excluding Interns)
+                COALESCE(SUM(CASE 
+                    WHEN ae.employee_type_id != 3 
+                    THEN (COALESCE(ea.total_allocation, 0) - COALESCE(ea.total_billing, 0)) / 100.0
+                    ELSE 0 
+                END), 0)::DECIMAL(10,1) as shadow_count,
                 
                 -- External Consultant Count: Headcount of Active External Employees
                 COALESCE(SUM(CASE WHEN ae.is_external = true THEN 1 ELSE 0 END), 0)::DECIMAL(10,1) as external_consultant_count,
@@ -251,6 +255,9 @@ export const getDashboardResourceCounts = async (event) => {
                 -- Synergy Count: Headcount by Tier ID 7
                 COALESCE(SUM(CASE WHEN ae.tier_id = 7 THEN 1 ELSE 0 END), 0)::DECIMAL(10,1) as synergy_count,
                 
+                -- Shared Services Count (Headcount): Support Track (ID 6)
+                COALESCE(SUM(CASE WHEN ae.track_id = 6 THEN 1 ELSE 0 END), 0)::DECIMAL(10,1) as shared_services_count,
+                
                 COUNT(*)::INTEGER as total_active_employees
             FROM active_employees ae
             LEFT JOIN employee_allocations ea ON ae.id = ea.employee_id
@@ -258,16 +265,16 @@ export const getDashboardResourceCounts = async (event) => {
 
         const row = result.rows[0];
         const resourceCounts = {
-            billingResourceCount: parseFloat(row.billing_resource_count) || 0,
-            allocatedResourceCount: parseFloat(row.allocated_resource_count) || 0,
-            billableResourceCount: parseFloat(row.billable_resource_count) || 0,
-            shadowCount: parseFloat(row.shadow_count) || 0,
-            externalConsultantCount: parseFloat(row.external_consultant_count) || 0,
-            benchResourceCount: parseFloat(row.bench_resource_count) || 0,
+            billingResourceCount: Math.max(0, parseFloat(row.billing_resource_count) || 0),
+            allocatedResourceCount: Math.max(0, parseFloat(row.allocated_resource_count) || 0),
+            billableResourceCount: Math.max(0, parseFloat(row.billable_resource_count) || 0),
+            shadowCount: Math.max(0, parseFloat(row.shadow_count) || 0),
+            externalConsultantCount: Math.max(0, parseFloat(row.external_consultant_count) || 0),
+            benchResourceCount: Math.max(0, parseFloat(row.bench_resource_count) || 0),
             trainingResourceCount: 0,
-            internsCount: parseFloat(row.interns_count) || 0,
-            synergyCount: parseFloat(row.synergy_count) || 0,
-            sharedServicesCount: 0
+            internsCount: Math.max(0, parseFloat(row.interns_count) || 0),
+            synergyCount: Math.max(0, parseFloat(row.synergy_count) || 0),
+            sharedServicesCount: Math.max(0, parseFloat(row.shared_services_count) || 0)
         };
 
         return success({
@@ -348,8 +355,9 @@ export const getDashboardPercentages = async (event) => {
             totals AS (
                 SELECT 
                     COUNT(*) as total_employees,
-                    COALESCE(SUM(COALESCE(ea.total_allocation, 0)), 0) as sum_allocation,
-                    COALESCE(SUM(COALESCE(ea.total_billing, 0)), 0) as sum_billing,
+                    -- Exclude Interns from sums to align with billable count denominator and shadow calc
+                    COALESCE(SUM(CASE WHEN ae.employee_type_id != 3 THEN COALESCE(ea.total_allocation, 0) ELSE 0 END), 0) as sum_allocation,
+                    COALESCE(SUM(CASE WHEN ae.employee_type_id != 3 THEN COALESCE(ea.total_billing, 0) ELSE 0 END), 0) as sum_billing,
                     COALESCE(SUM(COALESCE(ea.shadow_percentage, 0)), 0) as sum_shadow,
                     -- Billable count for bench % denominator (excludes Delivery=10)
                     -- Billable count for bench % denominator (excludes Delivery=10 & Interns)
@@ -397,10 +405,10 @@ export const getDashboardPercentages = async (event) => {
 
         const row = result.rows[0];
         const percentages = {
-            allocationPercentage: parseFloat(row.allocation_percentage) || 0,
-            billablePercentage: parseFloat(row.billable_percentage) || 0,
-            shadowPercentage: parseFloat(row.shadow_percentage) || 0,
-            benchPercentage: parseFloat(row.bench_percentage) || 0
+            allocationPercentage: Math.max(0, parseFloat(row.allocation_percentage) || 0),
+            billablePercentage: Math.max(0, parseFloat(row.billable_percentage) || 0),
+            shadowPercentage: Math.max(0, parseFloat(row.shadow_percentage) || 0),
+            benchPercentage: Math.max(0, parseFloat(row.bench_percentage) || 0)
         };
 
         return success({
@@ -462,7 +470,7 @@ export const getDashboardCharts = async (event) => {
         `);
 
         const accountsByTrack = trackResult.rows.map(row => ({
-            track: TRACKS.find(t => t.id === row.track_id)?.name || `Track ${row.track_id}`,
+            track: TRACKS.find(t => t.id === row.track_id)?.label || `Track ${row.track_id}`,
             trackId: row.track_id,
             count: parseInt(row.count)
         }));
@@ -481,7 +489,7 @@ export const getDashboardCharts = async (event) => {
         `);
 
         const accountsByTechStack = techStackResult.rows.map(row => ({
-            techStack: TECH_STACKS.find(t => t.id === row.tech_stack_id)?.name || `Tech Stack ${row.tech_stack_id}`,
+            techStack: TECH_STACKS.find(t => t.id === row.tech_stack_id)?.label || `Tech Stack ${row.tech_stack_id}`,
             techStackId: row.tech_stack_id,
             count: parseInt(row.count)
         }));

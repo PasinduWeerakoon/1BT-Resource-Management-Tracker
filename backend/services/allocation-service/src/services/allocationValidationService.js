@@ -117,6 +117,11 @@ export const validateAllocation = async (resourceId, newPercentage, excludeAlloc
  * Returns error if allocation is below minimum for non-exempt projects
  */
 export const validateMinimumAllocation = async (allocationPercentage, projectId) => {
+    // Enhancement: Allow 0% allocations (schema validation handles the end_date requirement)
+    if (allocationPercentage === 0) {
+        return { valid: true };
+    }
+
     const minThreshold = ALLOCATION_CONFIG.MINIMUM_ALLOCATION_PERCENTAGE;
 
     if (allocationPercentage >= minThreshold) {

@@ -263,7 +263,8 @@ BEGIN
     GET DIAGNOSTICS v_inserted_count = ROW_COUNT;
     RAISE NOTICE 'Inserted/Updated % employees', v_inserted_count;
 
-    -- Allocate Active employees to Bench (excluding Synergy tier=5, Support track=8, Execs track=9)
+    -- Allocate Active employees in billable tracks to Bench
+    -- BILLABLE_TRACK_IDS: QA=1, Dev=2, UI=3, BA=4, PM=5, UX=8, Delivery=10, Functional Consultant=11
     INSERT INTO allocations (
         employee_id, 
         project_id, 
@@ -285,8 +286,7 @@ BEGIN
         NOW()
     FROM employees e
     WHERE e.status = 'Active'
-        AND (e.track_id IS NULL OR e.track_id NOT IN (8, 9))
-        AND (e.tier_id IS NULL OR e.tier_id != 5)
+        AND e.track_id IN (1, 2, 3, 4, 5, 8, 10, 11)  -- Only billable tracks
         AND NOT EXISTS (
             SELECT 1 FROM allocations a 
             WHERE a.employee_id = e.id 

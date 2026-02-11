@@ -2,7 +2,7 @@ service: onebt-allocation-service
 
 provider:
   name: aws
-  runtime: nodejs22.x
+  runtime: nodejs20.x
   stage: ${opt:stage, 'dev'}
   region: ${opt:region, 'ap-southeast-1'}
   memorySize: 256
@@ -43,7 +43,7 @@ provider:
     id: !ImportValue onebt-${self:provider.stage}-HttpApiId
 
   layers:
-        - arn:aws:lambda:ap-southeast-1:550586832874:layer:onebt-shared-libs-dev:84
+    - arn:aws:lambda:ap-southeast-1:550586832874:layer:onebt-shared-libs-dev:84
 
 plugins:
   - serverless-offline
@@ -128,6 +128,70 @@ functions:
           method: GET
           authorizer: ${self:custom.authorizer}
 
+  # ==================== FUTURE ALLOCATIONS ====================
+  listFutureAllocations:
+    handler: src/handlers/futureAllocations.list
+    description: List all future allocations
+    events:
+      - httpApi:
+          path: /api/v1/future-allocations
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  createFutureAllocation:
+    handler: src/handlers/futureAllocations.create
+    description: Create a new future allocation
+    events:
+      - httpApi:
+          path: /api/v1/future-allocations
+          method: POST
+          authorizer: ${self:custom.authorizer}
+
+  getFutureAllocation:
+    handler: src/handlers/futureAllocations.getById
+    description: Get a future allocation by ID
+    events:
+      - httpApi:
+          path: /api/v1/future-allocations/{id}
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  getFutureAllocationsByResource:
+    handler: src/handlers/futureAllocations.getByResource
+    description: Get future allocations for a resource
+    events:
+      - httpApi:
+          path: /api/v1/future-allocations/resource/{resourceId}
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  cancelFutureAllocation:
+    handler: src/handlers/futureAllocations.cancel
+    description: Cancel a future allocation
+    events:
+      - httpApi:
+          path: /api/v1/future-allocations/{id}
+          method: DELETE
+          authorizer: ${self:custom.authorizer}
+
+  getPendingFutureAllocations:
+    handler: src/handlers/futureAllocations.getPending
+    description: Get future allocations pending activation
+    events:
+      - httpApi:
+          path: /api/v1/future-allocations/pending
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  getFutureAllocationStats:
+    handler: src/handlers/futureAllocations.getStats
+    description: Get future allocation statistics
+    events:
+      - httpApi:
+          path: /api/v1/future-allocations/stats
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
   # ==================== SCHEDULED JOBS ====================
   gapDetectionJob:
     handler: src/handlers/allocations/index.gapDetectionJob
@@ -135,7 +199,7 @@ functions:
     timeout: 300
     events:
       - schedule:
-          rate: cron(0 2 * * ? *) # Run daily at 2:00 AM UTC
+          rate: cron(0 * * * ? *) # Run hourly
           description: Enhancement 3.4 - Gap Detection & Auto-Bench Fill
           enabled: true
 
