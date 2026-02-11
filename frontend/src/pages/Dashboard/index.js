@@ -411,6 +411,7 @@ const Dashboard = () => {
 
   const [downloading, setDownloading] = useState(false);
   const [downloadingProjects, setDownloadingProjects] = useState(false);
+  const [downloadingCriticalShadows, setDownloadingCriticalShadows] = useState(false);
 
   const handleDownloadExcel = useCallback(async () => {
     try {
@@ -438,8 +439,21 @@ const Dashboard = () => {
     }
   }, []);
 
+  const handleDownloadCriticalShadowsExcel = useCallback(async () => {
+    try {
+      setDownloadingCriticalShadows(true);
+      await documentsService.downloadNonBillingExcel();
+      showSuccessToast('Critical Shadows report downloaded successfully');
+    } catch (error) {
+      logger.error('Failed to download critical shadows Excel', error);
+      showErrorToast('Failed to download critical shadows report');
+    } finally {
+      setDownloadingCriticalShadows(false);
+    }
+  }, []);
+
   const downloadButtons = (
-    <div style={{ display: 'flex', gap: '8px' }}>
+    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
       <Button
         type="primary"
         icon={<DownloadOutlined />}
@@ -455,6 +469,15 @@ const Dashboard = () => {
         loading={downloadingProjects}
       >
         Download Projects
+      </Button>
+      <Button
+        type="default"
+        icon={<DownloadOutlined />}
+        onClick={handleDownloadCriticalShadowsExcel}
+        loading={downloadingCriticalShadows}
+        danger
+      >
+        Download Critical Shadows
       </Button>
     </div>
   );

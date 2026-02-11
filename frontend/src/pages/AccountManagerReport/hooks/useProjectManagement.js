@@ -18,6 +18,7 @@ const useProjectManagement = ({
   clientsList,
   accountManagersList,
   onSuccess, // callback after create/update success (e.g. refresh report)
+  onProjectCreated, // callback after project created (e.g. refresh project list)
 }) => {
   const [form] = Form.useForm();
   const [isCreateProjectModalVisible, setIsCreateProjectModalVisible] = useState(false);
@@ -122,25 +123,15 @@ const useProjectManagement = ({
         return;
       }
 
-      // Determine client_id (required for External only)
-      let client_id = null;
-      const selectedAccountType = accountTypesList.find((t) => t.id === values.account_type);
-      if (selectedAccountType?.name === 'External') {
-        if (!values.client_id) {
-          showErrorToast('Client is required for External projects');
-          return;
-        }
-        client_id = values.client_id;
-        if (!clientsList.find((c) => c.id === client_id)) {
-          showErrorToast('Selected client not found');
-          return;
-        }
+      // Validate client exists if provided
+      if (values.client_id && !clientsList.find((c) => c.id === values.client_id)) {
+        showErrorToast('Selected client not found');
+        return;
       }
 
       const basePayload = {
         project_name: values.project_name,
         project_code: values.project_code || '',
-        client_id,
         project_type_id: values.project_type,
         account_type_id: values.account_type,
         account_manager_id: values.account_manager,
@@ -154,6 +145,11 @@ const useProjectManagement = ({
         description: values.description || '',
       };
 
+      // Add client_id only if it has a value
+      if (values.client_id) {
+        basePayload.client_id = values.client_id;
+      }
+
       // Clean up empty optional fields
       const cleanPayload = { ...basePayload };
       ['project_code', 'account_reg_sales_owner', 'description', 'project_start_date', 'project_end_date'].forEach(
@@ -161,10 +157,6 @@ const useProjectManagement = ({
           if (!cleanPayload[key]) delete cleanPayload[key];
         }
       );
-      // Remove client_id for Internal
-      if (accountTypesList.find((at) => at.id === values.account_type)?.name === 'Internal') {
-        delete cleanPayload.client_id;
-      }
 
       let response;
       if (isEditMode && selectedProject) {
@@ -177,6 +169,10 @@ const useProjectManagement = ({
         showSuccessToast(isEditMode ? 'Project updated successfully' : 'Project created successfully');
         handleCreateProjectCancel();
         onSuccess?.();
+        // Trigger project list refetch after creation/update
+        if (onProjectCreated) {
+          onProjectCreated();
+        }
       } else {
         showErrorToast(response?.message || `Failed to ${isEditMode ? 'update' : 'create'} project`);
       }

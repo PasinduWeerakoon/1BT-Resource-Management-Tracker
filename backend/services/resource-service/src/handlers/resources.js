@@ -1034,15 +1034,18 @@ export const getAllocations = async (event) => {
                 a.updated_at,
                 a.created_by,
                 a.billing_percentage,
+                a.billing_status_id,
                 p.project_name,
                 p.project_code,
                 pt.name as project_type,
                 c.client_name,
+                bs.name as billing_status,
                 'active' as allocation_status
             FROM allocations a
             LEFT JOIN projects p ON a.project_id = p.id
             LEFT JOIN project_types pt ON p.project_type_id = pt.id
             LEFT JOIN clients c ON p.client_id = c.id
+            LEFT JOIN billing_statuses bs ON a.billing_status_id = bs.id
             WHERE ${whereClause}
             ORDER BY a.allocated_date DESC
         `, [id]);
@@ -1058,6 +1061,7 @@ export const getAllocations = async (event) => {
                     fa.project_id,
                     fa.allocation_percentage,
                     fa.billing_percentage,
+                    fa.billing_status_id,
                     fa.allocated_date,
                     fa.deallocated_date,
                     fa.effective_date,
@@ -1072,11 +1076,13 @@ export const getAllocations = async (event) => {
                     p.project_code,
                     pt.name as project_type,
                     c.client_name,
+                    bs.name as billing_status,
                     'future' as allocation_status
                 FROM future_allocations fa
                 LEFT JOIN projects p ON fa.project_id = p.id
                 LEFT JOIN project_types pt ON p.project_type_id = pt.id
                 LEFT JOIN clients c ON p.client_id = c.id
+                LEFT JOIN billing_statuses bs ON fa.billing_status_id = bs.id
                 WHERE fa.employee_id = $1
                 AND fa.status = 'scheduled'
                 ORDER BY fa.effective_date ASC

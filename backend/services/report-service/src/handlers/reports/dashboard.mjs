@@ -204,10 +204,11 @@ export const getDashboardResourceCounts = async (event) => {
                 -- Allocated Resource Count: Sum of Allocation % / 100
                 COALESCE(SUM(COALESCE(ea.total_allocation, 0) / 100.0), 0)::DECIMAL(10,1) as allocated_resource_count,
                 
-                -- Billable Resource Count: Headcount of Billable Tracks (Excl. Support, Delivery, Interns)
+                -- Billable Resource Count: Headcount of Billable Tracks (Excl. Support, Delivery, Interns, External)
                 COALESCE(SUM(CASE 
                     WHEN ae.track_id IN (1, 2, 3, 4, 5, 8, 11)  -- BILLABLE_RESOURCE_TRACK_IDS
                     AND ae.employee_type_id != 3 -- Exclude Interns
+                    AND ae.is_external = false -- Exclude External Resources
                     THEN 1 ELSE 0 
                 END), 0)::DECIMAL(10,1) as billable_resource_count,
                 
@@ -217,7 +218,7 @@ export const getDashboardResourceCounts = async (event) => {
                 -- External Consultant Count: Headcount of Active External Employees
                 COALESCE(SUM(CASE WHEN ae.is_external = true THEN 1 ELSE 0 END), 0)::DECIMAL(10,1) as external_consultant_count,
                 
-                -- Bench Resource Count: Sum of Bench Allocation % / 100
+                -- Bench Resource Count: Sum of Bench Allocation % / 100 (Excl. Interns, External)
                 (
                     SELECT COALESCE(SUM(a.allocation_percentage) / 100.0, 0)
                     FROM allocations a
@@ -230,6 +231,7 @@ export const getDashboardResourceCounts = async (event) => {
                       AND e.status = 'Active' AND e.deleted_at IS NULL
                       AND e.track_id IN (1, 2, 3, 4, 5, 8, 10, 11) -- BENCH_ELIGIBLE_TRACK_IDS (Includes Delivery)
                       AND e.employee_type_id != 3 -- Exclude Interns
+                      AND e.is_external = false -- Exclude External Resources
                 )::DECIMAL(10,1) as bench_resource_count,
                 
                 -- Training Resource Count: Sum of Allocation % / 100 where Billing Status = 'Training'
