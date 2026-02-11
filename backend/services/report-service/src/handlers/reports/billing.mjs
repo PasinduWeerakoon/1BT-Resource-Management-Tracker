@@ -40,18 +40,26 @@ export const getNonBillingReport = async (event) => {
         // Extract query parameters
         const queryParams = event.queryStringParameters || {};
         const track_id = queryParams.track_id ? parseInt(queryParams.track_id) : null;
+        const tech_stack_id = queryParams.tech_stack_id ? parseInt(queryParams.tech_stack_id) : null;
 
-        // Build WHERE clause for track filter
-        let trackFilterClause = '';
+        // Build WHERE clause for filters
+        let filterClause = '';
         const queryParamsArray = [];
         let paramIndex = 1;
 
         if (track_id) {
-            trackFilterClause = `AND r.track_id = $${paramIndex}`;
+            filterClause += ` AND r.track_id = $${paramIndex}`;
             queryParamsArray.push(track_id);
             paramIndex++;
         }
 
+        if (tech_stack_id) {
+            filterClause += ` AND r.tech_stack_id = $${paramIndex}`;
+            queryParamsArray.push(tech_stack_id);
+            paramIndex++;
+        }
+
+        // Non-billing resources are those with allocations where billing_status_id = 2 (Non-Billing)
         // Critical Shadows: Resources whose total_resource_billing < 100%
         // Using pre-calculated field from employees table for better performance
         const query = `
@@ -83,6 +91,8 @@ export const getNonBillingReport = async (event) => {
             AND a.deleted_at IS NULL
             AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
             AND r.deleted_at IS NULL
+            ${filterClause}
+            ORDER BY r.name ASC
             ${trackFilterClause}
             ORDER BY r.total_resource_billing ASC, r.name ASC
         `;
@@ -96,7 +106,7 @@ export const getNonBillingReport = async (event) => {
             WHERE r.total_resource_billing < 100
             AND r.status = 'Active'
             AND r.deleted_at IS NULL
-            ${trackFilterClause}
+            ${filterClause}
             AND r.track_id IS NOT NULL
             GROUP BY r.track_id
             ORDER BY count DESC
@@ -110,7 +120,7 @@ export const getNonBillingReport = async (event) => {
             WHERE r.total_resource_billing < 100
             AND r.status = 'Active'
             AND r.deleted_at IS NULL
-            ${trackFilterClause}
+            ${filterClause}
             AND r.tech_stack_id IS NOT NULL
             GROUP BY r.tech_stack_id
             ORDER BY count DESC

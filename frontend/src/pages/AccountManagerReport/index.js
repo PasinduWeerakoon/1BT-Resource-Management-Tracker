@@ -44,6 +44,7 @@ const AccountManagerReport = () => {
     clientsList: data.clientsList,
     accountManagersList: data.accountManagersList,
     onSuccess: data.fetchAccountManagerReport,
+    onProjectCreated: data.refetchProjectsForFilter,
   });
 
   // ─── Team management hook ───
@@ -248,6 +249,7 @@ const AccountManagerReport = () => {
         selectedResourceTotalBilling={resourceAlloc.selectedResourceTotalBilling}
         resourceAllocationsData={resourceAlloc.resourceAllocationsData}
         loadingResourceAllocations={resourceAlloc.loadingResourceAllocations}
+        billingStatusesList={data.resourceBillingStatuses}
       />
     </div>
   );

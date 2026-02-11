@@ -144,18 +144,33 @@ const AllocationFormModal = ({
             <Form.Item
               label="Deallocation Date"
               name="end_date"
-              dependencies={['start_date']}
+              dependencies={['start_date', 'allocation_percentage']}
               rules={[
                 ({ getFieldValue }) => ({
                   validator(_, value) {
                     const startDate = getFieldValue('start_date');
-                    if (!value || !startDate || value >= startDate) return Promise.resolve();
-                    return Promise.reject(new Error('Deallocation date must be after effective date'));
+                    const allocationPercentage = getFieldValue('allocation_percentage');
+                    
+                    // If allocation percentage is 0, end_date is required
+                    if (allocationPercentage === 0 && !value) {
+                      return Promise.reject(new Error('Deallocation date is required when allocation is 0'));
+                    }
+                    
+                    // If end_date is provided, validate it's after start_date
+                    if (value && startDate && value < startDate) {
+                      return Promise.reject(new Error('Deallocation date must be after effective date'));
+                    }
+                    
+                    return Promise.resolve();
                   },
                 }),
               ]}
             >
-              <DatePicker style={{ width: '100%' }} placeholder="Select deallocation date (optional)" format="YYYY-MM-DD" />
+              <DatePicker 
+                style={{ width: '100%' }} 
+                placeholder={form.getFieldValue('allocation_percentage') === 0 ? 'Select deallocation date (required)' : 'Select deallocation date (optional)'} 
+                format="YYYY-MM-DD" 
+              />
             </Form.Item>
           </Col>
           {isEditMode && (

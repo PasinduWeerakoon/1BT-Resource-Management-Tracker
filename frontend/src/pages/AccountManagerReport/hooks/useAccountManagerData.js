@@ -28,6 +28,7 @@ import {
 } from '@redux/slices/configSlice';
 import { showErrorToast } from '@utils/toast.utils';
 import logger from '@utils/logger';
+import { filterBillableResources } from '@utils/resourceFilters';
 import { transformProjectData, transformAllocationData } from '../utils/dataTransformers';
 
 // Default filter values
@@ -191,30 +192,38 @@ const useAccountManagerData = () => {
   }, []);
 
   // ─── Fetch projects for filter ───
-  useEffect(() => {
+  const fetchProjectsForFilterFn = useCallback(async () => {
     if (fetchProjectsFilterRef.current) return;
-    const fetch = async () => {
-      try {
-        fetchProjectsFilterRef.current = true;
-        setLoadingProjectsForFilter(true);
-        const response = await projectsService.getAll({ limit: 100 });
-        const data = parseResponseData(response);
-        const projects = data
-          .map((p) => ({ id: p.id, name: p.project_name || p.name }))
-          .filter((p) => p.id && p.name);
-        setProjectsForFilter(projects);
-      } catch (error) {
-        logger.error('Failed to fetch projects for filter:', error);
-        showErrorToast('Failed to load projects');
-      } finally {
-        setLoadingProjectsForFilter(false);
-        fetchProjectsFilterRef.current = false;
-      }
-    };
-    fetch();
+    try {
+      fetchProjectsFilterRef.current = true;
+      setLoadingProjectsForFilter(true);
+      const response = await projectsService.getAll({ limit: 100 });
+      const data = parseResponseData(response);
+      const projects = data
+        .map((p) => ({ id: p.id, name: p.project_name || p.name }))
+        .filter((p) => p.id && p.name);
+      setProjectsForFilter(projects);
+    } catch (error) {
+      logger.error('Failed to fetch projects for filter:', error);
+      showErrorToast('Failed to load projects');
+    } finally {
+      setLoadingProjectsForFilter(false);
+      fetchProjectsFilterRef.current = false;
+    }
   }, []);
 
+  useEffect(() => {
+    fetchProjectsForFilterFn();
+  }, [fetchProjectsForFilterFn]);
+
+  // ─── Refetch projects for filter (for use after CRUD operations) ───
+  const refetchProjectsForFilter = useCallback(() => {
+    fetchProjectsFilterRef.current = false;
+    fetchProjectsForFilterFn();
+  }, [fetchProjectsForFilterFn]);
+
   // ─── Fetch resources ───
+  // Filters to billable, active resources for project allocation
   useEffect(() => {
     if (fetchResourcesRef.current) return;
     const fetch = async () => {
@@ -222,18 +231,27 @@ const useAccountManagerData = () => {
         fetchResourcesRef.current = true;
         const response = await resourcesService.getAll({ limit: 250 });
         const data = parseResponseData(response);
-        const resources = data
+        
+        // Apply billable resource filtering for allocation
+        // Only Active status, billable tracks (QA, Dev, UI, BA, PM, UX, Delivery, Functional Consultant)
+        // Includes interns
+        const billableData = filterBillableResources(data);
+        
+        const resources = billableData
           .map((r) => ({
             id: r.id,
             name: r.name,
             email: r.email,
             status: r.status,
+            track_id: r.track_id,
             updated_at: r.updated_at,
             total_allocation: r.total_allocation,
             total_resource_billing: r.total_resource_billing,
           }))
           .filter((r) => r.id && r.name);
+        
         setResourcesList(resources);
+        logger.info(`Loaded ${resources.length} billable resources for allocation (filtered from ${data.length} total)`);
       } catch (error) {
         logger.error('Failed to fetch resources:', error);
         showErrorToast('Failed to load resources');
@@ -454,6 +472,7 @@ const useAccountManagerData = () => {
     loadingAccountManagers,
     projectsForFilter,
     loadingProjectsForFilter,
+    refetchProjectsForFilter,
     resourcesList,
 
     // Report

@@ -23,6 +23,7 @@ const ResourceAllocationsModal = ({
   selectedResourceTotalBilling,
   resourceAllocationsData,
   loadingResourceAllocations,
+  billingStatusesList = [],
 }) => {
   const activeAllocations = resourceAllocationsData.filter((a) => a.allocationType === 'active');
   const futureAllocations = resourceAllocationsData.filter((a) => a.allocationType === 'future');
@@ -95,7 +96,7 @@ const ResourceAllocationsModal = ({
           </span>
         </div>
         <CustomTable
-          columns={getResourceAllocationColumns()}
+          columns={getResourceAllocationColumns(billingStatusesList)}
           dataSource={activeAllocations}
           pagination={false}
           scroll={{ x: 1100 }}
@@ -132,7 +133,7 @@ const ResourceAllocationsModal = ({
             </span>
           </div>
           <CustomTable
-            columns={getFutureAllocationColumns()}
+            columns={getFutureAllocationColumns(billingStatusesList)}
             dataSource={futureAllocations}
             pagination={false}
             scroll={{ x: 1100 }}

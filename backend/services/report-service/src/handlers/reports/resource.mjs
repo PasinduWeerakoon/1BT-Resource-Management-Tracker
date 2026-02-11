@@ -121,6 +121,8 @@ export const getBenchReport = async (event) => {
             WHERE r.status = 'Active'
             AND r.deleted_at IS NULL
             AND r.track_id = ANY(ARRAY[${BENCH_ELIGIBLE_TRACK_IDS.join(',')}])
+            AND r.employee_type_id != 3 -- Exclude Interns
+            AND r.is_external = false -- Exclude External Resources
             ${trackFilterClause}
             ORDER BY ba.bench_allocation_percentage DESC, r.name ASC
         `;
@@ -147,6 +149,8 @@ export const getBenchReport = async (event) => {
             WHERE r.status = 'Active'
             AND r.deleted_at IS NULL
             AND r.track_id = ANY(ARRAY[${BENCH_ELIGIBLE_TRACK_IDS.join(',')}])
+            AND r.employee_type_id != 3 -- Exclude Interns
+            AND r.is_external = false -- Exclude External Resources
             ${trackFilterClause}
             AND r.track_id IS NOT NULL
             GROUP BY r.track_id
@@ -174,6 +178,8 @@ export const getBenchReport = async (event) => {
             WHERE r.status = 'Active'
             AND r.deleted_at IS NULL
             AND r.track_id = ANY(ARRAY[${BENCH_ELIGIBLE_TRACK_IDS.join(',')}])
+            AND r.employee_type_id != 3 -- Exclude Interns
+            AND r.is_external = false -- Exclude External Resources
             ${trackFilterClause}
             AND r.tech_stack_id IS NOT NULL
             GROUP BY r.tech_stack_id
@@ -187,6 +193,7 @@ export const getBenchReport = async (event) => {
             AND r.deleted_at IS NULL
             AND r.track_id IN (1, 2, 3, 4, 5, 8, 11) -- Billable Tracks (Excludes Support=6, Delivery=10)
             AND r.employee_type_id != 3 -- Exclude Interns
+            AND r.is_external = false -- Exclude External Resources
             ${trackFilterClause}
         `;
 
@@ -346,7 +353,7 @@ export const getInternReport = async (event) => {
 
     try {
         const queryParams = event.queryStringParameters || {};
-        const { project_name, account_manager, track, track_id, tech_stack, tech_stack_id } = queryParams;
+        const { project_id, project_name, account_manager_id, account_manager, track, track_id, tech_stack, tech_stack_id } = queryParams;
 
         log.info('Getting intern report', { filters: queryParams });
 
@@ -382,17 +389,31 @@ export const getInternReport = async (event) => {
             }
         }
 
-        // Project Name filter (applied to allocation join)
-        if (project_name && project_name !== 'All' && project_name !== '') {
-            allocationWhereClause += ` AND p.project_name = $${paramIndex}`;
-            params.push(project_name);
+        // Project filter - accept both project_id (ID) and project_name (name) for backward compatibility
+        const projectFilter = project_id || project_name;
+        if (projectFilter && projectFilter !== 'All' && projectFilter !== '') {
+            // If it's a number, use as ID; otherwise use as name
+            if (!isNaN(projectFilter)) {
+                allocationWhereClause += ` AND p.id = $${paramIndex}`;
+                params.push(parseInt(projectFilter));
+            } else {
+                allocationWhereClause += ` AND p.project_name = $${paramIndex}`;
+                params.push(projectFilter);
+            }
             paramIndex++;
         }
 
-        // Account Manager filter (applied to allocation join)
-        if (account_manager && account_manager !== 'All' && account_manager !== '') {
-            allocationWhereClause += ` AND am.name = $${paramIndex}`;
-            params.push(account_manager);
+        // Account Manager filter - accept both account_manager_id (ID) and account_manager (name) for backward compatibility
+        const accountManagerFilter = account_manager_id || account_manager;
+        if (accountManagerFilter && accountManagerFilter !== 'All' && accountManagerFilter !== '') {
+            // If it's a number, use as ID; otherwise use as name
+            if (!isNaN(accountManagerFilter)) {
+                allocationWhereClause += ` AND p.account_manager_id = $${paramIndex}`;
+                params.push(parseInt(accountManagerFilter));
+            } else {
+                allocationWhereClause += ` AND am.name = $${paramIndex}`;
+                params.push(accountManagerFilter);
+            }
             paramIndex++;
         }
 
@@ -406,7 +427,8 @@ export const getInternReport = async (event) => {
 
         // Get total intern count - apply resource filters only
         // Interns are identified by tier_id = 5 only (proper tier mapping from designation)
-        const totalInternsQuery = project_name || account_manager
+        const needsAllocationJoin = project_id || project_name || account_manager_id || account_manager;
+        const totalInternsQuery = needsAllocationJoin
             ? `
                 SELECT COUNT(DISTINCT r.id) as total
                 FROM employees r
@@ -425,7 +447,7 @@ export const getInternReport = async (event) => {
             `;
 
         // Get intern details with their current projects
-        const internDetailsQuery = project_name || account_manager
+        const internDetailsQuery = needsAllocationJoin
             ? `
                 SELECT DISTINCT
                     r.id,
@@ -577,7 +599,8 @@ export const getInternReport = async (event) => {
                 internData.push({
                     key: `${intern.id}-no-project`,
                     employeeName: intern.employeeName,
-                    techStack: intern.techStack,
+                    techStack: intern.techStack || 'Unassigned',
+                    techStackId: intern.techStackId,
                     project: 'Bench',
                     allocatedDate: '',
                     deallocatedDate: '',
@@ -593,7 +616,8 @@ export const getInternReport = async (event) => {
                     internData.push({
                         key: `${intern.id}-${project.projectId}-${index}`,
                         employeeName: intern.employeeName,
-                        techStack: intern.techStack,
+                        techStack: intern.techStack || 'Unassigned',
+                        techStackId: intern.techStackId,
                         project: project.project,
                         allocatedDate: project.allocatedDate,
                         deallocatedDate: project.deallocatedDate || '',
@@ -607,13 +631,51 @@ export const getInternReport = async (event) => {
             }
         });
 
+        // Sort by Tech Stack first, then by Employee Name
+        internData.sort((a, b) => {
+            // First sort by tech stack (Unassigned goes last)
+            const techStackA = a.techStack || 'Unassigned';
+            const techStackB = b.techStack || 'Unassigned';
+
+            if (techStackA === 'Unassigned' && techStackB !== 'Unassigned') return 1;
+            if (techStackA !== 'Unassigned' && techStackB === 'Unassigned') return -1;
+            if (techStackA !== techStackB) {
+                return techStackA.localeCompare(techStackB);
+            }
+
+            // If same tech stack, sort by employee name
+            return a.employeeName.localeCompare(b.employeeName);
+        });
+
+        // Group by Tech Stack for structured response
+        const groupedByTechStack = {};
+        internData.forEach((row) => {
+            const techStack = row.techStack || 'Unassigned';
+            if (!groupedByTechStack[techStack]) {
+                groupedByTechStack[techStack] = {
+                    techStack: techStack,
+                    techStackId: row.techStackId,
+                    interns: []
+                };
+            }
+            groupedByTechStack[techStack].interns.push(row);
+        });
+
+        // Convert grouped object to array, sorted by tech stack name
+        const groupedByTechStackArray = Object.values(groupedByTechStack).sort((a, b) => {
+            if (a.techStack === 'Unassigned' && b.techStack !== 'Unassigned') return 1;
+            if (a.techStack !== 'Unassigned' && b.techStack === 'Unassigned') return -1;
+            return a.techStack.localeCompare(b.techStack);
+        });
+
         return success({
             summary: {
                 totalInternCount: totalInterns,
                 totalEmployees: totalEmployees,
                 internPercentage: parseFloat(internPercentage)
             },
-            data: internData,
+            data: internData, // Flat array sorted by tech stack, then employee name
+            groupedByTechStack: groupedByTechStackArray, // Grouped structure by tech stack
             total: internData.length,
             filters: queryParams,
             generatedAt: new Date().toISOString()

@@ -69,7 +69,7 @@ const Dashboard = () => {
         const data = response.data || response;
         const designationsPayload = data.designations || { data: [] };
         const allocationsPayload = data.allocations || { data: [] };
-        const allocationsPagination = allocationsPayload.pagination || {};
+        const designationsPagination = designationsPayload.pagination || {};
 
         setReportData({
           charts: data.charts || {
@@ -81,11 +81,11 @@ const Dashboard = () => {
         });
 
         setAllocationPagination((prev) => ({
-          current: allocationsPagination.page ?? prev.current,
-          pageSize: allocationsPagination.limit ?? prev.pageSize,
-          total: allocationsPagination.total
-            ?? allocationsPayload.total
-            ?? (allocationsPayload.data ? allocationsPayload.data.length : 0),
+          current: designationsPagination.page ?? prev.current,
+          pageSize: designationsPagination.limit ?? prev.pageSize,
+          total: designationsPagination.total
+            ?? designationsPayload.total
+            ?? (designationsPayload.data ? designationsPayload.data.length : 0),
         }));
       },
       onError: (error) => {
@@ -249,27 +249,6 @@ const Dashboard = () => {
   const tierIdToLabel = useMemo(() => buildIdLabelMap(tiersList), [tiersList]);
   const designationIdToLabel = useMemo(() => buildIdLabelMap(designationsList), [designationsList]);
 
-  const designationsByResourceId = useMemo(() => {
-    const map = new Map();
-    (reportData.designations.data || []).forEach((item) => {
-      const key = item.resource_id ?? item.id;
-      if (key !== undefined && key !== null) {
-        map.set(key, item);
-      }
-    });
-    return map;
-  }, [reportData.designations.data]);
-
-  const designationsByEmployeeName = useMemo(() => {
-    const map = new Map();
-    (reportData.designations.data || []).forEach((item) => {
-      if (item?.employee_name) {
-        map.set(item.employee_name, item);
-      }
-    });
-    return map;
-  }, [reportData.designations.data]);
-
   // Designation columns
   const designationColumns = [
     {
@@ -310,41 +289,50 @@ const Dashboard = () => {
     },
   ];
 
-  // Designation table data (from allocations, enriched by designations lookup)
+  // Designation table data (from designations, enriched by allocations lookup)
   const designationData = useMemo(() => {
+    const designations = reportData.designations.data || [];
     const allocations = reportData.allocations.data || [];
-    return allocations.map((allocation, index) => {
-      const resourceId = allocation.resource_id ?? allocation.id;
-      const designationRecord = (resourceId !== undefined && designationsByResourceId.get(resourceId))
-        || designationsByEmployeeName.get(allocation.employee_name);
+    
+    // Create a map of resource_id to total_allocation
+    const allocationsByResourceId = new Map();
+    allocations.forEach((allocation) => {
+      const resourceId = allocation.resource_id;
+      if (resourceId && !allocationsByResourceId.has(resourceId)) {
+        allocationsByResourceId.set(resourceId, parseFloat(allocation.total_allocation) || 0);
+      }
+    });
+    
+    return designations.map((designationRecord, index) => {
+      const resourceId = designationRecord.id || designationRecord.resource_id;
+      const totalAllocation = allocationsByResourceId.get(resourceId) || 0;
 
-      const trackLabel = getLabelFromMap(trackIdToLabel, designationRecord?.track_id)
-        || designationRecord?.track
-        || designationRecord?.track_name;
-      const techStackLabel = getLabelFromMap(techStackIdToLabel, designationRecord?.tech_stack_id)
-        || designationRecord?.tech_stack
-        || designationRecord?.tech_stack_name;
-      const tierLabel = getLabelFromMap(tierIdToLabel, designationRecord?.tier_id)
-        || designationRecord?.tier
-        || designationRecord?.tier_name;
-      const designationLabel = getLabelFromMap(designationIdToLabel, designationRecord?.designation_id)
-        || designationRecord?.designation
-        || designationRecord?.designation_name;
+      const trackLabel = getLabelFromMap(trackIdToLabel, designationRecord.track_id)
+        || designationRecord.track
+        || designationRecord.track_name;
+      const techStackLabel = getLabelFromMap(techStackIdToLabel, designationRecord.tech_stack_id)
+        || designationRecord.tech_stack
+        || designationRecord.tech_stack_name;
+      const tierLabel = getLabelFromMap(tierIdToLabel, designationRecord.tier_id)
+        || designationRecord.tier
+        || designationRecord.tier_name;
+      const designationLabel = getLabelFromMap(designationIdToLabel, designationRecord.designation_id)
+        || designationRecord.designation
+        || designationRecord.designation_name;
 
       return {
-        key: allocation.id || `allocation-${index}`,
-        employeeName: allocation.employee_name || allocation.resource_name || COMMON.N_A_LABEL,
+        key: designationRecord.id || `designation-${index}`,
+        employeeName: designationRecord.employee_name || COMMON.N_A_LABEL,
         track: trackLabel || COMMON.N_A_LABEL,
         techStack: techStackLabel || COMMON.N_A_LABEL,
         tier: tierLabel || COMMON.N_A_LABEL,
         designation: designationLabel || COMMON.N_A_LABEL,
-        allocationCount: allocation.total_allocation ?? allocation.project_allocation ?? 0,
+        allocationCount: `${totalAllocation.toFixed(2)}%`,
       };
     });
   }, [
+    reportData.designations.data,
     reportData.allocations.data,
-    designationsByResourceId,
-    designationsByEmployeeName,
     trackIdToLabel,
     techStackIdToLabel,
     tierIdToLabel,
@@ -423,6 +411,7 @@ const Dashboard = () => {
 
   const [downloading, setDownloading] = useState(false);
   const [downloadingProjects, setDownloadingProjects] = useState(false);
+  const [downloadingCriticalShadows, setDownloadingCriticalShadows] = useState(false);
 
   const handleDownloadExcel = useCallback(async () => {
     try {
@@ -450,8 +439,21 @@ const Dashboard = () => {
     }
   }, []);
 
+  const handleDownloadCriticalShadowsExcel = useCallback(async () => {
+    try {
+      setDownloadingCriticalShadows(true);
+      await documentsService.downloadNonBillingExcel();
+      showSuccessToast('Critical Shadows report downloaded successfully');
+    } catch (error) {
+      logger.error('Failed to download critical shadows Excel', error);
+      showErrorToast('Failed to download critical shadows report');
+    } finally {
+      setDownloadingCriticalShadows(false);
+    }
+  }, []);
+
   const downloadButtons = (
-    <div style={{ display: 'flex', gap: '8px' }}>
+    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
       <Button
         type="primary"
         icon={<DownloadOutlined />}
@@ -467,6 +469,15 @@ const Dashboard = () => {
         loading={downloadingProjects}
       >
         Download Projects
+      </Button>
+      <Button
+        type="default"
+        icon={<DownloadOutlined />}
+        onClick={handleDownloadCriticalShadowsExcel}
+        loading={downloadingCriticalShadows}
+        danger
+      >
+        Download Critical Shadows
       </Button>
     </div>
   );
@@ -521,7 +532,7 @@ const Dashboard = () => {
                   current: allocationPagination.current,
                   pageSize: allocationPagination.pageSize,
                   total: allocationPagination.total,
-                  showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} allocations`,
+                  showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} employees`,
                   onChange: (page, pageSize) => {
                     setAllocationPagination((prev) => ({
                       ...prev,

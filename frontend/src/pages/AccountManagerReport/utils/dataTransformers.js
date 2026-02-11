@@ -125,24 +125,13 @@ export const transformResourceAllocationsData = (allocationsData) => {
       ? parseFloat(allocation.billing_percentage)
       : (allocation.billing_percentage || 0);
 
-    let billingStatus = 'Non-Billing';
-    if (allocation.project_type === 'Client' || allocation.project_is_billable) {
-      billingStatus = 'Billing';
-    } else if (allocation.project_type === 'Bench') {
-      billingStatus = 'Bench';
-    } else if (allocation.project_type === 'Pre-Sales' || allocation.project_type === 'Presale' || allocation.project_type === 'Pre-Sale') {
-      billingStatus = 'Presale';
-    } else if (allocation.project_type === 'Training') {
-      billingStatus = 'Training';
-    }
-
     return {
       key: allocation.id || `allocation-${index}`,
       id: allocation.id,
       project: allocation.project_name || 'N/A',
       allocatedDate: allocation.allocated_date ? dayjs(allocation.allocated_date).format('YYYY-MM-DD') : '-',
       deallocatedDate: allocation.deallocated_date ? dayjs(allocation.deallocated_date).format('YYYY-MM-DD') : '-',
-      billingStatus: billingStatus,
+      billing_status_id: allocation.billing_status_id,
       billingPercentage: billingPercentage ? `${billingPercentage.toFixed(0)}%` : '0%',
       projectAllocation: allocationPercentage ? `${allocationPercentage.toFixed(0)}%` : '0%',
       duration: duration,
@@ -172,17 +161,6 @@ export const transformResourceAllocationsData = (allocationsData) => {
       ? parseFloat(allocation.billing_percentage)
       : (allocation.billing_percentage || 0);
 
-    let billingStatus = 'Non-Billing';
-    if (allocation.project_type === 'Client' || allocation.project_is_billable) {
-      billingStatus = 'Billing';
-    } else if (allocation.project_type === 'Bench') {
-      billingStatus = 'Bench';
-    } else if (allocation.project_type === 'Pre-Sales' || allocation.project_type === 'Presale' || allocation.project_type === 'Pre-Sale') {
-      billingStatus = 'Presale';
-    } else if (allocation.project_type === 'Training') {
-      billingStatus = 'Training';
-    }
-
     return {
       key: allocation.id || `future-allocation-${index}`,
       id: allocation.id,
@@ -191,7 +169,7 @@ export const transformResourceAllocationsData = (allocationsData) => {
       deallocatedDate: allocation.deallocated_date ? dayjs(allocation.deallocated_date).format('YYYY-MM-DD') : '-',
       effectiveDate: allocation.effective_date ? dayjs(allocation.effective_date).format('YYYY-MM-DD') : '-',
       daysUntilActivation: daysUntilActivation,
-      billingStatus: billingStatus,
+      billing_status_id: allocation.billing_status_id,
       billingPercentage: billingPercentage ? `${billingPercentage.toFixed(0)}%` : '0%',
       projectAllocation: allocationPercentage ? `${allocationPercentage.toFixed(0)}%` : '0%',
       duration: duration,
