@@ -330,7 +330,8 @@ def generate_bench_report(event, context):
 def generate_non_billing_report(event, context):
     """
     Generate non-billing (Critical Shadows) report in Excel format
-    Critical Shadows are resources whose non-bench allocation exceeds billing percentage
+    Based on DASHBOARD_QUERIES.md Query #10 (Shadow calculation)
+    Shows resources allocated to billing projects where allocation > billing
     GET /documents/excel/non-billing
     """
     try:
@@ -340,41 +341,74 @@ def generate_non_billing_report(event, context):
         
         # Build WHERE clause for track filter
         track_filter = ''
-        params = []
         if track_id:
-            track_filter = 'AND e.track_id = %s'
-            params.append(int(track_id))
+            track_filter = f'AND e.track_id = {int(track_id)}'
         
-        # Query Critical Shadows: Resources whose total_resource_billing < 100%
-        # Using pre-calculated field from employees table for better performance
-        # Excludes bench project allocations from the output
+        # Query Critical Shadows using dashboard query logic
+        # Based on Query #10: Shadow = (allocation on billing projects) - (billing on billing projects)
+        # Shows resources where allocation_percentage > billing_percentage on billing projects
         sql = f"""
+            WITH resource_shadow AS (
+                SELECT 
+                    e.id as employee_id,
+                    e.name,
+                    e.track_id,
+                    e.tier_id,
+                    e.designation_id,
+                    a.project_id,
+                    p.project_name,
+                    a.allocation_percentage,
+                    a.billing_percentage,
+                    (a.allocation_percentage - a.billing_percentage) as shadow_amount,
+                    -- Calculate total allocation on billing projects (excluding bench)
+                    SUM(CASE 
+                        WHEN p.is_bench_project = true THEN 0
+                        ELSE a.allocation_percentage 
+                    END) OVER (PARTITION BY e.id) as total_allocation_on_billing,
+                    -- Calculate total billing on billing projects
+                    SUM(a.billing_percentage) OVER (PARTITION BY e.id) as total_billing,
+                    -- Calculate total shadow in the window function
+                    (
+                        SUM(CASE 
+                            WHEN p.is_bench_project = true THEN 0
+                            ELSE a.allocation_percentage 
+                        END) OVER (PARTITION BY e.id) - 
+                        SUM(a.billing_percentage) OVER (PARTITION BY e.id)
+                    ) as total_shadow
+                FROM allocations a
+                JOIN employees e ON a.employee_id = e.id
+                JOIN projects p ON a.project_id = p.id
+                JOIN billing_statuses pbs ON p.billing_status_id = pbs.id
+                WHERE a.is_active = true 
+                  AND a.deleted_at IS NULL
+                  AND e.status = 'Active'
+                  AND e.deleted_at IS NULL
+                  AND LOWER(pbs.name) = 'billing'
+                  AND e.track_id IN (1, 2, 3, 4, 5, 8, 11)
+                  AND e.employee_type_id != 3
+                  AND e.is_external = false
+                  {track_filter}
+            )
             SELECT 
-                e.name,
-                p.project_name,
-                a.allocation_percentage,
-                a.billing_percentage,
-                e.total_resource_billing,
-                e.track_id,
-                e.tier_id,
+                rs.name,
+                rs.project_name,
+                rs.allocation_percentage,
+                rs.billing_percentage,
+                rs.shadow_amount,
+                rs.total_allocation_on_billing,
+                rs.total_billing,
+                rs.total_shadow,
+                rs.track_id,
+                rs.tier_id,
                 d.name as designation
-            FROM employees e
-            JOIN allocations a ON a.employee_id = e.id
-            JOIN projects p ON a.project_id = p.id
-            LEFT JOIN designations d ON e.designation_id = d.id
-            WHERE e.total_resource_billing < 100
-              AND e.status = 'Active'
-              AND a.is_active = true
-              AND a.deleted_at IS NULL
-              AND p.deleted_at IS NULL
-              AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
-              AND e.deleted_at IS NULL
-              AND p.is_bench_project = false
-              {track_filter}
-            ORDER BY e.total_resource_billing ASC, e.name ASC
+            FROM resource_shadow rs
+            LEFT JOIN designations d ON rs.designation_id = d.id
+            WHERE rs.allocation_percentage > rs.billing_percentage
+              AND rs.shadow_amount > 0
+            ORDER BY rs.total_shadow DESC, rs.shadow_amount DESC, rs.name ASC
         """
         
-        data = query(sql, params)
+        data = query(sql)
         
         # Create workbook
         wb = Workbook()
@@ -382,17 +416,28 @@ def generate_non_billing_report(event, context):
         ws.title = "Critical Shadows"
         
         # Title
-        ws.merge_cells('A1:E1')
-        title_cell = ws.cell(row=1, column=1, value="Critical Shadows (Resources with Total Billing < 100%)")
+        ws.merge_cells('A1:I1')
+        title_cell = ws.cell(row=1, column=1, value="Critical Shadows (Billing Projects: Allocation > Billing)")
         title_cell.font = Font(bold=True, size=14, color='FF0000')
         title_cell.alignment = Alignment(horizontal='center')
         
         # Date and count
         ws.cell(row=2, column=1, value=f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        ws.cell(row=2, column=4, value=f"Total Records: {len(data)}")
+        ws.cell(row=2, column=7, value=f"Total Records: {len(data)}")
         
         # Headers
-        headers = ['Name', 'Project', 'Allocation %', 'Billing %', 'Total Billing %']
+        headers = [
+            'Name', 
+            'Designation',
+            'Track',
+            'Project', 
+            'Allocation %', 
+            'Billing %', 
+            'Shadow (Per Project)',
+            'Total Allocation',
+            'Total Billing',
+            'Total Shadow'
+        ]
         
         for col, header in enumerate(headers, 1):
             cell = ws.cell(row=4, column=col, value=header)
@@ -402,22 +447,34 @@ def generate_non_billing_report(event, context):
         for row_idx, row in enumerate(data, 5):
             allocation_pct = float(row.get('allocation_percentage', 0) or 0)
             billing_pct = float(row.get('billing_percentage', 0) or 0)
-            total_billing_pct = float(row.get('total_resource_billing', 0) or 0)
+            shadow_amount = float(row.get('shadow_amount', 0) or 0)
+            total_allocation = float(row.get('total_allocation_on_billing', 0) or 0)
+            total_billing = float(row.get('total_billing', 0) or 0)
+            total_shadow = float(row.get('total_shadow', 0) or 0)
+            
+            # Get track and tier names
+            track_id = row.get('track_id')
+            track_name = get_track_name(track_id)
             
             cells = [
                 row.get('name', ''),
+                row.get('designation', ''),
+                track_name,
                 row.get('project_name', ''),
                 f"{allocation_pct}%",
                 f"{billing_pct}%",
-                f"{total_billing_pct}%"
+                f"{shadow_amount}%",
+                f"{total_allocation}%",
+                f"{total_billing}%",
+                f"{total_shadow}%"
             ]
             
             for col_idx, value in enumerate(cells, 1):
                 cell = ws.cell(row=row_idx, column=col_idx, value=value)
                 apply_cell_style(cell)
                 
-                # Highlight total billing percentage in red (since all are < 100%)
-                if col_idx == 5:
+                # Highlight shadow amounts in red
+                if col_idx in [7, 10]:  # Shadow columns
                     cell.font = Font(color='FF0000', bold=True)
         
         auto_column_width(ws)
