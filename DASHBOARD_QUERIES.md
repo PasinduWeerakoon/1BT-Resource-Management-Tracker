@@ -71,7 +71,7 @@ SELECT
     e.employee_name,
     COALESCE(SUM(
         CASE 
-            WHEN p.is_bench = true THEN 0
+            WHEN p.is_bench_project = true THEN 0
             ELSE a.allocation_percentage 
         END
     ), 0) as total_allocation_percentage
@@ -128,7 +128,7 @@ ORDER BY e.employee_name;
 SELECT 
     COALESCE(SUM(
         CASE 
-            WHEN p.is_bench = true THEN 0
+            WHEN p.is_bench_project = true THEN 0
             ELSE a.allocation_percentage 
         END
     ) / 100.0, 0) as total_allocation_fte
@@ -195,7 +195,7 @@ WITH
 billable_allocation AS (
     SELECT COALESCE(SUM(
         CASE 
-            WHEN p.is_bench = true THEN 0
+            WHEN p.is_bench_project = true THEN 0
             ELSE a.allocation_percentage 
         END
     ), 0) as total_allocation
@@ -246,7 +246,7 @@ WHERE a.is_active = true
   AND a.deleted_at IS NULL
   AND e.status = 'Active'
   AND e.deleted_at IS NULL
-  AND p.is_bench = true;
+  AND p.is_bench_project = true;
   AND e.track_id IN (1, 2, 3, 4, 5, 8, 11)
   AND e.employee_type_id != 3
   AND e.is_external = false
@@ -273,7 +273,7 @@ WHERE a.is_active = true
   AND a.deleted_at IS NULL
   AND e.status = 'Active'
   AND e.deleted_at IS NULL
-  AND p.is_bench = false
+  AND p.is_bench_project = false
   AND e.track_id IN (1, 2, 3, 4, 5, 8, 11)
   AND e.employee_type_id != 3
   AND e.is_external = false
@@ -367,7 +367,7 @@ active_employees AS (
 billable_allocations AS (
     SELECT 
         SUM(CASE 
-            WHEN p.is_bench = true THEN 0
+            WHEN p.is_bench_project = true THEN 0
             ELSE a.allocation_percentage 
         END) as total_allocation
     FROM allocations a
@@ -396,7 +396,7 @@ all_billing AS (
 shadow_allocation AS (
     SELECT 
         SUM(CASE 
-            WHEN p.is_bench = true THEN 0
+            WHEN p.is_bench_project = true THEN 0
             ELSE a.allocation_percentage 
         END) as total_allocation
     FROM allocations a
@@ -437,7 +437,7 @@ bench_allocations AS (
       AND a.deleted_at IS NULL
       AND e.status = 'Active'
       AND e.deleted_at IS NULL
-      AND p.is_bench = true
+      AND p.is_bench_project = true
       AND e.track_id IN (1, 2, 3, 4, 5, 8, 11)
       AND e.employee_type_id != 3
       AND e.is_external = false
@@ -454,7 +454,7 @@ internal_non_billing AS (
       AND a.deleted_at IS NULL
       AND e.status = 'Active'
       AND e.deleted_at IS NULL
-      AND p.is_bench = false
+      AND p.is_bench_project = false
       AND e.track_id IN (1, 2, 3, 4, 5, 8, 11)
       AND e.employee_type_id != 3
       AND e.is_external = false
