@@ -149,65 +149,68 @@ export const getDashboardResourceCounts = async (event) => {
             )
             SELECT
                 -- 1. Total Active Resource Count
-                COUNT(CASE WHEN ae.is_external = false THEN 1 END) as total_active_resource_count,
+                GREATEST(COUNT(CASE WHEN ae.is_external = false THEN 1 END), 0) as total_active_resource_count,
                 
                 -- 2. Total Billable Resource Count
-                COUNT(CASE 
+                GREATEST(COUNT(CASE 
                     WHEN ae.track_id IN (${BILLABLE_TRACK_IDS.join(',')}) 
                     AND ae.employee_type_id != 3 
                     AND ae.is_external = false 
                     THEN 1 
-                END) as total_billable_resource_count,
+                END), 0) as total_billable_resource_count,
                 
                 -- 3. External Resource Count
-                COUNT(CASE WHEN ae.is_external = true THEN 1 END) as external_resource_count,
+                GREATEST(COUNT(CASE WHEN ae.is_external = true THEN 1 END), 0) as external_resource_count,
                 
                 -- 4. Intern Resource Count
-                COUNT(CASE WHEN ae.employee_type_id = 3 THEN 1 END) as intern_resource_count,
+                GREATEST(COUNT(CASE WHEN ae.employee_type_id = 3 THEN 1 END), 0) as intern_resource_count,
                 
                 -- 7. Total Allocation of Company (FTE)
-                COALESCE((SELECT total_allocation / 100.0 FROM billable_allocations), 0)::DECIMAL(10,2) as allocated_resource_count,
+                GREATEST(COALESCE((SELECT total_allocation / 100.0 FROM billable_allocations), 0), 0)::DECIMAL(10,2) as allocated_resource_count,
                 
                 -- 8. Total Billing of Company (FTE)
-                COALESCE((SELECT total_billing / 100.0 FROM all_billing), 0)::DECIMAL(10,2) as billing_resource_count,
+                GREATEST(COALESCE((SELECT total_billing / 100.0 FROM all_billing), 0), 0)::DECIMAL(10,2) as billing_resource_count,
                 
                 -- 2 (duplicate). Billable resource count
-                COUNT(CASE 
+                GREATEST(COUNT(CASE 
                     WHEN ae.track_id IN (${BILLABLE_TRACK_IDS.join(',')}) 
                     AND ae.employee_type_id != 3 
                     AND ae.is_external = false 
                     THEN 1 
-                END) as billable_resource_count,
+                END), 0) as billable_resource_count,
                 
                 -- 10. Shadow Count (FTE)
-                COALESCE(
-                    ((SELECT total_allocation FROM shadow_allocation) - (SELECT total_billing FROM shadow_billing)) / 100.0,
+                GREATEST(
+                    COALESCE(
+                        ((SELECT total_allocation FROM shadow_allocation) - (SELECT total_billing FROM shadow_billing)) / 100.0,
+                        0
+                    ),
                     0
                 )::DECIMAL(10,2) as shadow_count,
                 
                 -- 12. Internal Non-Billing Count (FTE)
-                COALESCE((SELECT total_allocation / 100.0 FROM internal_non_billing), 0)::DECIMAL(10,2) as internal_non_billing_count,
+                GREATEST(COALESCE((SELECT total_allocation / 100.0 FROM internal_non_billing), 0), 0)::DECIMAL(10,2) as internal_non_billing_count,
                 
                 -- 3 (duplicate). External Consultant Count
-                COUNT(CASE WHEN ae.is_external = true THEN 1 END) as external_consultant_count,
+                GREATEST(COUNT(CASE WHEN ae.is_external = true THEN 1 END), 0) as external_consultant_count,
                 
                 -- 11. Bench Resource Count (FTE)
-                COALESCE((SELECT total_bench / 100.0 FROM bench_allocations), 0)::DECIMAL(10,2) as bench_resource_count,
+                GREATEST(COALESCE((SELECT total_bench / 100.0 FROM bench_allocations), 0), 0)::DECIMAL(10,2) as bench_resource_count,
                 
                 -- 13. Training Resource Count (FTE)
-                COALESCE((SELECT total_training / 100.0 FROM training_allocations), 0)::DECIMAL(10,2) as training_resource_count,
+                GREATEST(COALESCE((SELECT total_training / 100.0 FROM training_allocations), 0), 0)::DECIMAL(10,2) as training_resource_count,
                 
                 -- 14. Interns Count (Headcount)
-                COUNT(CASE WHEN ae.employee_type_id = 3 THEN 1 END) as interns_count,
+                GREATEST(COUNT(CASE WHEN ae.employee_type_id = 3 THEN 1 END), 0) as interns_count,
                 
                 -- 15. Synergy Count (Headcount)
-                COUNT(CASE WHEN ae.tier_id = 7 THEN 1 END) as synergy_count,
+                GREATEST(COUNT(CASE WHEN ae.tier_id = 7 THEN 1 END), 0) as synergy_count,
                 
                 -- 16. Shared Services Count (Headcount)
-                COUNT(CASE WHEN ae.track_id = 6 THEN 1 END) as shared_services_count,
+                GREATEST(COUNT(CASE WHEN ae.track_id = 6 THEN 1 END), 0) as shared_services_count,
                 
                 -- Total active employees (excluding external)
-                COUNT(CASE WHEN ae.is_external = false THEN 1 END)::INTEGER as total_active_employees
+                GREATEST(COUNT(CASE WHEN ae.is_external = false THEN 1 END), 0)::INTEGER as total_active_employees
             FROM active_employees ae
         `);
 
