@@ -450,80 +450,182 @@ def generate_summary_report(event, context):
     try:
         report_date = datetime.now().strftime('%Y-%m-%d')
         
-        # Get all stats from dashboard_stats table
-        # Using the pre-calculated dashboard stats for consistency with dashboard UI
-        # Note: Each stats_type stores data in its specific column
-        stats_query = """
-            SELECT 
-                stats_type,
-                resource_counts,
-                percentages
-            FROM dashboard_stats
-            WHERE stats_type IN ('resource_counts', 'percentages')
-            ORDER BY stats_date DESC, stats_type ASC
-            LIMIT 2
+        # Calculate all stats in real-time using the same queries as dashboard.mjs
+        # Based on DASHBOARD_QUERIES.md - Combined Dashboard Query
+        logger.info(f"=== CALCULATING DASHBOARD STATS IN REAL-TIME ===")
+        
+        # Billable tracks (same as BILLABLE_TRACK_IDS in configs)
+        billable_tracks = "1, 2, 3, 4, 5, 8, 11"
+        
+        stats_query = f"""
+            WITH active_employees AS (
+                SELECT id, track_id, tier_id, employee_type_id, is_external
+                FROM employees
+                WHERE status = 'Active' AND deleted_at IS NULL
+            ),
+            billable_allocations AS (
+                SELECT 
+                    SUM(CASE 
+                        WHEN p.is_bench_project = true THEN 0
+                        ELSE a.allocation_percentage 
+                    END) as total_allocation
+                FROM allocations a
+                JOIN employees e ON a.employee_id = e.id
+                LEFT JOIN projects p ON a.project_id = p.id
+                WHERE a.is_active = true 
+                  AND a.deleted_at IS NULL
+                  AND e.track_id IN ({billable_tracks})
+                  AND e.employee_type_id != 3
+                  AND e.is_external = false
+                  AND e.status = 'Active'
+                  AND e.deleted_at IS NULL
+            ),
+            all_billing AS (
+                SELECT 
+                    SUM(a.billing_percentage) as total_billing
+                FROM allocations a
+                JOIN employees e ON a.employee_id = e.id
+                WHERE a.is_active = true 
+                  AND a.deleted_at IS NULL
+                  AND e.status = 'Active'
+                  AND e.deleted_at IS NULL
+            ),
+            shadow_allocation AS (
+                SELECT 
+                    SUM(CASE 
+                        WHEN p.is_bench_project = true THEN 0
+                        ELSE a.allocation_percentage 
+                    END) as total_allocation
+                FROM allocations a
+                JOIN employees e ON a.employee_id = e.id
+                LEFT JOIN projects p ON a.project_id = p.id
+                LEFT JOIN billing_statuses pbs ON p.billing_status_id = pbs.id
+                WHERE a.is_active = true 
+                  AND a.deleted_at IS NULL
+                  AND e.status = 'Active'
+                  AND e.deleted_at IS NULL
+                  AND e.track_id IN ({billable_tracks})
+                  AND e.employee_type_id != 3
+                  AND e.is_external = false
+                  AND LOWER(pbs.name) = 'billing'
+            ),
+            shadow_billing AS (
+                SELECT 
+                    SUM(a.billing_percentage) as total_billing
+                FROM allocations a
+                JOIN employees e ON a.employee_id = e.id
+                JOIN projects p ON a.project_id = p.id
+                JOIN billing_statuses pbs ON p.billing_status_id = pbs.id
+                WHERE a.is_active = true 
+                  AND a.deleted_at IS NULL
+                  AND e.status = 'Active'
+                  AND e.deleted_at IS NULL
+                  AND LOWER(pbs.name) = 'billing'
+            ),
+            bench_allocations AS (
+                SELECT 
+                    SUM(a.allocation_percentage) as total_bench
+                FROM allocations a
+                JOIN employees e ON a.employee_id = e.id
+                JOIN projects p ON a.project_id = p.id
+                WHERE a.is_active = true 
+                  AND a.deleted_at IS NULL
+                  AND e.status = 'Active'
+                  AND e.deleted_at IS NULL
+                  AND p.is_bench_project = true
+                  AND e.track_id IN (1, 2, 3, 4, 5, 8, 10, 11)
+         
+            ),
+            internal_non_billing AS (
+                SELECT 
+                    SUM(a.allocation_percentage) as total_allocation
+                FROM allocations a
+                JOIN employees e ON a.employee_id = e.id
+                JOIN projects p ON a.project_id = p.id
+                LEFT JOIN billing_statuses pbs ON p.billing_status_id = pbs.id
+                WHERE a.is_active = true 
+                  AND a.deleted_at IS NULL
+                  AND e.status = 'Active'
+                  AND e.deleted_at IS NULL
+                  AND p.is_bench_project = false
+                  AND e.track_id IN ({billable_tracks})
+                  AND e.employee_type_id != 3
+                  AND e.is_external = false
+                  AND (pbs.name IS NULL OR LOWER(pbs.name) != 'billing')
+            ),
+            training_allocations AS (
+                SELECT 
+                    SUM(a.allocation_percentage) as total_training
+                FROM allocations a
+                JOIN employees e ON a.employee_id = e.id
+                JOIN projects p ON a.project_id = p.id
+                JOIN project_types pt ON p.project_type_id = pt.id
+                WHERE a.is_active = true 
+                  AND a.deleted_at IS NULL
+                  AND e.status = 'Active'
+                  AND e.deleted_at IS NULL
+                  AND LOWER(pt.name) = 'training'
+            )
+            SELECT
+                GREATEST(COUNT(CASE 
+                    WHEN ae.track_id IN ({billable_tracks}) 
+                    AND ae.employee_type_id != 3 
+                    AND ae.is_external = false 
+                    AND ae.tier_id != 7
+                    THEN 1 
+                END), 0) as billable_resource_count,
+                
+                GREATEST(COALESCE((SELECT total_billing / 100.0 FROM all_billing), 0), 0) as billing_resource_count,
+                
+                GREATEST(COALESCE((SELECT total_bench / 100.0 FROM bench_allocations), 0), 0) as bench_resource_count,
+                
+                GREATEST(
+                    COALESCE(
+                        ((SELECT total_allocation FROM shadow_allocation) - (SELECT total_billing FROM shadow_billing)) / 100.0,
+                        0
+                    ),
+                    0
+                ) as shadow_count,
+                
+                GREATEST(COUNT(CASE WHEN ae.employee_type_id = 3 THEN 1 END), 0) as intern_count,
+                
+                GREATEST(COALESCE((SELECT total_allocation / 100.0 FROM internal_non_billing), 0), 0) as internal_non_billing_count,
+                
+                GREATEST(COALESCE((SELECT total_training / 100.0 FROM training_allocations), 0), 0) as training_count,
+                
+                GREATEST(COALESCE((SELECT total_allocation / 100.0 FROM billable_allocations), 0), 0) as allocated_resource_count,
+                
+                GREATEST(COUNT(CASE WHEN ae.is_external = false THEN 1 END), 0) as total_active_employees
+            FROM active_employees ae
         """
         
         stats_result = query(stats_query)
-        resource_counts = {}
-        percentages = {}
         
-        logger.info(f"=== DASHBOARD STATS QUERY ===")
-        logger.info(f"Query returned {len(stats_result) if stats_result else 0} rows")
+        logger.info(f"Stats query returned {len(stats_result) if stats_result else 0} rows")
         
-        if stats_result and len(stats_result) > 0:
-            # Log raw results for debugging
-            for idx, row in enumerate(stats_result):
-                logger.info(f"Row {idx}: stats_type={row.get('stats_type')}, has_resource_counts={row.get('resource_counts') is not None}, has_percentages={row.get('percentages') is not None}")
-            
-            # Process each row
-            for row in stats_result:
-                stats_type = row.get('stats_type')
-                
-                # Resource counts are in the 'resource_counts' row
-                if stats_type == 'resource_counts':
-                    counts_data = row.get('resource_counts')
-                    if counts_data:
-                        if isinstance(counts_data, dict):
-                            resource_counts = counts_data
-                        elif isinstance(counts_data, str):
-                            resource_counts = json.loads(counts_data)
-                        logger.info(f"✓ Loaded resource_counts with keys: {list(resource_counts.keys())}")
-                        logger.info(f"  Resource counts data: {resource_counts}")
-                    else:
-                        logger.warning(f"✗ stats_type='resource_counts' but resource_counts column is NULL")
-                
-                # Percentages are in the 'percentages' row
-                elif stats_type == 'percentages':
-                    perc_data = row.get('percentages')
-                    if perc_data:
-                        if isinstance(perc_data, dict):
-                            percentages = perc_data
-                        elif isinstance(perc_data, str):
-                            percentages = json.loads(perc_data)
-                        logger.info(f"✓ Loaded percentages with keys: {list(percentages.keys())}")
-                        logger.info(f"  Percentages data: {percentages}")
-                    else:
-                        logger.warning(f"✗ stats_type='percentages' but percentages column is NULL")
-        else:
-            logger.error("✗✗✗ NO DASHBOARD_STATS DATA FOUND! The calculateDailyStats job may not have run yet.")
+        if not stats_result or len(stats_result) == 0:
+            raise Exception("Failed to calculate dashboard stats")
         
-        # Extract values from dashboard_stats (pre-calculated values)
-        logger.info(f"=== EXTRACTING VALUES ===")
-        billable_resource_count = float(resource_counts.get('billableResourceCount', 0) or 0)
-        billing_resource_count = float(resource_counts.get('billingResourceCount', 0) or 0)
-        bench_resource_count = float(resource_counts.get('benchResourceCount', 0) or 0)
-        shadow_count = float(resource_counts.get('shadowCount', 0) or 0)
-        intern_count = float(resource_counts.get('internsCount', 0) or 0)
+        row = stats_result[0]
         
-        logger.info(f"Extracted counts: billable={billable_resource_count}, billing={billing_resource_count}, bench={bench_resource_count}, shadow={shadow_count}, intern={intern_count}")
+        # Extract values from query result
+        billable_resource_count = float(row.get('billable_resource_count', 0) or 0)
+        billing_resource_count = float(row.get('billing_resource_count', 0) or 0)
+        bench_resource_count = float(row.get('bench_resource_count', 0) or 0)
+        shadow_count = float(row.get('shadow_count', 0) or 0)
+        intern_count = float(row.get('intern_count', 0) or 0)
+        internal_non_billing_count = float(row.get('internal_non_billing_count', 0) or 0)
+        training_count = float(row.get('training_count', 0) or 0)
+        allocated_resource_count = float(row.get('allocated_resource_count', 0) or 0)
+        total_active_employees = int(row.get('total_active_employees', 0) or 0)
         
-        # Get utilization percentages from dashboard_stats
-        # These are pre-calculated daily by the scheduled job
-        billing_utilization_percent = float(percentages.get('billingUtilizationPercent', 0) or 0)
-        allocated_utilization_percent = float(percentages.get('allocatedUtilizationPercent', 0) or 0)
+        # Calculate utilization percentages (average per billable employee)
+        # Formula: (FTE / billable_count) * 100
+        billing_utilization_percent = round((billing_resource_count / billable_resource_count * 100), 1) if billable_resource_count > 0 else 0
+        allocated_utilization_percent = round((allocated_resource_count / billable_resource_count * 100), 1) if billable_resource_count > 0 else 0
         
-        logger.info(f"Extracted percentages: billing_util={billing_utilization_percent}%, allocated_util={allocated_utilization_percent}%")
+        logger.info(f"Calculated counts: billable={billable_resource_count}, billing={billing_resource_count}, bench={bench_resource_count}, shadow={shadow_count}, intern={intern_count}, internal_non_billing={internal_non_billing_count}, training={training_count}")
+        logger.info(f"Calculated percentages: billing_util={billing_utilization_percent}%, allocated_util={allocated_utilization_percent}%")
         
         # Prepare billing stats row
         billing_row = {
@@ -538,6 +640,8 @@ def generate_summary_report(event, context):
             'critical_shadow_count': shadow_count,
             'allocated_utilization_percent': allocated_utilization_percent,
             'bench_resources': bench_resource_count,
+            'internal_non_billing_count': internal_non_billing_count,
+            'training_count': training_count,
             'intern_count': intern_count
         }
         
@@ -546,33 +650,27 @@ def generate_summary_report(event, context):
         logger.info(f"Allocation row: {allocation_row}")
         
         # Query Bench Analysis (Name, Tier, Focused Area, Allocation, Track)
+        # Note: Bench includes ALL employees (all tracks, including interns, external, etc.)
         # Note: tier_id and track_id are stored on employees as INTEGER config IDs (not DB table references)
         # Also includes track information for track-wise summary calculation
         bench_analysis_query = """
-            WITH bench_allocations AS (
-                SELECT 
-                    a.employee_id,
-                    SUM(a.allocation_percentage) as bench_allocation_percentage,
-                    STRING_AGG(DISTINCT p.project_name, ', ') as focused_areas
-                FROM allocations a
-                LEFT JOIN projects p ON a.project_id = p.id
-                WHERE a.is_active = true 
-                  AND a.deleted_at IS NULL
-                  AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
-                  AND (a.billing_status_id = 3 OR p.is_bench_project = true)
-                GROUP BY a.employee_id
-            )
             SELECT 
                 e.name,
                 e.tier_id,
                 e.track_id,
-                COALESCE(ba.focused_areas, 'Bench') as focused_area,
-                COALESCE(ba.bench_allocation_percentage, 0) as bench_allocation
-            FROM employees e
-            INNER JOIN bench_allocations ba ON e.id = ba.employee_id
-            WHERE e.status = 'Active'
+                STRING_AGG(DISTINCT p.project_name, ', ') as focused_area,
+                SUM(a.allocation_percentage) as bench_allocation
+            FROM allocations a
+            JOIN employees e ON a.employee_id = e.id
+            JOIN projects p ON a.project_id = p.id
+            WHERE a.is_active = true 
+              AND a.deleted_at IS NULL
+              AND e.status = 'Active'
               AND e.deleted_at IS NULL
-            ORDER BY ba.bench_allocation_percentage DESC, e.name ASC
+              AND p.is_bench_project = true
+              AND e.track_id IN (1, 2, 3, 4, 5, 8, 10, 11)
+            GROUP BY e.id, e.name, e.tier_id, e.track_id
+            ORDER BY SUM(a.allocation_percentage) DESC, e.name ASC
         """
         
         logger.info(f"=== BENCH ANALYSIS QUERY ===")
@@ -581,6 +679,38 @@ def generate_summary_report(event, context):
         
         if bench_analysis and len(bench_analysis) > 0:
             logger.info(f"Sample bench row: {bench_analysis[0]}")
+        
+        # Query Internal Non-Billing Project Allocations (Name, Tier, Project, Allocation, Track)
+        # Based on DASHBOARD_QUERIES.md Query #12
+        internal_non_billing_query = """
+            SELECT 
+                e.name,
+                e.tier_id,
+                e.track_id,
+                p.project_name,
+                a.allocation_percentage as allocation
+            FROM allocations a
+            JOIN employees e ON a.employee_id = e.id
+            JOIN projects p ON a.project_id = p.id
+            LEFT JOIN billing_statuses pbs ON p.billing_status_id = pbs.id
+            WHERE a.is_active = true 
+              AND a.deleted_at IS NULL
+              AND e.status = 'Active'
+              AND e.deleted_at IS NULL
+              AND p.is_bench_project = false
+              AND e.track_id IN (1, 2, 3, 4, 5, 8, 11)
+              AND e.employee_type_id != 3
+              AND e.is_external = false
+              AND (pbs.name IS NULL OR LOWER(pbs.name) != 'billing')
+            ORDER BY a.allocation_percentage DESC, e.name ASC
+        """
+        
+        logger.info(f"=== INTERNAL NON-BILLING QUERY ===")
+        internal_non_billing_analysis = query(internal_non_billing_query)
+        logger.info(f"Internal non-billing analysis returned {len(internal_non_billing_analysis) if internal_non_billing_analysis else 0} rows")
+        
+        if internal_non_billing_analysis and len(internal_non_billing_analysis) > 0:
+            logger.info(f"Sample internal non-billing row: {internal_non_billing_analysis[0]}")
         
         # Calculate Track Wise Summary from bench_analysis results
         # Group by track_id and resolve track names from configs
@@ -668,7 +798,9 @@ def generate_summary_report(event, context):
             ['Billing Resource Count', allocation_row.get('billing_resource_count', 0)],
             ['Critical Shadow Count', allocation_row.get('critical_shadow_count', 0)],
             ['Allocated Utilization %', f"{allocation_row.get('allocated_utilization_percent', 0)}%"],
-            ['Bench Resources', allocation_row.get('bench_resources', 0)],
+            ['Bench Resources (FTE)', allocation_row.get('bench_resources', 0)],
+            ['Internal Non-Billing (FTE)', allocation_row.get('internal_non_billing_count', 0)],
+            ['Training Resources (FTE)', allocation_row.get('training_count', 0)],
             ['Intern Count', allocation_row.get('intern_count', 0)]
         ]
         
@@ -738,6 +870,43 @@ def generate_summary_report(event, context):
                     cell = ws.cell(row=current_row, column=col_idx, value=value)
                     apply_cell_style(cell)
                 current_row += 1
+        
+        current_row += 1
+        
+        # Internal Non-Billing Project Allocations
+        ws.cell(row=current_row, column=1, value="Internal Non-Billing Project Allocations").font = Font(bold=True, size=12, color='FF0000')
+        current_row += 1
+        
+        non_billing_headers = ['Name', 'Tier', 'Project', 'Allocation', 'Track']
+        for col, header in enumerate(non_billing_headers, 1):
+            cell = ws.cell(row=current_row, column=col, value=header)
+            apply_header_style(cell)
+        current_row += 1
+        
+        if internal_non_billing_analysis:
+            for row_data in internal_non_billing_analysis:
+                tier_id = row_data.get('tier_id')
+                tier_display = get_tier_name(tier_id)
+                track_id = row_data.get('track_id')
+                track_display = get_track_name(track_id)
+                cells = [
+                    row_data.get('name', ''),
+                    tier_display,
+                    row_data.get('project_name', ''),
+                    f"{row_data.get('allocation', 0)}%",
+                    track_display
+                ]
+                for col_idx, value in enumerate(cells, 1):
+                    cell = ws.cell(row=current_row, column=col_idx, value=value)
+                    apply_cell_style(cell)
+                current_row += 1
+        else:
+            # Fallback if no data
+            no_data_row = ['No data', '', '', '0%', '']
+            for col_idx, value in enumerate(no_data_row, 1):
+                cell = ws.cell(row=current_row, column=col_idx, value=value)
+                apply_cell_style(cell)
+            current_row += 1
         
         auto_column_width(ws)
         
