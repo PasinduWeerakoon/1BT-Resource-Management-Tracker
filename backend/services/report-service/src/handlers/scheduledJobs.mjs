@@ -54,6 +54,12 @@ export const calculateDailyStats = async (event) => {
                     END) as total_allocation,
                     SUM(a.billing_percentage) as total_billing,
                     SUM(CASE WHEN a.is_critical_shadow THEN a.allocation_percentage ELSE 0 END) as shadow_allocation,
+                    SUM(CASE 
+                        WHEN LOWER(p.project_name) != 'bench' 
+                        AND LOWER(pt.name) != 'client' 
+                        THEN a.allocation_percentage 
+                        ELSE 0 
+                    END) as internal_non_billing_allocation,
                     COUNT(DISTINCT a.project_id) as project_count,
                     BOOL_OR(bs.name = 'Billing') as has_billing_allocation
                 FROM allocations a
@@ -67,7 +73,7 @@ export const calculateDailyStats = async (event) => {
             ),
             -- Get employee types
             intern_type AS (
-                SELECT id FROM employee_types WHERE LOWER(name) = 'intern' LIMIT 1
+                SELECT 3 as id -- Intern ID as per requirement
             )
             SELECT
                 -- Billing Resource Count (FTE): Sum of Billing % / 100 (Excl. External)
@@ -87,6 +93,13 @@ export const calculateDailyStats = async (event) => {
                 -- Shadow Count (FTE): Sum of (Allocation % - Billing %) / 100 (Excl. External)
                 COALESCE(SUM(CASE WHEN ae.is_external = false THEN (COALESCE(ea.total_allocation, 0) - COALESCE(ea.total_billing, 0)) ELSE 0 END) / 100.0, 0)::DECIMAL(10,1) as shadow_count,
                 
+                -- Internal Non-Billing Count (FTE): Allocations on Non-Bench & Non-Client projects (Excl. Interns & External)
+                COALESCE(SUM(CASE 
+                    WHEN ae.is_external = false AND ae.employee_type_id NOT IN (SELECT id FROM intern_type)
+                    THEN COALESCE(ea.internal_non_billing_allocation, 0) / 100.0
+                    ELSE 0 
+                END), 0)::DECIMAL(10,1) as internal_non_billing_count,
+
                 -- External Consultant Count (Headcount): Active External Employees ONLY
                 COALESCE(SUM(CASE WHEN ae.is_external = true THEN 1 ELSE 0 END), 0)::DECIMAL(10,1) as external_consultant_count,
                 
@@ -177,7 +190,7 @@ export const calculateDailyStats = async (event) => {
                 GROUP BY a.employee_id
             ),
             intern_type AS (
-                SELECT id FROM employee_types WHERE LOWER(name) = 'intern' LIMIT 1
+                SELECT 3 as id -- Intern ID as per requirement
             ),
             totals AS (
                 SELECT 
@@ -307,6 +320,7 @@ export const calculateDailyStats = async (event) => {
                 allocatedResourceCount: parseFloat(resourceCounts.allocated_resource_count) || 0,
                 billableResourceCount: parseFloat(resourceCounts.billable_resource_count) || 0,
                 shadowCount: parseFloat(resourceCounts.shadow_count) || 0,
+                internalNonBillingCount: parseFloat(resourceCounts.internal_non_billing_count) || 0,
                 externalConsultantCount: parseFloat(resourceCounts.external_consultant_count) || 0,
                 benchResourceCount: parseFloat(resourceCounts.bench_resource_count) || 0,
                 trainingResourceCount: parseFloat(resourceCounts.training_resource_count) || 0,

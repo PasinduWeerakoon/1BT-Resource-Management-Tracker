@@ -37,7 +37,8 @@ import {
     checkProjectCapacity,
     validateAllocationDuration,
     checkOverlappingAllocation,
-    checkResourceStatus
+    checkResourceStatus,
+    validateBillingEligibility
 } from '../../services/allocationValidationService.js';
 import { updateResourceTotals } from '../../services/resourceTotalsService.js';
 import { LambdaClient, InvokeCommand } from "@aws-sdk/client-lambda";
@@ -385,6 +386,20 @@ export const create = async (event) => {
 
         // Enhancement 3.8: Check project capacity (warning only)
         let capacityCheck = { capacityWarning: null };
+
+        // Enhancement: Validate billing eligibility for non-client projects
+        if (!isBenchAllocation && validated.billing_percentage > 0) {
+            const billingValidation = await validateBillingEligibility(validated.project_id, validated.billing_percentage);
+            if (!billingValidation.valid) {
+                log.warn('Billing eligibility check failed', {
+                    resourceId: validated.resource_id,
+                    projectId: validated.project_id,
+                    billingPercentage: validated.billing_percentage,
+                    error: billingValidation.error
+                });
+                return badRequest(billingValidation.error);
+            }
+        }
         if (!isBenchAllocation) {
             capacityCheck = await checkProjectCapacity(validated.project_id);
         }
@@ -787,6 +802,20 @@ export const update = async (event) => {
                     minimumThreshold: ALLOCATION_CONFIG.MINIMUM_ALLOCATION_PERCENTAGE,
                     currentPercentage: validated.allocation_percentage
                 });
+            }
+        }
+
+        // Enhancement: Validate billing eligibility on update if billing_percentage is provided
+        if (!isBenchAllocation && validated.billing_percentage !== undefined && validated.billing_percentage > 0) {
+            const billingValidation = await validateBillingEligibility(existing.project_id, validated.billing_percentage);
+            if (!billingValidation.valid) {
+                log.warn('Billing eligibility check failed on update', {
+                    allocationId: id,
+                    projectId: existing.project_id,
+                    billingPercentage: validated.billing_percentage,
+                    error: billingValidation.error
+                });
+                return badRequest(billingValidation.error);
             }
         }
 

@@ -291,3 +291,37 @@ export const checkResourceStatus = async (resourceId, isBenchAllocation = false)
 
     return { allowed: true, resourceStatus };
 };
+
+/**
+ * Enhancement: Validate that non-billing projects (Type != Client) cannot have billing % > 0
+ */
+export const validateBillingEligibility = async (projectId, billingPercentage) => {
+    // If billing is 0, it's always allowed regardless of project type
+    if (billingPercentage === 0 || billingPercentage === null || billingPercentage === undefined) {
+        return { valid: true };
+    }
+
+    const result = await db.query(`
+        SELECT pt.name as project_type_name
+        FROM projects p
+        LEFT JOIN project_types pt ON p.project_type_id = pt.id
+        WHERE p.id = $1
+    `, [projectId]);
+
+    if (result.rows.length === 0) {
+        return { valid: false, error: 'Project not found' };
+    }
+
+    const projectTypeName = result.rows[0].project_type_name;
+
+    // Only 'Client' projects are considered billable at the project level
+    // All other types (Internal, Research, Training, etc.) should have 0% billing
+    if (projectTypeName && projectTypeName.toLowerCase() !== 'client') {
+        return {
+            valid: false,
+            error: `Billing percentage cannot be set for non-billing project type '${projectTypeName}'. Billing % must be 0.`
+        };
+    }
+
+    return { valid: true };
+};

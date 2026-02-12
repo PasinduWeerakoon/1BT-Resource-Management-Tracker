@@ -15,6 +15,7 @@ export const RESOURCE_COUNTS = {
   ALLOCATED_RESOURCE_COUNT: 74.9,
   BILLABLE_RESOURCE_COUNT: 75, // Excluding Consultants, Interns and Synergy
   SHADOW_COUNT: 19.5,
+  INTERNAL_NON_BILLING_COUNT: 0,
   EXTERNAL_CONSULTANT_COUNT: 14,
   BENCH_RESOURCE_COUNT: 7.8,
   TRAINING_RESOURCE_COUNT: 6.7,
@@ -55,24 +56,25 @@ export const LABELS = {
   EMPLOYEES_BY_TRACK: 'No. of Employee Accounts Managed by Track',
   EMPLOYEES_BY_TECH_STACK: 'No. of Employee Accounts Managed by Tech Stack',
   SUMMARY_VIEW: 'SUMMARY VIEW',
-  
+
   // Resource count labels
   BILLING_RESOURCE_COUNT: 'Billing Resource Count',
   ALLOCATED_RESOURCE_COUNT: 'Allocated Resource Count',
   BILLABLE_RESOURCE_COUNT: 'Billable Resource Count (Excluding Consultants, Interns and Synergy)',
   SHADOW_COUNT: 'Shadow Count',
+  INTERNAL_NON_BILLING_COUNT: 'Internal Non-Billing Count',
   EXTERNAL_CONSULTANT_COUNT: 'External Consultant Count',
   BENCH_RESOURCE_COUNT: 'Bench Resource Count',
   TRAINING_RESOURCE_COUNT: 'Training Resource Count',
   INTERNS: 'Interns',
   SYNERGY: 'Synergy',
   SHARED_SERVICES: 'Shared Services',
-  
+
   // Percentage labels
   ALLOCATION_PERCENTAGE: 'Allocation Percentage',
   BILLABLE_PERCENTAGE: 'Billable Percentage',
   SHADOW_PERCENTAGE: 'Shadow Percentage',
-  
+
   // Table column labels
   EMPLOYEE_NAME: 'Employee Name',
   TRACK: 'Track',

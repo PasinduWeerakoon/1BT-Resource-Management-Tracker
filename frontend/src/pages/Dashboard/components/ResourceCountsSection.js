@@ -8,6 +8,7 @@ const ResourceCountsSection = ({ counts, labels }) => {
     { key: 'allocatedResourceCount', label: labels.ALLOCATED_RESOURCE_COUNT },
     { key: 'billableResourceCount', label: labels.BILLABLE_RESOURCE_COUNT },
     { key: 'shadowCount', label: labels.SHADOW_COUNT },
+    { key: 'internalNonBillingCount', label: labels.INTERNAL_NON_BILLING_COUNT },
     { key: 'externalConsultantCount', label: labels.EXTERNAL_CONSULTANT_COUNT },
     { key: 'benchResourceCount', label: labels.BENCH_RESOURCE_COUNT },
     { key: 'trainingResourceCount', label: labels.TRAINING_RESOURCE_COUNT },

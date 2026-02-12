@@ -168,7 +168,6 @@ export const getDashboardResourceCounts = async (event) => {
                 FROM employees e
                 WHERE e.status = 'Active' AND e.deleted_at IS NULL
                 AND e.is_external = false
-                AND e.employee_type_id != 3
             ),
             employee_allocations AS (
                 SELECT 
@@ -189,6 +188,12 @@ export const getDashboardResourceCounts = async (event) => {
                         WHEN LOWER(pt.name) = 'client' THEN a.billing_percentage 
                         ELSE 0 
                     END) as shadow_eligible_billing,
+                    SUM(CASE 
+                        WHEN LOWER(p.project_name) != 'bench' 
+                        AND LOWER(pt.name) != 'client' 
+                        THEN a.allocation_percentage 
+                        ELSE 0 
+                    END) as internal_non_billing_allocation,
                     BOOL_OR(bs.name = 'Billing') as has_billing_allocation
                 FROM allocations a
                 LEFT JOIN billing_statuses bs ON a.billing_status_id = bs.id
@@ -231,6 +236,13 @@ export const getDashboardResourceCounts = async (event) => {
                     THEN (COALESCE(ea.shadow_eligible_allocation, 0) - COALESCE(ea.shadow_eligible_billing, 0)) / 100.0
                     ELSE 0 
                 END), 0)::DECIMAL(10,1) as shadow_count,
+
+                -- Internal Non-Billing Count: Allocations on Non-Bench & Non-Client projects (Excl. Interns)
+                COALESCE(SUM(CASE 
+                    WHEN ae.employee_type_id != 3 
+                    THEN COALESCE(ea.internal_non_billing_allocation, 0) / 100.0
+                    ELSE 0 
+                END), 0)::DECIMAL(10,1) as internal_non_billing_count,
                 
                 -- External Consultant Count: Headcount of Active External Employees
                 COALESCE(SUM(CASE WHEN ae.is_external = true THEN 1 ELSE 0 END), 0)::DECIMAL(10,1) as external_consultant_count,
@@ -282,6 +294,7 @@ export const getDashboardResourceCounts = async (event) => {
             allocatedResourceCount: Math.max(0, parseFloat(row.allocated_resource_count) || 0),
             billableResourceCount: Math.max(0, parseFloat(row.billable_resource_count) || 0),
             shadowCount: Math.max(0, parseFloat(row.shadow_count) || 0),
+            internalNonBillingCount: Math.max(0, parseFloat(row.internal_non_billing_count) || 0),
             externalConsultantCount: Math.max(0, parseFloat(row.external_consultant_count) || 0),
             benchResourceCount: Math.max(0, parseFloat(row.bench_resource_count) || 0),
             trainingResourceCount: 0,
