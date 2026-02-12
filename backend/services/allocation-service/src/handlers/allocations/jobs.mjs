@@ -97,7 +97,7 @@ export const billingStatusTransitionJob = async (event) => {
             WHERE a.allocated_date = CURRENT_DATE
             AND a.is_active = true
             AND p.is_bench_project = false
-            AND p.project_type NOT IN ('Bench', 'Training')
+            AND p.project_type NOT IN ('Bench')
             AND a.deleted_at IS NULL
         `;
 

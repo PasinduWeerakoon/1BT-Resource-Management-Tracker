@@ -19,15 +19,40 @@
 import * as db from '/opt/nodejs/database/index.js';
 import { getDrizzle, withTransaction } from '/opt/nodejs/database/drizzle.js';
 import schema from '/opt/nodejs/database/schema.js';
-// Alias 'employees' as 'resources' to maintain backward compatibility in handlers
-const { employees: resources, allocations, projects, designations, users, clients, tags, employeeTags } = schema;
 import { eq, and, isNull, ilike, or, sql, desc, inArray } from 'drizzle-orm';
-import logger from '/opt/nodejs/logger/index.js';
+import logService from '/opt/nodejs/logger/index.js';
 import { success, error, notFound, validationError, conflict } from '/opt/nodejs/utils/response.js';
 import { validate, resourceSchemas } from '/opt/nodejs/validation/index.js';
 import audit from '/opt/nodejs/lib/audit/index.js';
 // Import shared configs for ID-to-label mapping
 import { TRACKS, TIERS, TECH_STACKS, BILLABLE_TRACK_IDS, getConfigById } from '/opt/nodejs/configs/index.js';
+
+// Alias 'employees' as 'resources' to maintain backward compatibility in handlers
+const { employees: resources, allocations, projects, designations, users, clients, tags, employeeTags } = schema;
+const logger = logService;
+
+
+import { LambdaClient, InvokeCommand } from "@aws-sdk/client-lambda";
+
+const lambda = new LambdaClient({ region: process.env.AWS_REGION });
+
+const triggerDashboardRefresh = async (log) => {
+    try {
+        const stage = process.env.NODE_ENV || 'dev';
+        const functionName = `onebt-report-service-${stage}-calculateDailyStats`;
+        const command = new InvokeCommand({
+            FunctionName: functionName,
+            InvocationType: 'Event', // Async execution
+            Payload: JSON.stringify({ source: 'resource-service-trigger' }),
+        });
+        const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Lambda invoke timeout')), 2000));
+        await Promise.race([lambda.send(command), timeout]);
+        log.info('Triggered dashboard stats refresh', { functionName });
+    } catch (err) {
+        log.error('Failed to trigger dashboard refresh', { error: err.message });
+        // Non-blocking error
+    }
+};
 
 const SERVICE_NAME = 'resource-service';
 
@@ -41,9 +66,9 @@ const autoEndAllocationsOnInactive = async (resourceId, userId, log) => {
     try {
         // Find all active allocations for this resource
         const activeAllocations = await db.query(`
-            SELECT id, project_id, allocation_percentage, end_date 
+            SELECT id, project_id, allocation_percentage, deallocated_date 
             FROM allocations 
-            WHERE resource_id = $1 
+            WHERE employee_id = $1 
             AND is_active = true
         `, [resourceId]);
 
@@ -58,7 +83,7 @@ const autoEndAllocationsOnInactive = async (resourceId, userId, log) => {
             // Set end date to today and deactivate
             await db.query(`
                 UPDATE allocations 
-                SET end_date = $1::date,
+                SET deallocated_date = $1::date,
                     is_active = false,
                     updated_by = $2,
                     updated_at = CURRENT_TIMESTAMP
@@ -66,39 +91,33 @@ const autoEndAllocationsOnInactive = async (resourceId, userId, log) => {
             `, [today, userId, allocation.id]);
 
             // Log to allocation change history
+            // Note: Schema uses 'allocation_history' and 'previous_values'
             await db.query(`
-                INSERT INTO allocation_change_history (
-                    allocation_id, change_type, changed_by, changed_fields, old_values, new_values, notes
+                INSERT INTO allocation_history (
+                    allocation_id, change_type, changed_by, changed_fields, previous_values, notes, effective_date
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                VALUES ($1, $2, $3, $4, $5, $6, CURRENT_DATE)
             `, [
                 allocation.id,
                 'UPDATED',
                 userId,
-                JSON.stringify(['end_date', 'is_active']),
-                JSON.stringify({ end_date: allocation.end_date, is_active: true }),
-                JSON.stringify({ end_date: today, is_active: false }),
+                ['deallocated_date', 'is_active'],
+                JSON.stringify({ deallocated_date: allocation.deallocated_date, is_active: true }),
                 'Auto-ended: Resource became inactive'
             ]);
 
             ended++;
         }
 
-        log.info('Auto-ended allocations due to resource inactive status', {
-            resourceId,
-            endedCount: ended
-        });
-
-        return {
-            ended,
-            message: `Auto-ended ${ended} allocation(s) due to resource becoming inactive`
-        };
+        return { ended, message: `Ended ${ended} active allocations` };
     } catch (err) {
-        log.error('Failed to auto-end allocations on inactive', { resourceId, error: err.message });
-        // Don't fail the resource update if this fails
+        log.error('Failed to auto-end allocations', { error: err.message, resourceId });
+        // Return null or empty object if failed, to avoid breaking the flow but log it
         return { ended: 0, error: err.message };
     }
 };
+
+
 
 /**
  * Get the Bench project ID (from database by is_bench_project flag)
@@ -236,7 +255,7 @@ export const list = async (event) => {
 
         // Validate query parameters
         const validated = validate(queryParams, resourceSchemas.list);
-        const { page, limit, search, track_id, designation_id, status, tier, employee_number, name } = validated;
+        const { page, limit, search, track_id, designation_id, status = 'Active', tier, employee_number, name } = validated;
         const offset = (page - 1) * limit;
 
         log.info('Listing resources', { page, limit, filters: { search, track_id, designation_id, status, tier, employee_number, name } });
@@ -680,6 +699,9 @@ export const create = async (event) => {
             } : null
         };
 
+        // Enhancement: Trigger dashboard stats refresh
+        await triggerDashboardRefresh(log);
+
         return success(response, 201);
 
     } catch (err) {
@@ -886,6 +908,13 @@ export const update = async (event) => {
                 employee_type_in_db: result[0]?.employeeType
             });
 
+            // Enhancement: Auto-assign to Bench if status changed from Inactive to Active
+            // (Only for billable tracks)
+            if (validated.status === 'Active' && existing.status === 'Inactive') {
+                log.info('Resource re-activated, attempting bench allocation', { resourceId: id });
+                await createInitialBenchAllocation(tx, id, existing.trackId, userId, log);
+            }
+
             return result;
         });
 
@@ -915,6 +944,9 @@ export const update = async (event) => {
             response.allocationEnded = allocationEnded;
         }
 
+        // Enhancement: Trigger dashboard stats refresh
+        await triggerDashboardRefresh(log);
+
         return success(response);
 
     } catch (err) {
@@ -936,6 +968,27 @@ export const remove = async (event) => {
     const log = logger.child({ handler: 'resources.remove' });
     const { id } = event.pathParameters;
 
+    // Get user info for updated_by
+    const cognitoSub = event.requestContext?.authorizer?.jwt?.claims?.sub
+        || event.requestContext?.authorizer?.claims?.sub;
+
+    let userId = null;
+    if (cognitoSub) {
+        try {
+            const drizzle = await getDrizzle();
+            const userResult = await drizzle
+                .select({ id: users.id })
+                .from(users)
+                .where(eq(users.cognitoUserId, cognitoSub));
+
+            if (userResult.length > 0) {
+                userId = userResult[0].id;
+            }
+        } catch (err) {
+            log.warn('Failed to fetch user ID for delete audit', { error: err.message });
+        }
+    }
+
     try {
         log.info('Deleting resource', { id });
 
@@ -956,11 +1009,56 @@ export const remove = async (event) => {
 
         const existing = existingResult[0];
 
+        // Check for active allocations
+        const activeAllocations = await drizzle
+            .select({
+                id: allocations.id,
+                projectId: allocations.projectId
+            })
+            .from(allocations)
+            .where(and(
+                eq(allocations.employeeId, id),
+                eq(allocations.isActive, true)
+            ));
+
+        if (activeAllocations.length > 0) {
+            const benchProjectId = await getBenchProjectId();
+
+            // Check if ANY allocation is non-bench
+            const hasNonBenchAllocation = activeAllocations.some(a => a.projectId !== benchProjectId);
+
+            if (hasNonBenchAllocation) {
+                return conflict('Cannot delete resource with active project allocations. Please deallocate first.');
+            }
+
+            // If only bench allocations, we can proceed but must delete them first
+            log.info('Resource has only bench allocations, removing them before deletion', { id });
+        }
+
         // Soft delete using transaction
         await withTransaction(async (tx) => {
+            // Remove bench allocations (hard delete or soft delete? Allocations usually hard deleted or soft? 
+            // User said "delete it from becnh allocation and delete". Schema has deleted_at.
+            // Let's soft delete the bench allocations to be safe/consistent.)
+            const benchProjectId = await getBenchProjectId();
+            if (benchProjectId) {
+                await tx
+                    .update(allocations)
+                    .set({
+                        isActive: false,
+                        deletedAt: new Date(),
+                        updatedBy: userId
+                    })
+                    .where(and(
+                        eq(allocations.employeeId, id),
+                        eq(allocations.projectId, benchProjectId),
+                        eq(allocations.isActive, true)
+                    ));
+            }
+
             await tx
                 .update(resources)
-                .set({ deletedAt: new Date() })
+                .set({ deletedAt: new Date(), updatedBy: userId })
                 .where(eq(resources.id, id));
         });
 
@@ -975,6 +1073,9 @@ export const remove = async (event) => {
         );
 
         log.info('Resource deleted', { id });
+
+        // Enhancement: Trigger dashboard stats refresh
+        await triggerDashboardRefresh(log);
 
         return success({ message: 'Resource deleted successfully' });
 
@@ -1203,6 +1304,9 @@ export const toggleAccountManager = async (event) => {
 
         log.info('Account manager status updated', { id, is_account_manager: newStatus });
 
+        // Enhancement: Trigger dashboard stats refresh
+        await triggerDashboardRefresh(log);
+
         return success({
             message: `Resource ${newStatus ? 'assigned as' : 'removed from'} account manager`,
             data: result.rows[0]
@@ -1257,6 +1361,9 @@ export const updateTier = async (event) => {
         const result = await db.query(updateQuery, [tierId, id]);
 
         log.info('Resource tier updated', { id, tier, tierId });
+
+        // Enhancement: Trigger dashboard stats refresh
+        await triggerDashboardRefresh(log);
 
         return success({
             message: 'Resource tier updated successfully',
@@ -1315,6 +1422,9 @@ export const updateTechStack = async (event) => {
         const result = await db.query(updateQuery, [techStackId, id]);
 
         log.info('Resource tech stack updated', { id, tech_stack, techStackId });
+
+        // Enhancement: Trigger dashboard stats refresh
+        await triggerDashboardRefresh(log);
 
         return success({
             message: 'Resource tech stack updated successfully',

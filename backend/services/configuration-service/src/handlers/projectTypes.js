@@ -32,7 +32,7 @@ export const list = async (event) => {
     try {
         log.info('Listing project types');
 
-        const query = 'SELECT * FROM project_types ORDER BY display_order ASC, name ASC';
+        const query = 'SELECT * FROM project_types WHERE is_active = true ORDER BY display_order ASC, name ASC';
         const result = await db.query(query);
 
         return success({

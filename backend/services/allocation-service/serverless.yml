@@ -38,12 +38,16 @@ provider:
           Action:
             - sqs:SendMessage
           Resource: !ImportValue onebt-${self:provider.stage}-AuditQueueArn
+        - Effect: Allow
+          Action:
+            - lambda:InvokeFunction
+          Resource: "arn:aws:lambda:${self:provider.region}:${aws:accountId}:function:onebt-report-service-${self:provider.stage}-calculateDailyStats"
 
   httpApi:
     id: !ImportValue onebt-${self:provider.stage}-HttpApiId
 
   layers:
-    - arn:aws:lambda:ap-southeast-1:550586832874:layer:onebt-shared-libs-dev:84
+    - arn:aws:lambda:ap-southeast-1:550586832874:layer:onebt-shared-libs-dev:85
 
 plugins:
   - serverless-offline
