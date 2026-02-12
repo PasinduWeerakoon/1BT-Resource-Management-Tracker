@@ -156,6 +156,7 @@ export const getDashboardResourceCounts = async (event) => {
                     WHEN ae.track_id IN (${BILLABLE_TRACK_IDS.join(',')}) 
                     AND ae.employee_type_id != 3 
                     AND ae.is_external = false 
+                    AND ae.tier_id != 7
                     THEN 1 
                 END), 0) as total_billable_resource_count,
                 
@@ -176,6 +177,7 @@ export const getDashboardResourceCounts = async (event) => {
                     WHEN ae.track_id IN (${BILLABLE_TRACK_IDS.join(',')}) 
                     AND ae.employee_type_id != 3 
                     AND ae.is_external = false 
+                    AND ae.tier_id != 7
                     THEN 1 
                 END), 0) as billable_resource_count,
                 

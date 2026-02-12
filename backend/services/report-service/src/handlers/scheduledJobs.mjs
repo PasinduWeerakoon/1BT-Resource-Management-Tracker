@@ -164,6 +164,7 @@ export const calculateDailyStats = async (event) => {
                     WHEN ae.track_id IN (1, 2, 3, 4, 5, 8, 11) 
                     AND ae.employee_type_id != 3 
                     AND ae.is_external = false 
+                    AND ae.tier_id != 7
                     THEN 1 
                 END), 0) as total_billable_resource_count,
                 

@@ -22,7 +22,7 @@ WHERE status = 'Active'
 ---
 
 ## 2. Total Billable Resource Count
-**Description**: Count of employees in billable tracks (excluding interns, external, support, delivery)
+**Description**: Count of employees in billable tracks (excluding interns, external, support, delivery, synergy)
 
 ```sql
 SELECT COUNT(*) as total_billable_resource_count
@@ -31,7 +31,8 @@ WHERE status = 'Active'
   AND deleted_at IS NULL
   AND is_external = false
   AND track_id IN (1, 2, 3, 4, 5, 8, 11)  -- Billable tracks only
-  AND employee_type_id != 3;  -- Exclude interns
+  AND employee_type_id != 3  -- Exclude interns
+  AND tier_id != 7;  -- Exclude synergy
 ```
 
 ---
@@ -176,7 +177,8 @@ WHERE status = 'Active'
   AND deleted_at IS NULL
   AND is_external = false
   AND track_id IN (1, 2, 3, 4, 5, 8, 11)  -- Billable tracks only
-  AND employee_type_id != 3;  -- Exclude interns
+  AND employee_type_id != 3  -- Exclude interns
+  AND tier_id != 7;  -- Exclude synergy
 ```
 
 ---
@@ -478,13 +480,14 @@ SELECT
     -- 1. Total Active Resource Count
     COUNT(CASE WHEN ae.is_external = false THEN 1 END) as total_active_resource_count,
     
-    -- 2. Total Billable Resource Count
-    COUNT(CASE 
-        WHEN ae.track_id IN (1, 2, 3, 4, 5, 8, 11) 
-        AND ae.employee_type_id != 3 
-        AND ae.is_external = false 
-        THEN 1 
-    END) as total_billable_resource_count,
+                -- 2. Total Billable Resource Count
+                COUNT(CASE 
+                    WHEN ae.track_id IN (1, 2, 3, 4, 5, 8, 11) 
+                    AND ae.employee_type_id != 3 
+                    AND ae.is_external = false 
+                    AND ae.tier_id != 7
+                    THEN 1 
+                END) as total_billable_resource_count,
     
     -- 3. External Resource Count
     COUNT(CASE WHEN ae.is_external = true THEN 1 END) as external_resource_count,
@@ -498,13 +501,14 @@ SELECT
     -- 8. Total Billing of Company (FTE)
     COALESCE((SELECT total_billing / 100.0 FROM all_billing), 0)::DECIMAL(10,2) as total_billing_fte,
     
-    -- 9. Total Billable Resources Count (same as #2)
-    COUNT(CASE 
-        WHEN ae.track_id IN (1, 2, 3, 4, 5, 8, 11) 
-        AND ae.employee_type_id != 3 
-        AND ae.is_external = false 
-        THEN 1 
-    END) as total_billable_resources_count,
+                -- 9. Total Billable Resources Count (same as #2)
+                COUNT(CASE 
+                    WHEN ae.track_id IN (1, 2, 3, 4, 5, 8, 11) 
+                    AND ae.employee_type_id != 3 
+                    AND ae.is_external = false 
+                    AND ae.tier_id != 7
+                    THEN 1 
+                END) as total_billable_resources_count,
     
     -- 10. Shadow Count (FTE) - Allocation (billing projects) minus Billing (billing projects, all employees)
     COALESCE(
