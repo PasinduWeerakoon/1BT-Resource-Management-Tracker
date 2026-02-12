@@ -7,7 +7,7 @@
 
 import * as db from '/opt/nodejs/database/index.js';
 import logger from '/opt/nodejs/logger/index.js';
-import { TRACKS, TIERS, TECH_STACKS } from '/opt/nodejs/configs/index.js';
+import { TRACKS, TECH_STACKS } from '/opt/nodejs/configs/index.js';
 
 /**
  * Calculate and store daily dashboard statistics
