@@ -355,7 +355,7 @@ export const getInternReport = async (event) => {
 
         // Build WHERE clauses for all filters
         // Interns are identified by tier_id = 5 (Intern tier)
-        let resourceWhereClause = 'WHERE r.employee_type_id != 3 AND r.status = \'Active\' AND r.deleted_at IS NULL';
+        let resourceWhereClause = 'WHERE r.employee_type_id = 3 AND r.status = \'Active\' AND r.deleted_at IS NULL';
         let allocationWhereClause = '';
         const params = [];
         let paramIndex = 1;

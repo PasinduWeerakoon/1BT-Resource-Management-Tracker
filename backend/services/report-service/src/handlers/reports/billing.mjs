@@ -92,8 +92,6 @@ export const getNonBillingReport = async (event) => {
             AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
             AND r.deleted_at IS NULL
             ${filterClause}
-            ORDER BY r.name ASC
-            ${trackFilterClause}
             ORDER BY r.total_resource_billing ASC, r.name ASC
         `;
 
