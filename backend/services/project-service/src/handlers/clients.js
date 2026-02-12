@@ -318,6 +318,16 @@ export const remove = async (event) => {
 
         const existing = existingResult.rows[0];
 
+        // Check if any projects exist for this client
+        const projectCheck = await db.query(
+            'SELECT 1 FROM projects WHERE client_id = $1 AND deleted_at IS NULL LIMIT 1',
+            [id]
+        );
+
+        if (projectCheck.rows.length > 0) {
+            return conflict('Cannot delete client that has associated projects');
+        }
+
         await db.query(
             `UPDATE clients 
              SET deleted_at = CURRENT_TIMESTAMP, updated_by = $2 

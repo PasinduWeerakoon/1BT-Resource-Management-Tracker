@@ -30,6 +30,8 @@ const getCachedStats = async (statsType) => {
 /**
  * Get dashboard summary data
  */
+
+/*TODO:REMOVE this*/
 export const getDashboard = async (event) => {
     const log = logger.child({ handler: 'reports.getDashboard' });
 
@@ -165,6 +167,7 @@ export const getDashboardResourceCounts = async (event) => {
                        COALESCE(e.total_allocation, 0) as current_allocation
                 FROM employees e
                 WHERE e.status = 'Active' AND e.deleted_at IS NULL
+                AND e.is_external = false
             ),
             employee_allocations AS (
                 SELECT 
@@ -177,6 +180,20 @@ export const getDashboardResourceCounts = async (event) => {
                     END) as total_allocation,
                     SUM(a.billing_percentage) as total_billing,
                     SUM(CASE WHEN a.is_critical_shadow THEN a.allocation_percentage ELSE 0 END) as shadow_allocation,
+                    SUM(CASE 
+                        WHEN LOWER(pt.name) = 'client' THEN a.allocation_percentage 
+                        ELSE 0 
+                    END) as shadow_eligible_allocation,
+                    SUM(CASE 
+                        WHEN LOWER(pt.name) = 'client' THEN a.billing_percentage 
+                        ELSE 0 
+                    END) as shadow_eligible_billing,
+                    SUM(CASE 
+                        WHEN LOWER(p.project_name) != 'bench' 
+                        AND LOWER(pt.name) != 'client' 
+                        THEN a.allocation_percentage 
+                        ELSE 0 
+                    END) as internal_non_billing_allocation,
                     BOOL_OR(bs.name = 'Billing') as has_billing_allocation
                 FROM allocations a
                 LEFT JOIN billing_statuses bs ON a.billing_status_id = bs.id
@@ -213,11 +230,19 @@ export const getDashboardResourceCounts = async (event) => {
                 END), 0)::DECIMAL(10,1) as billable_resource_count,
                 
                 -- Shadow Count: Sum of (Allocation % - Billing %) / 100 (Excluding Interns)
+                -- Shadow Count: Sum of (Allocation % - Billing %) / 100 on Billable Projects (Excluding Interns)
                 COALESCE(SUM(CASE 
                     WHEN ae.employee_type_id != 3 
-                    THEN (COALESCE(ea.total_allocation, 0) - COALESCE(ea.total_billing, 0)) / 100.0
+                    THEN (COALESCE(ea.shadow_eligible_allocation, 0) - COALESCE(ea.shadow_eligible_billing, 0)) / 100.0
                     ELSE 0 
                 END), 0)::DECIMAL(10,1) as shadow_count,
+
+                -- Internal Non-Billing Count: Allocations on Non-Bench & Non-Client projects (Excl. Interns)
+                COALESCE(SUM(CASE 
+                    WHEN ae.employee_type_id != 3 
+                    THEN COALESCE(ea.internal_non_billing_allocation, 0) / 100.0
+                    ELSE 0 
+                END), 0)::DECIMAL(10,1) as internal_non_billing_count,
                 
                 -- External Consultant Count: Headcount of Active External Employees
                 COALESCE(SUM(CASE WHEN ae.is_external = true THEN 1 ELSE 0 END), 0)::DECIMAL(10,1) as external_consultant_count,
@@ -269,6 +294,7 @@ export const getDashboardResourceCounts = async (event) => {
             allocatedResourceCount: Math.max(0, parseFloat(row.allocated_resource_count) || 0),
             billableResourceCount: Math.max(0, parseFloat(row.billable_resource_count) || 0),
             shadowCount: Math.max(0, parseFloat(row.shadow_count) || 0),
+            internalNonBillingCount: Math.max(0, parseFloat(row.internal_non_billing_count) || 0),
             externalConsultantCount: Math.max(0, parseFloat(row.external_consultant_count) || 0),
             benchResourceCount: Math.max(0, parseFloat(row.bench_resource_count) || 0),
             trainingResourceCount: 0,
@@ -339,7 +365,14 @@ export const getDashboardPercentages = async (event) => {
                         ELSE a.allocation_percentage 
                     END) as total_allocation,
                     SUM(a.billing_percentage) as total_billing,
-                    SUM(CASE WHEN a.is_critical_shadow THEN a.allocation_percentage ELSE 0 END) as shadow_percentage
+                    SUM(CASE 
+                        WHEN LOWER(pt.name) = 'client' THEN a.allocation_percentage 
+                        ELSE 0 
+                    END) as shadow_eligible_allocation,
+                    SUM(CASE 
+                        WHEN LOWER(pt.name) = 'client' THEN a.billing_percentage 
+                        ELSE 0 
+                    END) as shadow_eligible_billing
                 FROM allocations a
                 LEFT JOIN billing_statuses bs ON a.billing_status_id = bs.id
                 LEFT JOIN projects p ON a.project_id = p.id
@@ -358,7 +391,8 @@ export const getDashboardPercentages = async (event) => {
                     -- Exclude Interns from sums to align with billable count denominator and shadow calc
                     COALESCE(SUM(CASE WHEN ae.employee_type_id != 3 THEN COALESCE(ea.total_allocation, 0) ELSE 0 END), 0) as sum_allocation,
                     COALESCE(SUM(CASE WHEN ae.employee_type_id != 3 THEN COALESCE(ea.total_billing, 0) ELSE 0 END), 0) as sum_billing,
-                    COALESCE(SUM(COALESCE(ea.shadow_percentage, 0)), 0) as sum_shadow,
+                    COALESCE(SUM(CASE WHEN ae.employee_type_id != 3 THEN COALESCE(ea.shadow_eligible_allocation, 0) ELSE 0 END), 0) as sum_shadow_alloc,
+                    COALESCE(SUM(CASE WHEN ae.employee_type_id != 3 THEN COALESCE(ea.shadow_eligible_billing, 0) ELSE 0 END), 0) as sum_shadow_bill,
                     -- Billable count for bench % denominator (excludes Delivery=10)
                     -- Billable count for bench % denominator (excludes Delivery=10 & Interns)
                     COALESCE(SUM(CASE 
@@ -391,9 +425,9 @@ export const getDashboardPercentages = async (event) => {
                     THEN ROUND((sum_billing::DECIMAL / 100.0) / billable_count * 100, 1)
                     ELSE 0 
                 END as billable_percentage,
-                -- Shadow % = Allocation % - Billable %
+                -- Shadow % = (Shadow Eligible Allocation - Shadow Eligible Billing) / Billable Count
                 CASE WHEN billable_count > 0 
-                    THEN ROUND(((sum_allocation::DECIMAL / 100.0) / billable_count * 100) - ((sum_billing::DECIMAL / 100.0) / billable_count * 100), 1)
+                    THEN ROUND(((sum_shadow_alloc::DECIMAL / 100.0) - (sum_shadow_bill::DECIMAL / 100.0)) / billable_count * 100, 1)
                     ELSE 0 
                 END as shadow_percentage,
                 CASE WHEN billable_count > 0 

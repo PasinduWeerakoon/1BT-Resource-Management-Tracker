@@ -37,9 +37,31 @@ import {
     checkProjectCapacity,
     validateAllocationDuration,
     checkOverlappingAllocation,
-    checkResourceStatus
+    checkResourceStatus,
+    validateBillingEligibility
 } from '../../services/allocationValidationService.js';
 import { updateResourceTotals } from '../../services/resourceTotalsService.js';
+import { LambdaClient, InvokeCommand } from "@aws-sdk/client-lambda";
+
+const lambda = new LambdaClient({ region: process.env.AWS_REGION });
+
+const triggerDashboardRefresh = async (log) => {
+    try {
+        const stage = process.env.NODE_ENV || 'dev';
+        const functionName = `onebt-report-service-${stage}-calculateDailyStats`;
+        const command = new InvokeCommand({
+            FunctionName: functionName,
+            InvocationType: 'Event', // Async execution
+            Payload: JSON.stringify({ source: 'allocation-service-trigger' }),
+        });
+        const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Lambda invoke timeout')), 2000));
+        await Promise.race([lambda.send(command), timeout]);
+        log.info('Triggered dashboard stats refresh', { functionName });
+    } catch (err) {
+        log.error('Failed to trigger dashboard refresh', { error: err.message });
+        // Non-blocking error
+    }
+};
 
 const SERVICE_NAME = 'allocation-service';
 
@@ -364,6 +386,20 @@ export const create = async (event) => {
 
         // Enhancement 3.8: Check project capacity (warning only)
         let capacityCheck = { capacityWarning: null };
+
+        // Enhancement: Validate billing eligibility for non-client projects
+        if (!isBenchAllocation && validated.billing_percentage > 0) {
+            const billingValidation = await validateBillingEligibility(validated.project_id, validated.billing_percentage);
+            if (!billingValidation.valid) {
+                log.warn('Billing eligibility check failed', {
+                    resourceId: validated.resource_id,
+                    projectId: validated.project_id,
+                    billingPercentage: validated.billing_percentage,
+                    error: billingValidation.error
+                });
+                return badRequest(billingValidation.error);
+            }
+        }
         if (!isBenchAllocation) {
             capacityCheck = await checkProjectCapacity(validated.project_id);
         }
@@ -590,6 +626,11 @@ export const create = async (event) => {
             response.durationWarnings = durationValidation.durationWarnings;
         }
 
+
+
+        // Enhancement: Trigger dashboard stats refresh
+        await triggerDashboardRefresh(log);
+
         return success(response, 201);
 
     } catch (err) {
@@ -764,6 +805,48 @@ export const update = async (event) => {
             }
         }
 
+        // Enhancement: Validate billing eligibility on update if billing_percentage is provided
+        if (!isBenchAllocation && validated.billing_percentage !== undefined && validated.billing_percentage > 0) {
+            const billingValidation = await validateBillingEligibility(existing.project_id, validated.billing_percentage);
+            if (!billingValidation.valid) {
+                log.warn('Billing eligibility check failed on update', {
+                    allocationId: id,
+                    projectId: existing.project_id,
+                    billingPercentage: validated.billing_percentage,
+                    error: billingValidation.error
+                });
+                return badRequest(billingValidation.error);
+            }
+        }
+
+
+        // Enhancement: handle 0% allocation
+        // If allocation is 0, billing must be 0, and we deallocate them (require end date)
+        if (validated.allocation_percentage === 0 && !isBenchAllocation) {
+            // Force billing to 0
+            validated.billing_percentage = 0;
+
+            // Check if end_date (deallocated_date) is provided or already exists
+            const hasEndDate = validated.end_date || existing.deallocated_date;
+
+            if (!hasEndDate) {
+                return badRequest('End Name (Deallocation Date) is required when setting allocation to 0%.', {
+                    requiredField: 'end_date'
+                });
+            }
+
+            // Effectively deactivate the allocation
+            // We'll set is_active to false in the update params below if it's not explicitly passed
+            if (validated.is_active === undefined) {
+                validated.is_active = false;
+            }
+
+            log.info('Setting allocation to 0% - forced billing to 0, checked end date, setting inactive', {
+                id,
+                endDate: validated.end_date || existing.deallocated_date
+            });
+        }
+
         // Enhancement 3.8: Check project capacity (warning only, if project changed or for info)
         let capacityCheck = { capacityWarning: null };
         if (!isBenchAllocation && (validated.project_id || validated.allocation_percentage !== undefined)) {
@@ -896,6 +979,11 @@ export const update = async (event) => {
             response.durationWarnings = durationValidation.durationWarnings;
         }
 
+
+
+        // Enhancement: Trigger dashboard stats refresh
+        await triggerDashboardRefresh(log);
+
         return success(response);
 
     } catch (err) {
@@ -974,6 +1062,9 @@ export const remove = async (event) => {
 
         // Update resource total_allocation and total_billing
         await updateResourceTotals(existing.employee_id, log);
+
+        // Enhancement: Trigger dashboard stats refresh
+        await triggerDashboardRefresh(log);
 
         return success({
             message: 'Allocation deleted successfully',

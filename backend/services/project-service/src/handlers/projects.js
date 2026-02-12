@@ -95,7 +95,7 @@ export const list = async (event) => {
 
     try {
         const queryParams = event.queryStringParameters || {};
-        const { page = 1, limit = 20, search, client_id, status, project_type_id, billing_status_id } = queryParams;
+        const { page = 1, limit = 20, search, client_id, status = 'Active', project_type_id, billing_status_id } = queryParams;
         const offset = (parseInt(page) - 1) * parseInt(limit);
 
         log.info('Listing projects', { page, limit, filters: { search, client_id, status } });
@@ -453,10 +453,27 @@ export const update = async (event) => {
         const result = await db.query(query, params);
         const updatedProject = result.rows[0];
 
-        // Enhancement 3.3: Auto-adjust allocation end dates if project_end_date was changed
+        // Enhancement 3.3: Auto-adjust allocation end dates if project_end_date was changed OR status changed to non-active
         let allocationAdjustment = null;
+
+        // Scenario 1: Project End Date Changed
         if (validated.project_end_date !== undefined && validated.project_end_date !== existing.project_end_date) {
             allocationAdjustment = await autoAdjustAllocationEndDates(id, validated.project_end_date, userId, log);
+        }
+
+        // Scenario 2: Project Status changed from Active to Inactive/Completed/On Hold
+        // We implicitly treat this as "Project Ended Today" if no specific end date provided
+        const nonActiveStatuses = ['Inactive', 'Completed', 'On Hold', 'Cancelled'];
+        if (validated.status !== undefined &&
+            existing.status === 'Active' &&
+            nonActiveStatuses.includes(validated.status)) {
+
+            // If we haven't already adjusted based on end date change above
+            if (!allocationAdjustment) {
+                // Use provided end date OR current date (effective immediately)
+                const effectiveEndDate = validated.project_end_date || new Date();
+                allocationAdjustment = await autoAdjustAllocationEndDates(id, effectiveEndDate, userId, log);
+            }
         }
 
         // Send audit event for project update
@@ -541,6 +558,11 @@ export const remove = async (event) => {
         // Prevent deletion of default projects (e.g., Bench)
         if (existing.is_default) {
             return error('Cannot delete default system project', 400);
+        }
+
+        // Prevent deletion of Active projects
+        if (existing.status === 'Active') {
+            return conflict('Cannot delete an Active project. Please archive or complete it first.');
         }
 
         await db.query(
