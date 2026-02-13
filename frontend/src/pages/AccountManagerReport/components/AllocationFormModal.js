@@ -3,12 +3,13 @@
  * Modal for creating/editing an allocation
  */
 
-import React from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { Row, Col, Select, DatePicker, InputNumber, Form, Switch, Input, Tooltip } from 'antd';
 import { InfoCircleOutlined } from '@ant-design/icons';
 import CustomModal from '@components/Modal';
 
 const { Option } = Select;
+const { useWatch } = Form;
 
 const AllocationFormModal = ({
   visible,
@@ -21,6 +22,34 @@ const AllocationFormModal = ({
   projectsForFilter,
   resourceBillingStatuses,
 }) => {
+  // Filter billing statuses to only show "Billing" and "Non-Billing"
+  const filteredBillingStatuses = useMemo(() => {
+    return resourceBillingStatuses.filter(
+      status => status.name === 'Billing' || status.name === 'Non-Billing'
+    );
+  }, [resourceBillingStatuses]);
+
+  // Watch the billing_status_id to determine if billing percentage should be disabled
+  const billingStatusId = useWatch('billing_status_id', form);
+  
+  // Find the selected billing status name
+  const selectedBillingStatus = useMemo(() => {
+    if (!billingStatusId) return null;
+    const status = resourceBillingStatuses.find(s => s.id === billingStatusId);
+    return status ? status.name : null;
+  }, [billingStatusId, resourceBillingStatuses]);
+  
+  const isBillingDisabled = selectedBillingStatus === 'Non-Billing';
+
+  // Effect to auto-set billing percentage to 0 when Non-Billing is selected
+  useEffect(() => {
+    if (isBillingDisabled) {
+      const currentBillingPercentage = form.getFieldValue('billing_percentage');
+      if (currentBillingPercentage !== 0) {
+        form.setFieldValue('billing_percentage', 0);
+      }
+    }
+  }, [isBillingDisabled, form]);
   return (
     <CustomModal
       title={isEditMode ? 'Edit Allocation' : 'Add New Allocation'}
@@ -92,24 +121,6 @@ const AllocationFormModal = ({
             </Form.Item>
           </Col>
           <Col xs={24} sm={12}>
-            <Form.Item
-              label="Billing Percentage"
-              name="billing_percentage"
-              rules={[
-                { required: true, message: 'Billing percentage is required' },
-                { type: 'number', min: 0, max: 100, message: 'Must be between 0 and 100' },
-              ]}
-            >
-              <InputNumber
-                style={{ width: '100%' }}
-                placeholder="Enter billing percentage"
-                min={0} max={100}
-                formatter={(v) => `${v}%`}
-                parser={(v) => v.replace('%', '')}
-              />
-            </Form.Item>
-          </Col>
-          <Col xs={24} sm={12}>
             <Form.Item label="Billing Status" name="billing_status_id">
               <Select
                 placeholder="Select billing status"
@@ -118,10 +129,38 @@ const AllocationFormModal = ({
                 allowClear
                 filterOption={(input, option) => (option?.children ?? '').toLowerCase().includes(input.toLowerCase())}
               >
-                {resourceBillingStatuses.map((s) => (
+                {filteredBillingStatuses.map((s) => (
                   <Option key={s.id} value={s.id}>{s.label || s.name}</Option>
                 ))}
               </Select>
+            </Form.Item>
+          </Col>
+          <Col xs={24} sm={12}>
+            <Form.Item
+              label={
+                <span>
+                  Billing Percentage
+                  {isBillingDisabled && (
+                    <span style={{ marginLeft: 8, color: '#999', fontSize: '12px' }}>
+                      (Auto-set to 0% for Non-Billing)
+                    </span>
+                  )}
+                </span>
+              }
+              name="billing_percentage"
+              rules={[
+                { required: true, message: 'Billing percentage is required' },
+                { type: 'number', min: 0, max: 100, message: 'Must be between 0 and 100' },
+              ]}
+            >
+              <InputNumber
+                style={{ width: '100%' }}
+                placeholder={isBillingDisabled ? 'Auto-set to 0%' : 'Enter billing percentage'}
+                min={0} max={100}
+                formatter={(v) => `${v}%`}
+                parser={(v) => v.replace('%', '')}
+                disabled={isBillingDisabled}
+              />
             </Form.Item>
           </Col>
           <Col xs={24} sm={12}>

@@ -3,7 +3,6 @@
  * 
  * Handlers for resource-related reports:
  * - getBenchReport: Resources with available capacity
- * - getUtilizationReport: Utilization by track
  * - getInternReport: Intern resources report
  * - getExternalConsultantsReport: External consultants report
  * 
@@ -262,77 +261,6 @@ export const getBenchReport = async (event) => {
     } catch (err) {
         log.error('Failed to get bench report', { error: err.message, stack: err.stack });
         return error('Failed to get bench report', err);
-    }
-};
-
-/**
- * Get utilization report by track
- */
-export const getUtilizationReport = async (event) => {
-    const log = logger.child({ handler: 'reports.getUtilizationReport' });
-
-    try {
-        log.info('Getting utilization report');
-
-        const query = `
-            SELECT 
-                r.track_id,
-                COUNT(DISTINCT r.id) as total_resources,
-                SUM(CASE WHEN p.is_billable = true THEN a.allocation_percentage ELSE 0 END) as billable_allocation_sum,
-                SUM(CASE WHEN p.is_billable = false OR p.is_billable IS NULL THEN a.allocation_percentage ELSE 0 END) as non_billable_allocation_sum,
-                COALESCE(SUM(a.allocation_percentage), 0) as total_allocated_sum
-            FROM employees r
-            
-            LEFT JOIN allocations a ON r.id = a.employee_id 
-                AND a.is_active = true 
-                AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
-            LEFT JOIN projects p ON a.project_id = p.id
-            WHERE r.status = 'Active' AND r.deleted_at IS NULL
-            GROUP BY r.track_id
-            ORDER BY r.track_id
-        `;
-
-        const result = await db.query(query);
-
-        // Calculate percentages and resolve track labels
-        const data = result.rows.map(row => {
-            const totalCapacity = parseInt(row.total_resources) * 100;
-            const trackLabel = resolveConfigLabel(TRACKS, row.track_id);
-            return {
-                trackId: row.track_id,
-                track: trackLabel || 'Unassigned',
-                totalResources: parseInt(row.total_resources),
-                billableUtilization: totalCapacity
-                    ? Math.round((parseInt(row.billable_allocation_sum) / totalCapacity) * 100)
-                    : 0,
-                nonBillableUtilization: totalCapacity
-                    ? Math.round((parseInt(row.non_billable_allocation_sum) / totalCapacity) * 100)
-                    : 0,
-                overallUtilization: totalCapacity
-                    ? Math.round((parseInt(row.total_allocated_sum) / totalCapacity) * 100)
-                    : 0
-            };
-        });
-
-        // Calculate totals
-        const totalResources = data.reduce((sum, r) => sum + r.totalResources, 0);
-        const avgUtilization = data.length > 0
-            ? Math.round(data.reduce((sum, r) => sum + r.overallUtilization, 0) / data.length)
-            : 0;
-
-        return success({
-            data,
-            summary: {
-                totalResources,
-                avgUtilization,
-                trackCount: data.length
-            },
-            generatedAt: new Date().toISOString()
-        });
-
-    } catch (err) {
-        log.error('Failed to get utilization report', { error: err.message });
-        return error('Failed to get utilization report', err);
     }
 };
 

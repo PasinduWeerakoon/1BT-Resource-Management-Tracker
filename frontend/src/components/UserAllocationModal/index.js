@@ -49,6 +49,28 @@ const getAllocationScheduleStatus = (effectiveDate) => {
     }
 };
 
+/**
+ * Component to handle billing percentage based on billing status
+ * Automatically sets billing percentage to 0 and disables field when "Non-Billing" is selected
+ */
+const AllocationBillingController = ({ allocationKey, form, onFieldChange }) => {
+    // Watch the billing status for this specific allocation
+    const billingStatus = useWatch(['allocations', allocationKey, 'billingStatus'], form);
+    
+    // Effect to auto-set billing percentage to 0 when Non-Billing is selected
+    useEffect(() => {
+        if (billingStatus === 'Non-Billing') {
+            const currentBillingPercentage = form.getFieldValue(['allocations', allocationKey, 'billingPercentage']);
+            if (currentBillingPercentage !== 0) {
+                form.setFieldValue(['allocations', allocationKey, 'billingPercentage'], 0);
+                onFieldChange(allocationKey, 'billingPercentage', 0);
+            }
+        }
+    }, [billingStatus, allocationKey, form, onFieldChange]);
+    
+    return null; // This is a controller component, no UI
+};
+
 const UserAllocationModal = ({
     visible,
     selectedEmployee,
@@ -62,13 +84,21 @@ const UserAllocationModal = ({
     projectOptions = [],
 }) => {
     // Get billing statuses from Redux and filter for resource billing
+    // ONLY allow "Billing" and "Non-Billing" for resource allocations
     const billingStatusesList = useSelector(selectBillingStatuses);
     const resourceBillingStatuses = useMemo(() => {
         const filtered = billingStatusesList.filter((status) => {
             const billingType = status?.billingType || [];
-            return Array.isArray(billingType) && billingType.includes('resource');
+            const isResourceBilling = Array.isArray(billingType) && billingType.includes('resource');
+            // Only show "Billing" and "Non-Billing" statuses
+            const isAllowedStatus = status.name === 'Billing' || status.name === 'Non-Billing';
+            return isResourceBilling && isAllowedStatus;
         });
-        return filtered.length > 0 ? filtered : billingStatusesList;
+        // Fallback: if no filtered results, show only Billing and Non-Billing from all statuses
+        if (filtered.length === 0) {
+            return billingStatusesList.filter(s => s.name === 'Billing' || s.name === 'Non-Billing');
+        }
+        return filtered;
     }, [billingStatusesList]);
 
     // Build initial form values from allocations list
@@ -169,9 +199,19 @@ const UserAllocationModal = ({
                             {allocationsList.map((allocation, index) => {
                                 // Get schedule status for this allocation
                                 const scheduleStatus = getAllocationScheduleStatus(allocation.allocatedDate);
+                                
+                                // Get current billing status for this allocation to determine if billing percentage should be disabled
+                                const currentBillingStatus = form.getFieldValue(['allocations', allocation.key, 'billingStatus']);
+                                const isBillingDisabled = currentBillingStatus === 'Non-Billing';
 
                                 return (
                                     <div key={allocation.key} style={{ marginBottom: 24, padding: 16, border: '1px solid #f0f0f0', borderRadius: 4 }}>
+                                        {/* Add controller to manage billing percentage based on billing status */}
+                                        <AllocationBillingController 
+                                            allocationKey={allocation.key} 
+                                            form={form} 
+                                            onFieldChange={onFieldChange}
+                                        />
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                                                 <strong>Allocation {index + 1}</strong>
@@ -281,7 +321,16 @@ const UserAllocationModal = ({
                                             </Col>
                                             <Col xs={24} sm={12} md={8}>
                                                 <Form.Item
-                                                    label="Billing Percentage"
+                                                    label={
+                                                        <span>
+                                                            Billing Percentage
+                                                            {isBillingDisabled && (
+                                                                <span style={{ marginLeft: 8, color: '#999', fontSize: '12px' }}>
+                                                                    (Auto-set to 0% for Non-Billing)
+                                                                </span>
+                                                            )}
+                                                        </span>
+                                                    }
                                                     name={[`allocations`, allocation.key, 'billingPercentage']}
                                                     rules={[
                                                         { required: true, message: 'Billing percentage is required' },
@@ -290,12 +339,13 @@ const UserAllocationModal = ({
                                                 >
                                                     <InputNumber
                                                         style={{ width: '100%' }}
-                                                        placeholder="Enter billing percentage"
+                                                        placeholder={isBillingDisabled ? 'Auto-set to 0%' : 'Enter billing percentage'}
                                                         min={0}
                                                         max={100}
                                                         onChange={(value) => onFieldChange(allocation.key, 'billingPercentage', value)}
                                                         formatter={value => `${value}%`}
                                                         parser={value => value.replace('%', '')}
+                                                        disabled={isBillingDisabled}
                                                     />
                                                 </Form.Item>
                                             </Col>

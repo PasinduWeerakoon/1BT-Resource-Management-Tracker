@@ -387,6 +387,28 @@ export const create = async (event) => {
         // Enhancement 3.8: Check project capacity (warning only)
         let capacityCheck = { capacityWarning: null };
 
+        // Enhancement: Validate billing status and enforce Non-Billing = 0% billing
+        if (!isBenchAllocation && validated.billing_status_id) {
+            const billingStatusResult = await db.query(
+                'SELECT name FROM billing_statuses WHERE id = $1',
+                [validated.billing_status_id]
+            );
+            
+            if (billingStatusResult.rows.length > 0) {
+                const billingStatusName = billingStatusResult.rows[0].name;
+                
+                // If billing status is "Non-Billing", force billing percentage to 0
+                if (billingStatusName === 'Non-Billing' && validated.billing_percentage > 0) {
+                    log.warn('Forcing billing percentage to 0 for Non-Billing status', {
+                        resourceId: validated.resource_id,
+                        projectId: validated.project_id,
+                        originalBillingPercentage: validated.billing_percentage
+                    });
+                    validated.billing_percentage = 0;
+                }
+            }
+        }
+
         // Enhancement: Validate billing eligibility for non-client projects
         if (!isBenchAllocation && validated.billing_percentage > 0) {
             const billingValidation = await validateBillingEligibility(validated.project_id, validated.billing_percentage);
@@ -802,6 +824,30 @@ export const update = async (event) => {
                     minimumThreshold: ALLOCATION_CONFIG.MINIMUM_ALLOCATION_PERCENTAGE,
                     currentPercentage: validated.allocation_percentage
                 });
+            }
+        }
+
+        // Enhancement: Validate billing status and enforce Non-Billing = 0% billing on update
+        if (!isBenchAllocation && validated.billing_status_id) {
+            const billingStatusResult = await db.query(
+                'SELECT name FROM billing_statuses WHERE id = $1',
+                [validated.billing_status_id]
+            );
+            
+            if (billingStatusResult.rows.length > 0) {
+                const billingStatusName = billingStatusResult.rows[0].name;
+                
+                // If billing status is "Non-Billing", force billing percentage to 0
+                if (billingStatusName === 'Non-Billing') {
+                    if (validated.billing_percentage === undefined || validated.billing_percentage > 0) {
+                        log.warn('Forcing billing percentage to 0 for Non-Billing status on update', {
+                            allocationId: id,
+                            projectId: existing.project_id,
+                            originalBillingPercentage: validated.billing_percentage
+                        });
+                        validated.billing_percentage = 0;
+                    }
+                }
             }
         }
 
