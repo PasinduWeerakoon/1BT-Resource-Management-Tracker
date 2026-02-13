@@ -349,16 +349,16 @@ def generate_non_billing_report(event, context):
         # Shows resources where allocation_percentage > billing_percentage on billing projects
         sql = f"""
             WITH resource_shadow AS (
-                SELECT 
+            SELECT 
                     e.id as employee_id,
-                    e.name,
+                e.name,
                     e.track_id,
                     e.tier_id,
                     e.designation_id,
                     a.project_id,
-                    p.project_name,
-                    a.allocation_percentage,
-                    a.billing_percentage,
+                p.project_name,
+                a.allocation_percentage,
+                a.billing_percentage,
                     (a.allocation_percentage - a.billing_percentage) as shadow_amount,
                     -- Calculate total allocation on billing projects (excluding bench)
                     SUM(CASE 
@@ -377,17 +377,17 @@ def generate_non_billing_report(event, context):
                     ) as total_shadow
                 FROM allocations a
                 JOIN employees e ON a.employee_id = e.id
-                JOIN projects p ON a.project_id = p.id
+            JOIN projects p ON a.project_id = p.id
                 JOIN billing_statuses pbs ON p.billing_status_id = pbs.id
                 WHERE a.is_active = true 
-                  AND a.deleted_at IS NULL
+              AND a.deleted_at IS NULL
                   AND e.status = 'Active'
-                  AND e.deleted_at IS NULL
+              AND e.deleted_at IS NULL
                   AND LOWER(pbs.name) = 'billing'
                   AND e.track_id IN (1, 2, 3, 4, 5, 8, 11)
                   AND e.employee_type_id != 3
                   AND e.is_external = false
-                  {track_filter}
+              {track_filter}
             )
             SELECT 
                 rs.name,
@@ -521,7 +521,7 @@ def generate_summary_report(event, context):
                 WHERE status = 'Active' AND deleted_at IS NULL
             ),
             billable_allocations AS (
-                SELECT 
+            SELECT 
                     SUM(CASE 
                         WHEN p.is_bench_project = true THEN 0
                         ELSE a.allocation_percentage 
