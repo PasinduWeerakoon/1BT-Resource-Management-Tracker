@@ -1024,94 +1024,96 @@ def generate_monthly_allocation_report(event, context):
         logger.info(f"Generating monthly allocation Excel for {month_name} {target_year} (track_id={track_id})")
 
         # Build track filter (using %s for psycopg2 parameterized queries)
+        # IMPORTANT: Parameter order must match the order of %s placeholders
+        # in the SQL (dates for current query, optional track, then dates for
+        # history query, optional track).
         track_filter = ''
-        params = [end_date, start_date, end_date, start_date]
+        params = [end_date, start_date]  # for current allocations query
 
         if track_id:
             track_id_int = int(track_id)
-            # Append track_id twice (once for each query in the UNION)
-            params.extend([track_id_int, track_id_int])
+            params.append(track_id_int)  # track for current allocations
             track_filter = 'AND e.track_id = %s'
 
-        # Combined query using CTE with UNION ALL
+        # Dates (and optional track) for history query
+        params.extend([end_date, start_date])
+        if track_id:
+            params.append(track_id_int)  # track for history allocations
+
+        # Combined query using UNION ALL
         # Query 1: Current active allocations from 'allocations' table
         # Query 2: Historical deallocated allocations from 'allocation_history' table (change_type = 'DELETED')
-        # Window functions compute total allocation & billing per employee across the period
+        # total_allocation and total_resource_billing are read directly from employees table (maintained by trigger)
         combined_sql = f"""
-            WITH combined AS (
-                SELECT 
-                    e.id as employee_id,
-                    e.emp_no,
-                    e.epf_no,
-                    e.name as employee_name,
-                    d.name as designation,
-                    e.tier_id,
-                    e.tech_stack_id,
-                    p.project_code,
-                    p.project_name,
-                    a.allocated_date,
-                    a.deallocated_date,
-                    bs.name as billing_status,
-                    a.billing_percentage,
-                    a.allocation_percentage,
-                    e.status as resource_status,
-                    e.global_employee_id
-                FROM allocations a
-                JOIN employees e ON a.employee_id = e.id
-                JOIN projects p ON a.project_id = p.id
-                LEFT JOIN designations d ON e.designation_id = d.id
-                LEFT JOIN billing_statuses bs ON a.billing_status_id = bs.id
-                WHERE a.is_active = true
-                  AND a.deleted_at IS NULL
-                  AND e.deleted_at IS NULL
-                  AND a.allocated_date <= %s
-                  AND (a.deallocated_date IS NULL OR a.deallocated_date >= %s)
-                  {track_filter}
-
-                UNION ALL
-
-                SELECT 
-                    e.id as employee_id,
-                    e.emp_no,
-                    e.epf_no,
-                    e.name as employee_name,
-                    d.name as designation,
-                    e.tier_id,
-                    e.tech_stack_id,
-                    p.project_code,
-                    p.project_name,
-                    ah.allocation_start_date as allocated_date,
-                    ah.allocation_end_date as deallocated_date,
-                    bs.name as billing_status,
-                    ah.billing_percentage,
-                    ah.allocation_percentage,
-                    e.status as resource_status,
-                    e.global_employee_id
-                FROM allocation_history ah
-                JOIN employees e ON ah.employee_id = e.id
-                JOIN projects p ON ah.project_id = p.id
-                LEFT JOIN designations d ON e.designation_id = d.id
-                LEFT JOIN billing_statuses bs ON ah.billing_status_id = bs.id
-                WHERE ah.change_type = 'DELETED'
-                  AND e.deleted_at IS NULL
-                  AND ah.allocation_start_date <= %s
-                  AND ah.allocation_end_date IS NOT NULL
-                  AND ah.allocation_end_date >= %s
-                  AND NOT EXISTS (
-                      SELECT 1 FROM allocations a2 
-                      WHERE a2.employee_id = ah.employee_id 
-                        AND a2.project_id = ah.project_id 
-                        AND a2.is_active = true 
-                        AND a2.deleted_at IS NULL
-                  )
-                  {track_filter}
-            )
             SELECT 
-                c.*,
-                SUM(c.billing_percentage) OVER (PARTITION BY c.employee_id) as total_billing_percentage,
-                SUM(c.allocation_percentage) OVER (PARTITION BY c.employee_id) as total_allocation_percentage
-            FROM combined c
-            ORDER BY c.employee_name, c.project_name
+                e.emp_no,
+                e.epf_no,
+                e.name as employee_name,
+                d.name as designation,
+                e.tier_id,
+                e.tech_stack_id,
+                p.project_code,
+                p.project_name,
+                a.allocated_date,
+                a.deallocated_date,
+                bs.name as billing_status,
+                a.billing_percentage,
+                a.allocation_percentage,
+                e.total_resource_billing as total_billing_percentage,
+                e.total_allocation as total_allocation_percentage,
+                e.status as resource_status,
+                e.global_employee_id
+            FROM allocations a
+            JOIN employees e ON a.employee_id = e.id
+            JOIN projects p ON a.project_id = p.id
+            LEFT JOIN designations d ON e.designation_id = d.id
+            LEFT JOIN billing_statuses bs ON a.billing_status_id = bs.id
+            WHERE a.is_active = true
+              AND a.deleted_at IS NULL
+              AND e.deleted_at IS NULL
+              AND a.allocated_date <= %s
+              AND (a.deallocated_date IS NULL OR a.deallocated_date >= %s)
+              {track_filter}
+
+            UNION ALL
+
+            SELECT 
+                e.emp_no,
+                e.epf_no,
+                e.name as employee_name,
+                d.name as designation,
+                e.tier_id,
+                e.tech_stack_id,
+                p.project_code,
+                p.project_name,
+                ah.allocation_start_date as allocated_date,
+                ah.allocation_end_date as deallocated_date,
+                bs.name as billing_status,
+                ah.billing_percentage,
+                ah.allocation_percentage,
+                e.total_resource_billing as total_billing_percentage,
+                e.total_allocation as total_allocation_percentage,
+                e.status as resource_status,
+                e.global_employee_id
+            FROM allocation_history ah
+            JOIN employees e ON ah.employee_id = e.id
+            JOIN projects p ON ah.project_id = p.id
+            LEFT JOIN designations d ON e.designation_id = d.id
+            LEFT JOIN billing_statuses bs ON ah.billing_status_id = bs.id
+            WHERE ah.change_type = 'DELETED'
+              AND e.deleted_at IS NULL
+              AND ah.allocation_start_date <= %s
+              AND ah.allocation_end_date IS NOT NULL
+              AND ah.allocation_end_date >= %s
+              AND NOT EXISTS (
+                  SELECT 1 FROM allocations a2 
+                  WHERE a2.employee_id = ah.employee_id 
+                    AND a2.project_id = ah.project_id 
+                    AND a2.is_active = true 
+                    AND a2.deleted_at IS NULL
+              )
+              {track_filter}
+            ORDER BY employee_name, project_name
         """
 
         data = query(combined_sql, params)

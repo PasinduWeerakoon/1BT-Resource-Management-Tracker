@@ -26,7 +26,7 @@ const resolveConfigLabel = (configArray, id) => {
 
 /**
  * Get monthly allocation report
- * Queries both allocations (current) and allocation_history_archive (deallocated) tables
+ * Queries both allocations (current) and allocation_history (deallocated) tables
  * to provide a complete picture of allocations for a given month period.
  */
 export const getMonthlyAllocationReport = async (event) => {
@@ -82,9 +82,9 @@ export const getMonthlyAllocationReport = async (event) => {
               ${trackFilter}
         `;
 
-        // Query 2: Historical allocations from 'allocation_history_archive' table
+        // Query 2: Historical allocations from 'allocation_history' table
         // Users who were deallocated but had an allocation during the given month
-        const archiveAllocationsQuery = `
+        const historyAllocationsQuery = `
             SELECT 
                 r.name as resource_name,
                 r.email,
@@ -95,17 +95,18 @@ export const getMonthlyAllocationReport = async (event) => {
                 p.project_name,
                 c.client_name,
                 ah.allocation_percentage,
-                ah.allocated_date as start_date,
-                ah.deallocated_date as end_date,
+                ah.allocation_start_date as start_date,
+                ah.allocation_end_date as end_date,
                 'Historical' as source
-            FROM allocation_history_archive ah
+            FROM allocation_history ah
             JOIN employees r ON ah.employee_id = r.id
             JOIN projects p ON ah.project_id = p.id
             LEFT JOIN clients c ON p.client_id = c.id
             LEFT JOIN designations d ON r.designation_id = d.id
-            WHERE ah.allocated_date <= $2
-              AND ah.deallocated_date IS NOT NULL
-              AND ah.deallocated_date >= $1
+            WHERE ah.change_type = 'DELETED'
+              AND ah.allocation_start_date <= $2
+              AND ah.allocation_end_date IS NOT NULL
+              AND ah.allocation_end_date >= $1
               AND r.deleted_at IS NULL
               AND NOT EXISTS (
                   SELECT 1 FROM allocations a2 
@@ -121,7 +122,7 @@ export const getMonthlyAllocationReport = async (event) => {
         const combinedQuery = `
             ${currentAllocationsQuery}
             UNION ALL
-            ${archiveAllocationsQuery}
+            ${historyAllocationsQuery}
             ORDER BY resource_name, project_name
         `;
 
