@@ -182,6 +182,16 @@ functions:
           path: /api/v1/reports/tier-breakdown
           method: GET
           authorizer: ${self:custom.authorizer}
+
+  trainingReport:
+    handler: src/handlers/reports/index.getTrainingReport
+    description: Get training report with charts and tables
+    events:
+      - httpApi:
+          path: /api/v1/reports/training
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
   externalConsultantsReport:
     handler: src/handlers/reports/index.getExternalConsultantsReport
     description: Get external consultants report with allocation details

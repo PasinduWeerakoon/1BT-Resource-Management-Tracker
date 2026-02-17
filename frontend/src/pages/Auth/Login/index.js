@@ -3,7 +3,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import { Card, Modal, Form, Input, Button, Typography } from 'antd';
 import { LockOutlined } from '@ant-design/icons';
-import { initializeAuth } from '@redux/slices/authSlice';
+import { initializeAuth, setCredentials } from '@redux/slices/authSlice';
 import { fetchAllConfigData } from '@redux/slices/configSlice';
 import { authService } from '@api';
 import { storeAuth } from '@utils/auth.utils';
@@ -170,19 +170,19 @@ const Login = () => {
         <LoginForm
           onFinish={onFinish}
           loading={loading}
-          onForgotPassword={() => setShowForgotPasswordModal(true)}
+          // onForgotPassword={() => setShowForgotPasswordModal(true)}
         />
       </Card>
 
       {/* Forgot Password Modal */}
-      <ForgotPassword
+      {/* <ForgotPassword
         visible={showForgotPasswordModal}
         onClose={() => setShowForgotPasswordModal(false)}
         onSuccess={(email) => {
           // Optionally handle success (e.g., show additional message)
           logger.debug('Password reset email sent to:', email);
         }}
-      />
+      /> */}
 
       {/* Complete Invite Modal - Set New Password */}
       <Modal

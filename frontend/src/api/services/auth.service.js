@@ -93,13 +93,15 @@ export const authService = {
    * @param {string} email - User email
    * @param {string} name - User name
    * @param {string} role - User role (Admin|User)
+   * @param {string} employee_id - Employee ID (UUID)
    * @returns {Promise<{success: boolean, message: string}>}
    */
-  invite: async (email, name, role) => {
+  invite: async (email, name, role, employee_id) => {
     const response = await apiClient.post(ENDPOINTS.AUTH.INVITE, {
       email,
       name,
       role,
+      employee_id,
     });
     // The interceptor transforms the response
     return response.data || response;
@@ -111,13 +113,29 @@ export const authService = {
    * @param {string} email - User email
    * @param {string} newPassword - New password
    * @param {string} session - Session token from initial login attempt
-   * @returns {Promise<{success: boolean, data: {accessToken: string, idToken: string, refreshToken: string}}>}
+   * @returns {Promise<{success: boolean, data: {accessToken: string, idToken: string, refreshToken: string, cognitoSub: string, email: string, nextStep: string}}>}
    */
   completeInvite: async (email, newPassword, session) => {
     const response = await apiClient.post(ENDPOINTS.AUTH.COMPLETE_INVITE, {
       email,
       newPassword,
       session,
+    });
+    // The interceptor transforms the response
+    return response.data || response;
+  },
+
+  /**
+   * Activate user after password is set
+   * Updates user status to Active in database
+   * @param {string} email - User email
+   * @param {string} cognitoSub - Cognito user ID (sub from token)
+   * @returns {Promise<{success: boolean, message: string, user: Object}>}
+   */
+  activateUser: async (email, cognitoSub) => {
+    const response = await apiClient.post(ENDPOINTS.AUTH.ACTIVATE_USER, {
+      email,
+      cognito_sub: cognitoSub,
     });
     // The interceptor transforms the response
     return response.data || response;
@@ -132,11 +150,11 @@ export const authService = {
     const queryParams = new URLSearchParams();
     if (params.limit) queryParams.append('limit', params.limit);
     if (params.paginationToken) queryParams.append('paginationToken', params.paginationToken);
-    
-    const url = queryParams.toString() 
+
+    const url = queryParams.toString()
       ? `${ENDPOINTS.AUTH.USERS}?${queryParams.toString()}`
       : ENDPOINTS.AUTH.USERS;
-    
+
     const response = await apiClient.get(url);
     // The interceptor transforms the response
     return response.data || response;

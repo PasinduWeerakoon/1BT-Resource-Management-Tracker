@@ -25,18 +25,11 @@ export const useTrainingData = (filters) => {
       const queryParams = {};
       
       // Add filters to query params
-      if (filters.designation && filters.designation !== 'All') {
-        queryParams.designation = filters.designation;
-      }
       if (filters.track && filters.track !== 'All') {
         queryParams.track = filters.track;
       }
       if (filters.techStack && filters.techStack !== 'All') {
         queryParams.tech_stack = filters.techStack;
-      }
-      if (filters.dateRange && filters.dateRange.length === 2) {
-        queryParams.start_date = filters.dateRange[0].format('YYYY-MM-DD');
-        queryParams.end_date = filters.dateRange[1].format('YYYY-MM-DD');
       }
       
       const response = await reportsService.getTraining(queryParams);

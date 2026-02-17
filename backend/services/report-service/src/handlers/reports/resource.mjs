@@ -219,7 +219,7 @@ export const getBenchReport = async (event) => {
 
         // Bench % = (Sum Bench Allocation / 100) / Billable Count
         const benchPercentage = billableCount > 0 && totalBenchAllocationCount > 0
-            ? ((totalBenchAllocationCount / billableCount )* 100).toFixed(1)
+            ? ((totalBenchAllocationCount / billableCount) * 100).toFixed(1)
             : '0.0';
 
         // Format charts - resolve IDs to labels using configs
@@ -836,6 +836,297 @@ export const getExternalConsultantsReport = async (event) => {
     } catch (err) {
         log.error('Failed to get external consultants report', { error: err.message, stack: err.stack });
         return error('Failed to get external consultants report', err);
+    }
+};
+
+/**
+ * Get training report
+ * Resources allocated to Training project type OR with Training billing status
+ * 
+ * Training resources are identified by:
+ * 1. Resources allocated to projects with project_type_id where project type name = "Training"
+ * 2. Resources with allocations that have billing_status_id where billing status name = "Training"
+ */
+export const getTrainingReport = async (event) => {
+    const log = logger.child({ handler: 'reports.getTrainingReport' });
+
+    try {
+        const queryParams = event.queryStringParameters || {};
+        const { track, track_id, tech_stack, tech_stack_id } = queryParams;
+
+        log.info('Getting training report', { filters: queryParams });
+
+        // Build WHERE clauses for filters
+        let resourceWhereClause = 'WHERE r.status = \'Active\' AND r.deleted_at IS NULL';
+        const params = [];
+        let paramIndex = 1;
+
+        // Track filter
+        const trackFilter = track_id || track;
+        if (trackFilter && trackFilter !== 'All' && trackFilter !== '') {
+            const trackIdValue = !isNaN(trackFilter) ? parseInt(trackFilter) :
+                TRACKS.find(t => t.label === trackFilter)?.id;
+            if (trackIdValue) {
+                resourceWhereClause += ` AND r.track_id = $${paramIndex}`;
+                params.push(trackIdValue);
+                paramIndex++;
+            }
+        }
+
+        // Tech Stack filter
+        const techStackFilter = tech_stack_id || tech_stack;
+        if (techStackFilter && techStackFilter !== 'All' && techStackFilter !== '') {
+            const techStackIdValue = !isNaN(techStackFilter) ? parseInt(techStackFilter) :
+                TECH_STACKS.find(t => t.label === techStackFilter)?.id;
+            if (techStackIdValue) {
+                resourceWhereClause += ` AND r.tech_stack_id = $${paramIndex}`;
+                params.push(techStackIdValue);
+                paramIndex++;
+            }
+        }
+
+        // Get total employee count (for percentage calculation)
+        const totalEmployeesQuery = `
+            SELECT COUNT(*) as total
+            FROM employees r
+            WHERE r.status = 'Active' AND r.deleted_at IS NULL
+        `;
+
+        // Get training resources count
+        // Training = allocated to Training project type OR has Training billing status
+        const trainingResourcesQuery = `
+            SELECT COUNT(DISTINCT r.id) as total
+            FROM employees r
+            LEFT JOIN designations d ON r.designation_id = d.id
+            INNER JOIN allocations a ON r.id = a.employee_id 
+                AND a.is_active = true 
+                AND a.deleted_at IS NULL
+                AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
+            INNER JOIN projects p ON a.project_id = p.id AND p.deleted_at IS NULL
+            LEFT JOIN project_types pt ON p.project_type_id = pt.id
+            LEFT JOIN billing_statuses bs ON a.billing_status_id = bs.id
+            ${resourceWhereClause}
+            AND (
+                LOWER(pt.name) = 'training'
+                OR LOWER(bs.name) = 'training'
+            )
+        `;
+
+        // Get training resources with details for tables
+        const trainingDetailsQuery = `
+            SELECT DISTINCT
+                r.id,
+                r.name as employee_name,
+                r.email,
+                d.name as designation,
+                r.track_id,
+                r.tech_stack_id,
+                p.project_name as project,
+                p.id as project_id,
+                TO_CHAR(a.allocated_date, 'DD Mon YYYY') as allocated_date,
+                CASE WHEN a.deallocated_date IS NOT NULL THEN TO_CHAR(a.deallocated_date, 'DD Mon YYYY') ELSE NULL END as deallocated_date,
+                COALESCE(a.allocation_percentage, 0) as allocation_percentage,
+                COALESCE(a.billing_percentage, 0) as billing_percentage,
+                CASE 
+                    WHEN LOWER(pt.name) = 'training' THEN 'Training Project'
+                    WHEN LOWER(bs.name) = 'training' THEN 'Training Billing Status'
+                    ELSE 'Training'
+                END as training_type
+            FROM employees r
+            LEFT JOIN designations d ON r.designation_id = d.id
+            INNER JOIN allocations a ON r.id = a.employee_id 
+                AND a.is_active = true 
+                AND a.deleted_at IS NULL
+                AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
+            INNER JOIN projects p ON a.project_id = p.id AND p.deleted_at IS NULL
+            LEFT JOIN project_types pt ON p.project_type_id = pt.id
+            LEFT JOIN billing_statuses bs ON a.billing_status_id = bs.id
+            ${resourceWhereClause}
+            AND (
+                LOWER(pt.name) = 'training'
+                OR LOWER(bs.name) = 'training'
+            )
+            ORDER BY r.name, p.project_name
+        `;
+
+        // Get chart data - Track distribution
+        const trackDistributionQuery = `
+            SELECT 
+                r.track_id,
+                COUNT(DISTINCT r.id) as count
+            FROM employees r
+            LEFT JOIN designations d ON r.designation_id = d.id
+            INNER JOIN allocations a ON r.id = a.employee_id 
+                AND a.is_active = true 
+                AND a.deleted_at IS NULL
+                AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
+            INNER JOIN projects p ON a.project_id = p.id AND p.deleted_at IS NULL
+            LEFT JOIN project_types pt ON p.project_type_id = pt.id
+            LEFT JOIN billing_statuses bs ON a.billing_status_id = bs.id
+            ${resourceWhereClause}
+            AND (
+                LOWER(pt.name) = 'training'
+                OR LOWER(bs.name) = 'training'
+            )
+            GROUP BY r.track_id
+            ORDER BY count DESC
+        `;
+
+        // Get chart data - Tech Stack distribution
+        const techStackDistributionQuery = `
+            SELECT 
+                r.tech_stack_id,
+                COUNT(DISTINCT r.id) as count
+            FROM employees r
+            LEFT JOIN designations d ON r.designation_id = d.id
+            INNER JOIN allocations a ON r.id = a.employee_id 
+                AND a.is_active = true 
+                AND a.deleted_at IS NULL
+                AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
+            INNER JOIN projects p ON a.project_id = p.id AND p.deleted_at IS NULL
+            LEFT JOIN project_types pt ON p.project_type_id = pt.id
+            LEFT JOIN billing_statuses bs ON a.billing_status_id = bs.id
+            ${resourceWhereClause}
+            AND (
+                LOWER(pt.name) = 'training'
+                OR LOWER(bs.name) = 'training'
+            )
+            AND r.tech_stack_id IS NOT NULL
+            GROUP BY r.tech_stack_id
+            ORDER BY count DESC
+        `;
+
+        // Get chart data - Designation distribution
+        const designationDistributionQuery = `
+            SELECT 
+                d.name as designation,
+                COUNT(DISTINCT r.id) as count
+            FROM employees r
+            LEFT JOIN designations d ON r.designation_id = d.id
+            INNER JOIN allocations a ON r.id = a.employee_id 
+                AND a.is_active = true 
+                AND a.deleted_at IS NULL
+                AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
+            INNER JOIN projects p ON a.project_id = p.id AND p.deleted_at IS NULL
+            LEFT JOIN project_types pt ON p.project_type_id = pt.id
+            LEFT JOIN billing_statuses bs ON a.billing_status_id = bs.id
+            ${resourceWhereClause}
+            AND (
+                LOWER(pt.name) = 'training'
+                OR LOWER(bs.name) = 'training'
+            )
+            AND d.name IS NOT NULL
+            GROUP BY d.name
+            ORDER BY count DESC
+        `;
+
+        // Run queries in parallel
+        const [
+            totalEmployeesResult,
+            trainingResourcesResult,
+            trainingDetailsResult,
+            trackDistributionResult,
+            techStackDistributionResult,
+            designationDistributionResult
+        ] = await Promise.all([
+            db.query(totalEmployeesQuery),
+            db.query(trainingResourcesQuery, params),
+            db.query(trainingDetailsQuery, params),
+            db.query(trackDistributionQuery, params),
+            db.query(techStackDistributionQuery, params),
+            db.query(designationDistributionQuery, params)
+        ]);
+
+        const totalEmployees = parseInt(totalEmployeesResult.rows[0]?.total || 0);
+        const totalEmployeesInTraining = parseInt(trainingResourcesResult.rows[0]?.total || 0);
+
+        // Transform chart data - resolve config IDs to labels
+        const trackDistribution = trackDistributionResult.rows.map(row => ({
+            track: resolveConfigLabel(TRACKS, row.track_id) || 'Unknown',
+            count: parseInt(row.count || 0)
+        }));
+
+        const techStackDistribution = techStackDistributionResult.rows.map(row => ({
+            tech_stack: resolveConfigLabel(TECH_STACKS, row.tech_stack_id) || 'Unknown',
+            count: parseInt(row.count || 0)
+        }));
+
+        const designationDistribution = designationDistributionResult.rows.map(row => ({
+            designation: row.designation || 'Unknown',
+            count: parseInt(row.count || 0)
+        }));
+
+        // Transform table data - by designation (resolve config labels)
+        const byDesignation = {};
+        trainingDetailsResult.rows.forEach(row => {
+            const designation = row.designation || 'Unknown';
+            if (!byDesignation[designation]) {
+                byDesignation[designation] = {
+                    designation,
+                    employees: []
+                };
+            }
+            byDesignation[designation].employees.push({
+                id: row.id,
+                employee_name: row.employee_name,
+                email: row.email,
+                track: resolveConfigLabel(TRACKS, row.track_id) || 'Unknown',
+                tech_stack: resolveConfigLabel(TECH_STACKS, row.tech_stack_id) || 'Unknown',
+                project: row.project,
+                allocated_date: row.allocated_date,
+                deallocated_date: row.deallocated_date,
+                allocation_percentage: parseFloat(row.allocation_percentage || 0),
+                billing_percentage: parseFloat(row.billing_percentage || 0),
+                training_type: row.training_type
+            });
+        });
+
+        // Transform table data - by allocation (grouped by employee, resolve config labels)
+        const byAllocation = {};
+        trainingDetailsResult.rows.forEach(row => {
+            const employeeId = row.id;
+            if (!byAllocation[employeeId]) {
+                byAllocation[employeeId] = {
+                    id: employeeId,
+                    employee_name: row.employee_name,
+                    email: row.email,
+                    designation: row.designation,
+                    track: resolveConfigLabel(TRACKS, row.track_id) || 'Unknown',
+                    tech_stack: resolveConfigLabel(TECH_STACKS, row.tech_stack_id) || 'Unknown',
+                    allocations: []
+                };
+            }
+            byAllocation[employeeId].allocations.push({
+                project: row.project,
+                project_id: row.project_id,
+                allocated_date: row.allocated_date,
+                deallocated_date: row.deallocated_date,
+                allocation_percentage: parseFloat(row.allocation_percentage || 0),
+                billing_percentage: parseFloat(row.billing_percentage || 0),
+                training_type: row.training_type
+            });
+        });
+
+        return success({
+            summary: {
+                totalEmployeesInTraining,
+                totalEmployees
+            },
+            charts: {
+                trackDistribution,
+                techStackDistribution,
+                designationDistribution
+            },
+            tables: {
+                byDesignation: Object.values(byDesignation),
+                byAllocation: Object.values(byAllocation)
+            },
+            generatedAt: new Date().toISOString()
+        });
+
+    } catch (err) {
+        log.error('Failed to get training report', { error: err.message, stack: err.stack });
+        return error('Failed to get training report', err);
     }
 };
 

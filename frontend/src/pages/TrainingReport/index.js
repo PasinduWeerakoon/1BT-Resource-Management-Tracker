@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo } from 'react';
+import { useSelector } from 'react-redux';
 import { useUserAllocationModal } from '@hooks/useUserAllocationModal';
 import UserAllocationModal from '@components/UserAllocationModal';
 import { useReportFilters } from '@hooks/reports';
 import { FilterSection, ReportHeader } from '@components/ReportLayout';
+import { selectTracks, selectTechStacks } from '@redux/slices/configSlice';
 import TrainingReportFilters from './components/TrainingReportFilters';
 import TrainingCharts from './components/TrainingCharts';
 import TrainingTable from './components/TrainingTable';
@@ -19,11 +21,13 @@ import '@styles/pages/TrainingReport.scss';
 
 const TrainingReport = () => {
   const defaultFilters = {
-    designation: 'All',
     track: 'All',
     techStack: 'All',
-    dateRange: null,
   };
+
+  // Get configuration data from Redux (cached on login)
+  const tracks = useSelector(selectTracks);
+  const techStacks = useSelector(selectTechStacks);
 
   // Use shared hooks
   const {
@@ -95,6 +99,8 @@ const TrainingReport = () => {
         <TrainingReportFilters
           filters={filters}
           setFilters={setFilters}
+          tracks={tracks}
+          techStacks={techStacks}
         />
       </FilterSection>
 

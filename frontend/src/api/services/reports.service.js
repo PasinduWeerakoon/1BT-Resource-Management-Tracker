@@ -163,6 +163,24 @@ export const reportsService = {
     });
     return response.data || response;
   },
+
+  /**
+   * Get training report
+   * Resources allocated to training projects or with training billing status
+   * @param {Object} params - Query parameters
+   * @param {string} params.designation - Filter by designation (optional)
+   * @param {string} params.track - Filter by track (optional)
+   * @param {string} params.tech_stack - Filter by tech stack (optional)
+   * @param {string} params.start_date - Filter by start date YYYY-MM-DD (optional)
+   * @param {string} params.end_date - Filter by end date YYYY-MM-DD (optional)
+   * @returns {Promise<{success: boolean, summary: {totalEmployeesInTraining: number, totalEmployees: number}, charts: {trackDistribution: Array, techStackDistribution: Array, designationDistribution: Array}, tables: {byDesignation: Array, byAllocation: Array}, generatedAt: string}>}
+   */
+  getTraining: async (params = {}) => {
+    const response = await apiClient.get(ENDPOINTS.REPORTS.TRAINING, {
+      params,
+    });
+    return response.data || response;
+  },
 };
 
 export default reportsService;
