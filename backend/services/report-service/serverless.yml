@@ -43,7 +43,7 @@ provider:
     id: !ImportValue onebt-${self:provider.stage}-HttpApiId
 
   layers:
-    - !ImportValue onebt-shared-layer-${self:provider.stage}-arn
+    - arn:aws:lambda:ap-southeast-1:550586832874:layer:onebt-shared-libs-dev:85
 
 plugins:
   - serverless-offline
@@ -56,6 +56,7 @@ package:
     - "!*.md"
     - "!tests/**"
     - "src/**"
+    - "package.json"
 
 custom:
   authorizer:
@@ -63,9 +64,37 @@ custom:
     id: !ImportValue onebt-${self:provider.stage}-CognitoAuthorizerId
 
 functions:
+  # ==================== DASHBOARD STATS ====================
+  dashboardResourceCounts:
+    handler: src/handlers/reports/index.getDashboardResourceCounts
+    description: Get dashboard resource counts (billing, allocated, bench, etc.)
+    events:
+      - httpApi:
+          path: /api/v1/dashboard/resource-counts
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  dashboardPercentages:
+    handler: src/handlers/reports/index.getDashboardPercentages
+    description: Get dashboard percentages (allocation, billable, shadow)
+    events:
+      - httpApi:
+          path: /api/v1/dashboard/percentages
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  dashboardCharts:
+    handler: src/handlers/reports/index.getDashboardCharts
+    description: Get dashboard charts data (accounts by track and tech stack)
+    events:
+      - httpApi:
+          path: /api/v1/dashboard/charts
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
   # ==================== REPORTS ====================
   benchReport:
-    handler: src/handlers/reports.getBenchReport
+    handler: src/handlers/reports/index.getBenchReport
     description: Get bench resources report
     events:
       - httpApi:
@@ -74,7 +103,7 @@ functions:
           authorizer: ${self:custom.authorizer}
 
   accountManagerReport:
-    handler: src/handlers/reports.getAccountManagerReport
+    handler: src/handlers/reports/index.getAccountManagerReport
     description: Get account manager report with filters, charts, and tables
     events:
       - httpApi:
@@ -83,7 +112,7 @@ functions:
           authorizer: ${self:custom.authorizer}
 
   listAccountManagers:
-    handler: src/handlers/reports.getAccountManagers
+    handler: src/handlers/reports/index.getAccountManagers
     description: Get list of all account managers
     events:
       - httpApi:
@@ -92,7 +121,7 @@ functions:
           authorizer: ${self:custom.authorizer}
 
   employeeReport:
-    handler: src/handlers/reports.getEmployeeReport
+    handler: src/handlers/reports/index.getEmployeeReport
     description: Get employee allocation report
     events:
       - httpApi:
@@ -100,8 +129,17 @@ functions:
           method: GET
           authorizer: ${self:custom.authorizer}
 
+  internReport:
+    handler: src/handlers/reports/index.getInternReport
+    description: Get intern report with projects and statistics
+    events:
+      - httpApi:
+          path: /api/v1/reports/intern
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
   monthlyAllocationReport:
-    handler: src/handlers/reports.getMonthlyAllocationReport
+    handler: src/handlers/reports/index.getMonthlyAllocationReport
     description: Get monthly allocation report
     events:
       - httpApi:
@@ -110,7 +148,7 @@ functions:
           authorizer: ${self:custom.authorizer}
 
   exceptionReport:
-    handler: src/handlers/reports.getExceptionReport
+    handler: src/handlers/reports/index.getExceptionReport
     description: Get exception allocation report
     events:
       - httpApi:
@@ -119,7 +157,7 @@ functions:
           authorizer: ${self:custom.authorizer}
 
   nonBillingReport:
-    handler: src/handlers/reports.getNonBillingReport
+    handler: src/handlers/reports/index.getNonBillingReport
     description: Get non-billing resources report
     events:
       - httpApi:
@@ -128,10 +166,66 @@ functions:
           authorizer: ${self:custom.authorizer}
 
   preSaleReport:
-    handler: src/handlers/reports.getPreSaleReport
+    handler: src/handlers/reports/index.getPreSaleReport
     description: Get pre-sale activities report
     events:
       - httpApi:
           path: /api/v1/reports/pre-sale
           method: GET
           authorizer: ${self:custom.authorizer}
+
+  tierBreakdownReport:
+    handler: src/handlers/reports/index.getTierBreakdownReport
+    description: Get tier breakdown report with employee details
+    events:
+      - httpApi:
+          path: /api/v1/reports/tier-breakdown
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  trainingReport:
+    handler: src/handlers/reports/index.getTrainingReport
+    description: Get training report with charts and tables
+    events:
+      - httpApi:
+          path: /api/v1/reports/training
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  externalConsultantsReport:
+    handler: src/handlers/reports/index.getExternalConsultantsReport
+    description: Get external consultants report with allocation details
+    events:
+      - httpApi:
+          path: /api/v1/reports/external-consultants
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  # ==================== SCHEDULED JOBS ====================
+  calculateDailyStats:
+    handler: src/handlers/scheduledJobs.calculateDailyStats
+    description: Calculate and cache daily dashboard statistics
+    timeout: 120 # Allow more time for complex calculations
+    memorySize: 1024 # More memory for aggregations
+    events:
+      # Run at midnight UTC every day
+      - schedule:
+          rate: cron(0 0 * * ? *)
+          enabled: true
+          description: Daily dashboard stats calculation at midnight UTC
+      # Also expose as HTTP endpoint for manual triggers
+      - httpApi:
+          path: /api/v1/dashboard/calculate-stats
+          method: POST
+          authorizer: ${self:custom.authorizer}
+
+  cleanupOldStats:
+    handler: src/handlers/scheduledJobs.cleanupOldStats
+    description: Cleanup dashboard stats older than 365 days
+    timeout: 60
+    events:
+      # Run weekly on Sunday at 2 AM UTC
+      - schedule:
+          rate: cron(0 2 ? * SUN *)
+          enabled: true
+          description: Weekly cleanup of old dashboard stats

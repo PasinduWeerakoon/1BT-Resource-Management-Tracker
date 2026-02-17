@@ -3,6 +3,8 @@
  * Helper functions for JWT token operations
  */
 
+import logger from '@utils/logger';
+
 /**
  * Decode JWT token without verification
  * @param {string} token - JWT token
@@ -25,7 +27,7 @@ export const decodeJWT = (token) => {
 
     return JSON.parse(jsonPayload);
   } catch (error) {
-    console.error('Error decoding JWT:', error);
+    logger.error('Error decoding JWT', error);
     return null;
   }
 };

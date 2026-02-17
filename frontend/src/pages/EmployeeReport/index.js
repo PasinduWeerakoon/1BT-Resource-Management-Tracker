@@ -1,72 +1,56 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Row, Col, Card, Select, Badge, Button, App, Table } from 'antd';
-import { FilterOutlined, UpOutlined, DownOutlined, ReloadOutlined } from '@ant-design/icons';
+import React, { useState, useEffect } from 'react';
+import { Card, Badge, Row, Col, Tooltip } from 'antd';
+import { CheckCircleOutlined, ClockCircleOutlined, DollarOutlined, EyeOutlined, PercentageOutlined } from '@ant-design/icons';
+import { useSelector } from 'react-redux';
 import CustomTable from '@components/Table';
-import { reportsService, tracksService, resourcesService } from '@api';
-import { showErrorToast } from '@utils/toast.utils';
+import CustomModal from '@components/Modal';
+import { reportsService, resourcesService } from '@api';
+import { selectTracks } from '@redux/slices/configSlice';
+import { useReportFilters, useReportData } from '@hooks/reports';
+import { FilterSection, ReportHeader } from '@components/ReportLayout';
+import EmployeeReportFilters from './components/EmployeeReportFilters';
+import logger from '@utils/logger';
+import { showErrorToast, showWarningToast } from '@utils/toast.utils';
+import dayjs from 'dayjs';
 import '@styles/pages/EmployeeReport.scss';
 
-const { Option } = Select;
-
 const EmployeeReport = () => {
-  const { message } = App.useApp();
-  const [filtersExpanded, setFiltersExpanded] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [reportData, setReportData] = useState([]);
-  const [tracksList, setTracksList] = useState([]);
-  const [resourcesList, setResourcesList] = useState([]);
-  const [filters, setFilters] = useState({
-    resource_id: undefined,
-    track_id: undefined,
-  });
-  const fetchInProgressRef = useRef(false);
-
-  // Default filter values for comparison
   const defaultFilters = {
     resource_id: undefined,
     track_id: undefined,
   };
 
-  // Count active filters
-  const activeFiltersCount = useMemo(() => {
-    let count = 0;
-    Object.keys(filters).forEach((key) => {
-      if (filters[key] !== defaultFilters[key] && filters[key] !== '' && filters[key] !== null && filters[key] !== undefined) {
-        count++;
-      }
-    });
-    return count;
-  }, [filters]);
+  // Use shared hooks
+  const {
+    filters,
+    setFilters: setReportFilters,
+    activeFiltersCount,
+    handleResetFilters,
+    filtersExpanded,
+    toggleFiltersExpanded,
+  } = useReportFilters(defaultFilters);
 
-  // Reset filters to default values
-  const handleResetFilters = (e) => {
-    e.stopPropagation();
-    setFilters({ ...defaultFilters });
+  // Get tracks from Redux (cached on login)
+  const tracksList = useSelector(selectTracks);
+  const [resourcesList, setResourcesList] = useState([]);
+  const [isResourceAllocationsModalVisible, setIsResourceAllocationsModalVisible] = useState(false);
+  const [resourceAllocationsData, setResourceAllocationsData] = useState([]);
+  const [loadingResourceAllocations, setLoadingResourceAllocations] = useState(false);
+  const [selectedResourceId, setSelectedResourceId] = useState(null);
+  const [selectedResourceName, setSelectedResourceName] = useState('');
+  const [selectedResourceTotalAllocation, setSelectedResourceTotalAllocation] = useState(0);
+  const [selectedResourceTotalBilling, setSelectedResourceTotalBilling] = useState(0);
+  const [pagination, setPagination] = useState({
+    current: 1,
+    pageSize: 10,
+    total: 0,
+  });
+
+  const setFilters = (nextFilters) => {
+    // Reset to first page before fetching filtered data
+    setPagination((prev) => ({ ...prev, current: 1 }));
+    setReportFilters(nextFilters);
   };
-
-  // Fetch tracks for filter dropdown
-  useEffect(() => {
-    const fetchTracks = async () => {
-      try {
-        const response = await tracksService.getAll({ limit: 100 });
-        let tracksData = [];
-        
-        if (response) {
-          if (Array.isArray(response.data)) {
-            tracksData = response.data;
-          } else if (response.data && response.data.data && Array.isArray(response.data.data)) {
-            tracksData = response.data.data;
-          }
-        }
-        
-        setTracksList(tracksData);
-      } catch (error) {
-        console.error('Failed to fetch tracks:', error);
-      }
-    };
-    
-    fetchTracks();
-  }, []);
 
   // Fetch resources for filter dropdown
   useEffect(() => {
@@ -85,93 +69,222 @@ const EmployeeReport = () => {
         
         setResourcesList(resourcesData);
       } catch (error) {
-        console.error('Failed to fetch resources:', error);
+        logger.error('Failed to fetch resources', error);
       }
     };
     
     fetchResources();
   }, []);
 
-  // Fetch employee report data
-  const fetchEmployeeReport = async () => {
-    // Prevent duplicate calls
-    if (fetchInProgressRef.current) {
+  // Transform function for report data
+  const transformReportData = (item, index) => {
+    const totalAllocation = parseFloat(item.total_allocation || 0);
+    const totalBilling = parseFloat(item.total_billing || 0);
+    const currentProjects = item.current_projects ? item.current_projects.split(',').map(p => p.trim()) : [];
+    const tags = Array.isArray(item.tags) ? item.tags : [];
+    
+    return {
+      key: item.id || `employee-${index}`,
+      id: item.id,
+      employeeNumber: item.emp_no || '-',
+      employeeName: item.name || 'N/A',
+      email: item.email || 'N/A',
+      designation: item.designation || 'N/A',
+      track: item.track || 'N/A',
+      status: item.status || 'N/A',
+      dateOfJoining: item.joined_date ? new Date(item.joined_date).toLocaleDateString() : 'N/A',
+      totalAllocation: totalAllocation,
+      totalAllocationFormatted: `${totalAllocation.toFixed(2)}%`,
+      totalBilling: totalBilling,
+      totalBillingFormatted: `${totalBilling.toFixed(2)}%`,
+      currentProjects: currentProjects,
+      currentProjectsString: item.current_projects || 'N/A',
+      tags,
+    };
+  };
+
+  const handleViewResourceAllocations = async (record) => {
+    if (!record?.id) {
+      showWarningToast('Resource ID not found');
       return;
     }
-    
+
+    setSelectedResourceId(record.id);
+    setSelectedResourceName(record.employeeName || 'N/A');
+    setSelectedResourceTotalAllocation(parseFloat(record.totalAllocation || 0));
+    setSelectedResourceTotalBilling(parseFloat(record.totalBilling || 0));
+    setIsResourceAllocationsModalVisible(true);
+
     try {
-      fetchInProgressRef.current = true;
-      setLoading(true);
-      const queryParams = {};
-      
-      // Add filters if selected
-      if (filters.resource_id) {
-        queryParams.resource_id = filters.resource_id;
-      }
-      if (filters.track_id) {
-        queryParams.track_id = filters.track_id;
-      }
-      
-      const response = await reportsService.getEmployee(queryParams);
-      
-      // Handle response structure - API returns { data: [...], total: number, generatedAt: string }
-      let reportDataArray = [];
+      setLoadingResourceAllocations(true);
+      const response = await resourcesService.getAllocations(record.id);
+
+      let allocationsData = [];
       if (response) {
-        if (response.data && Array.isArray(response.data)) {
-          reportDataArray = response.data;
+        if (response.allocations && Array.isArray(response.allocations)) {
+          allocationsData = response.allocations;
+        } else if (response.data && response.data.allocations && Array.isArray(response.data.allocations)) {
+          allocationsData = response.data.allocations;
+        } else if (Array.isArray(response.data)) {
+          allocationsData = response.data;
         } else if (Array.isArray(response)) {
-          reportDataArray = response;
+          allocationsData = response;
+        } else if (response.data && typeof response.data === 'object' && !Array.isArray(response.data)) {
+          if (response.data.allocations && Array.isArray(response.data.allocations)) {
+            allocationsData = response.data.allocations;
+          } else if (response.data.id) {
+            allocationsData = [response.data];
+          }
         }
       }
-      
-      // Transform API data to table format
-      const transformedData = reportDataArray.map((item, index) => {
-        const totalAllocation = parseFloat(item.total_allocation || 0);
-        const currentProjects = item.current_projects ? item.current_projects.split(',').map(p => p.trim()) : [];
-        
+
+      const activeAllocations = allocationsData.filter(a => a.allocation_status !== 'future');
+      const futureAllocations = allocationsData.filter(a => a.allocation_status === 'future');
+
+      const transformedActiveAllocations = activeAllocations.map((allocation, index) => {
+        let duration = 0;
+        if (allocation.allocated_date) {
+          const startDate = dayjs(allocation.allocated_date);
+          const endDate = allocation.deallocated_date ? dayjs(allocation.deallocated_date) : dayjs();
+          duration = endDate.diff(startDate, 'day');
+        }
+
+        const allocationPercentage = typeof allocation.allocation_percentage === 'string'
+          ? parseFloat(allocation.allocation_percentage)
+          : (allocation.allocation_percentage || 0);
+        const billingPercentage = typeof allocation.billing_percentage === 'string'
+          ? parseFloat(allocation.billing_percentage)
+          : (allocation.billing_percentage || 0);
+
+        let billingStatus = 'Non-Billing';
+        if (allocation.project_type === 'Client' || allocation.project_is_billable) {
+          billingStatus = 'Billing';
+        } else if (allocation.project_type === 'Bench') {
+          billingStatus = 'Bench';
+        } else if (allocation.project_type === 'Pre-Sales' || allocation.project_type === 'Presale' || allocation.project_type === 'Pre-Sale') {
+          billingStatus = 'Presale';
+        } else if (allocation.project_type === 'Training') {
+          billingStatus = 'Training';
+        }
+
         return {
-          key: item.id || `employee-${index}`,
-          id: item.id,
-          employeeId: item.employee_id || 'N/A',
-          employeeName: item.name || 'N/A',
-          email: item.email || 'N/A',
-          designation: item.designation || 'N/A',
-          track: item.track || 'N/A',
-          status: item.status || 'N/A',
-          dateOfJoining: item.date_of_joining ? new Date(item.date_of_joining).toLocaleDateString() : 'N/A',
-          totalAllocation: totalAllocation,
-          totalAllocationFormatted: `${totalAllocation.toFixed(2)}%`,
-          currentProjects: currentProjects,
-          currentProjectsString: item.current_projects || 'N/A',
+          key: allocation.id || `allocation-${index}`,
+          id: allocation.id,
+          project: allocation.project_name || 'N/A',
+          allocatedDate: allocation.allocated_date ? dayjs(allocation.allocated_date).format('YYYY-MM-DD') : '-',
+          deallocatedDate: allocation.deallocated_date ? dayjs(allocation.deallocated_date).format('YYYY-MM-DD') : '-',
+          billingStatus: billingStatus,
+          billingPercentage: billingPercentage ? `${billingPercentage.toFixed(0)}%` : '0%',
+          projectAllocation: allocationPercentage ? `${allocationPercentage.toFixed(0)}%` : '0%',
+          duration: duration,
+          status: allocation.is_active !== undefined ? (allocation.is_active ? 'Active' : 'Inactive') : (allocation.status || 'Active'),
+          project_id: allocation.project_id,
+          allocationType: 'active'
         };
       });
-      
-      setReportData(transformedData);
+
+      const transformedFutureAllocations = futureAllocations.map((allocation, index) => {
+        let duration = 0;
+        if (allocation.allocated_date) {
+          const startDate = dayjs(allocation.allocated_date);
+          const endDate = allocation.deallocated_date ? dayjs(allocation.deallocated_date) : dayjs();
+          duration = endDate.diff(startDate, 'day');
+        }
+
+        const daysUntilActivation = allocation.effective_date
+          ? dayjs(allocation.effective_date).diff(dayjs(), 'day')
+          : 0;
+
+        const allocationPercentage = typeof allocation.allocation_percentage === 'string'
+          ? parseFloat(allocation.allocation_percentage)
+          : (allocation.allocation_percentage || 0);
+        const billingPercentage = typeof allocation.billing_percentage === 'string'
+          ? parseFloat(allocation.billing_percentage)
+          : (allocation.billing_percentage || 0);
+
+        let billingStatus = 'Non-Billing';
+        if (allocation.project_type === 'Client' || allocation.project_is_billable) {
+          billingStatus = 'Billing';
+        } else if (allocation.project_type === 'Bench') {
+          billingStatus = 'Bench';
+        } else if (allocation.project_type === 'Pre-Sales' || allocation.project_type === 'Presale' || allocation.project_type === 'Pre-Sale') {
+          billingStatus = 'Presale';
+        } else if (allocation.project_type === 'Training') {
+          billingStatus = 'Training';
+        }
+
+        return {
+          key: allocation.id || `future-allocation-${index}`,
+          id: allocation.id,
+          project: allocation.project_name || 'N/A',
+          allocatedDate: allocation.allocated_date ? dayjs(allocation.allocated_date).format('YYYY-MM-DD') : '-',
+          deallocatedDate: allocation.deallocated_date ? dayjs(allocation.deallocated_date).format('YYYY-MM-DD') : '-',
+          effectiveDate: allocation.effective_date ? dayjs(allocation.effective_date).format('YYYY-MM-DD') : '-',
+          daysUntilActivation: daysUntilActivation,
+          billingStatus: billingStatus,
+          billingPercentage: billingPercentage ? `${billingPercentage.toFixed(0)}%` : '0%',
+          projectAllocation: allocationPercentage ? `${allocationPercentage.toFixed(0)}%` : '0%',
+          duration: duration,
+          status: 'Scheduled',
+          changeType: allocation.change_type || 'new',
+          project_id: allocation.project_id,
+          allocationType: 'future'
+        };
+      });
+
+      const transformedAllocations = [...transformedActiveAllocations, ...transformedFutureAllocations];
+      setResourceAllocationsData(transformedAllocations);
+
+      if (transformedAllocations.length === 0 && allocationsData.length === 0) {
+        showWarningToast('No allocations found for this resource');
+      } else if (transformedAllocations.length === 0 && allocationsData.length > 0) {
+        showWarningToast('Failed to process allocation data');
+      }
     } catch (error) {
-      console.error('Failed to fetch employee report:', error);
-      showErrorToast('Failed to load employee report');
-      setReportData([]);
+      logger.error('Failed to fetch resource allocations:', error);
+      showErrorToast(error?.response?.data?.message || error?.message || 'Failed to load resource allocations');
+      setResourceAllocationsData([]);
     } finally {
-      setLoading(false);
-      fetchInProgressRef.current = false;
+      setLoadingResourceAllocations(false);
     }
   };
 
-  // Fetch data when filters change
-  useEffect(() => {
-    fetchEmployeeReport();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters.resource_id, filters.track_id]);
+  // Fetch report data
+  const { data: reportData, loading } = useReportData(
+    async () => {
+      const queryParams = {};
+      if (filters.resource_id) queryParams.resource_id = filters.resource_id;
+      if (filters.track_id) queryParams.track_id = filters.track_id;
+      queryParams.page = pagination.current;
+      queryParams.limit = pagination.pageSize;
+      return await reportsService.getEmployee(queryParams);
+    },
+    transformReportData,
+    {
+      autoFetch: true,
+      dependencies: [filters.resource_id, filters.track_id, pagination.current, pagination.pageSize],
+      onSuccess: (_transformedData, response) => {
+        const total = response?.total;
+        if (Number.isFinite(total)) {
+          setPagination((prev) => ({ ...prev, total }));
+        }
+      },
+    }
+  );
 
 
   // Table columns
   const columns = [
     {
-      title: 'Employee ID',
-      dataIndex: 'employeeId',
-      key: 'employeeId',
+      title: 'Employee Number',
+      dataIndex: 'employeeNumber',
+      key: 'employeeNumber',
       width: 120,
-      sorter: (a, b) => a.employeeId.localeCompare(b.employeeId),
+      sorter: (a, b) => {
+        const aVal = a.employeeNumber || '';
+        const bVal = b.employeeNumber || '';
+        return aVal.localeCompare(bVal);
+      },
     },
     {
       title: 'Employee Name',
@@ -232,6 +345,22 @@ const EmployeeReport = () => {
       ),
     },
     {
+      title: 'Total Billing',
+      dataIndex: 'totalBillingFormatted',
+      key: 'totalBilling',
+      width: 130,
+      sorter: (a, b) => a.totalBilling - b.totalBilling,
+      render: (text, record) => (
+        <span style={{ 
+          color: record.totalBilling > 100 ? '#ff4d4f' : record.totalBilling < 100 ? '#52c41a' : '#1890ff',
+          fontWeight: record.totalBilling > 100 ? 'bold' : 'normal'
+        }}>
+          {text}
+        </span>
+      ),
+    },
+    
+    {
       title: 'Current Projects',
       dataIndex: 'currentProjectsString',
       key: 'currentProjects',
@@ -258,108 +387,402 @@ const EmployeeReport = () => {
         </div>
       ),
     },
+    {
+      title: 'Tags',
+      dataIndex: 'tags',
+      key: 'tags',
+      width: 200,
+      render: (tags) => (
+        <div>
+          {Array.isArray(tags) && tags.length > 0 ? (
+            tags.map((tag, idx) => (
+              <Badge
+                key={`${tag}-${idx}`}
+                count={tag}
+                style={{ 
+                  backgroundColor: '#722ed1',
+                  marginRight: 8,
+                  marginBottom: 4
+                }}
+              />
+            ))
+          ) : (
+            <span style={{ color: '#999' }}>No tags</span>
+          )}
+        </div>
+      ),
+    },
+    // {
+    //   title: 'Actions',
+    //   key: 'actions',
+    //   width: 90,
+    //   fixed: 'right',
+    //   render: (_, record) => (
+    //     <Tooltip title="View Allocations">
+    //       <EyeOutlined
+    //         style={{ cursor: 'pointer', color: '#1890ff' }}
+    //         onClick={(event) => {
+    //           event.stopPropagation();
+    //           handleViewResourceAllocations(record);
+    //         }}
+    //       />
+    //     </Tooltip>
+    //   ),
+    // },
   ];
 
   return (
     <div className="employee-report-page">
-      {/* Header Section */}
-      <div className="report-header">
-        <h1 className="report-title">EMPLOYEE REPORT</h1>
-      </div>
+      <ReportHeader title="EMPLOYEE REPORT" />
 
-      {/* Filters Section */}
-      <Card className="filters-card">
-        <div
-          className="filters-header"
-          onClick={() => setFiltersExpanded(!filtersExpanded)}
-          style={{ cursor: 'pointer' }}
-        >
-          <div className="filters-header-left">
-            <FilterOutlined className="filter-icon" />
-            <span className="filters-title">Filters</span>
-            {activeFiltersCount > 0 && (
-              <>
-                <Badge count={activeFiltersCount} showZero={false} className="active-filters-badge">
-                  <span></span>
-                </Badge>
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<ReloadOutlined />}
-                  onClick={handleResetFilters}
-                  className="reset-filters-btn"
-                >
-                  Reset
-                </Button>
-              </>
-            )}
-          </div>
-          {filtersExpanded ? (
-            <UpOutlined className="collapse-icon" />
-          ) : (
-            <DownOutlined className="collapse-icon" />
-          )}
-        </div>
-        {filtersExpanded && (
-          <div className="filters-content">
-            <Row gutter={[16, 16]} className="filters-row">
-              <Col xs={24} sm={12} md={8} lg={6}>
-                <div className="filter-item">
-                  <label>Employee</label>
-                  <Select
-                    value={filters.resource_id}
-                    onChange={(value) => setFilters({ ...filters, resource_id: value || undefined })}
-                    style={{ width: '100%' }}
-                    allowClear
-                    showSearch
-                    placeholder="All Employees"
-                    optionFilterProp="children"
-                    filterOption={(input, option) =>
-                      (option?.children ?? '').toLowerCase().includes(input.toLowerCase())
-                    }
-                  >
-                    {resourcesList.map((resource) => (
-                      <Option key={resource.id} value={resource.id}>
-                        {resource.name}
-                      </Option>
-                    ))}
-                  </Select>
-                </div>
-              </Col>
-              <Col xs={24} sm={12} md={8} lg={6}>
-                <div className="filter-item">
-                  <label>Track</label>
-                  <Select
-                    value={filters.track_id}
-                    onChange={(value) => setFilters({ ...filters, track_id: value || undefined })}
-                    style={{ width: '100%' }}
-                    allowClear
-                    placeholder="All Tracks"
-                  >
-                    {tracksList.map((track) => (
-                      <Option key={track.id} value={track.id}>
-                        {track.name}
-                      </Option>
-                    ))}
-                  </Select>
-                </div>
-              </Col>
-            </Row>
-          </div>
-        )}
-      </Card>
+      <FilterSection
+        expanded={filtersExpanded}
+        onToggle={toggleFiltersExpanded}
+        activeFiltersCount={activeFiltersCount}
+        onReset={handleResetFilters}
+      >
+        <EmployeeReportFilters
+          filters={filters}
+          setFilters={setFilters}
+          tracksList={tracksList}
+          resourcesList={resourcesList}
+        />
+      </FilterSection>
 
       {/* Table Section */}
       <Card className="table-card" title="Employee Report">
         <CustomTable
           columns={columns}
           dataSource={reportData}
-          pagination={{ pageSize: 10 }}
+          pagination={{
+            current: pagination.current,
+            pageSize: pagination.pageSize,
+            total: pagination.total,
+            showSizeChanger: true,
+            showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} employees`,
+            onChange: (page, pageSize) => {
+              setPagination((prev) => ({ ...prev, current: page, pageSize }));
+            },
+            onShowSizeChange: (_current, size) => {
+              setPagination((prev) => ({ ...prev, current: 1, pageSize: size }));
+            },
+          }}
           scroll={{ x: 1400 }}
           size="small"
           loading={loading}
+          onRow={(record) => ({
+            onClick: () => handleViewResourceAllocations(record),
+          })}
         />
       </Card>
+
+      {/* Resource Allocations Modal */}
+      <CustomModal
+        title={`Project Allocations - ${selectedResourceName}`}
+        open={isResourceAllocationsModalVisible}
+        onClose={() => {
+          setIsResourceAllocationsModalVisible(false);
+          setResourceAllocationsData([]);
+          setSelectedResourceId(null);
+          setSelectedResourceName('');
+          setSelectedResourceTotalAllocation(0);
+          setSelectedResourceTotalBilling(0);
+        }}
+        width={1400}
+        footer={null}
+      >
+        <div style={{
+          marginBottom: 20,
+          padding: '16px 20px',
+          backgroundColor: '#fafafa',
+          borderRadius: 8,
+          border: '1px solid #d9d9d9'
+        }}>
+          <Row gutter={24}>
+            <Col span={12}>
+              <div style={{ display: 'flex', alignItems: 'center' }}>
+                <PercentageOutlined style={{ fontSize: 24, color: '#1890ff', marginRight: 12 }} />
+                <div>
+                  <div style={{ fontSize: 12, color: '#8c8c8c', marginBottom: 4 }}>Total Allocation</div>
+                  <div style={{ fontSize: 24, fontWeight: 600, color: '#262626' }}>
+                    {selectedResourceTotalAllocation.toFixed(0)}%
+                  </div>
+                </div>
+              </div>
+            </Col>
+            <Col span={12}>
+              <div style={{ display: 'flex', alignItems: 'center' }}>
+                <DollarOutlined style={{ fontSize: 24, color: '#52c41a', marginRight: 12 }} />
+                <div>
+                  <div style={{ fontSize: 12, color: '#8c8c8c', marginBottom: 4 }}>Total Billing</div>
+                  <div style={{ fontSize: 24, fontWeight: 600, color: '#262626' }}>
+                    {selectedResourceTotalBilling.toFixed(0)}%
+                  </div>
+                </div>
+              </div>
+            </Col>
+          </Row>
+        </div>
+
+        <div style={{ marginBottom: 24 }}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            marginBottom: 12,
+            padding: '8px 12px',
+            backgroundColor: '#f0f5ff',
+            borderLeft: '4px solid #1890ff',
+            borderRadius: 4
+          }}>
+            <CheckCircleOutlined style={{ color: '#52c41a', fontSize: 18, marginRight: 8 }} />
+            <span style={{ fontSize: 16, fontWeight: 600, color: '#262626' }}>
+              Current Allocations
+            </span>
+            <span style={{
+              marginLeft: 8,
+              padding: '2px 8px',
+              backgroundColor: '#52c41a',
+              color: 'white',
+              borderRadius: 10,
+              fontSize: 12,
+              fontWeight: 500
+            }}>
+              {resourceAllocationsData.filter(a => a.allocationType === 'active').length}
+            </span>
+          </div>
+          <CustomTable
+            columns={[
+              {
+                title: 'Project',
+                dataIndex: 'project',
+                key: 'project',
+                width: 200,
+                ellipsis: true,
+              },
+              {
+                title: 'Allocated Date',
+                dataIndex: 'allocatedDate',
+                key: 'allocatedDate',
+                width: 140,
+              },
+              {
+                title: 'Deallocated Date',
+                dataIndex: 'deallocatedDate',
+                key: 'deallocatedDate',
+                width: 150,
+              },
+              {
+                title: 'Billing Status',
+                dataIndex: 'billingStatus',
+                key: 'billingStatus',
+                width: 120,
+                render: (text) => (
+                  <span style={{
+                    padding: '2px 8px',
+                    borderRadius: 4,
+                    fontSize: 12,
+                    fontWeight: 500,
+                    backgroundColor: text === 'Billing' ? '#e6f7ff' :
+                      text === 'Bench' ? '#fff7e6' :
+                        text === 'Presale' ? '#f9f0ff' : '#f0f0f0',
+                    color: text === 'Billing' ? '#1890ff' :
+                      text === 'Bench' ? '#fa8c16' :
+                        text === 'Presale' ? '#722ed1' : '#595959'
+                  }}>
+                    {text}
+                  </span>
+                ),
+              },
+              {
+                title: 'Billing %',
+                dataIndex: 'billingPercentage',
+                key: 'billingPercentage',
+                width: 100,
+                align: 'center',
+              },
+              {
+                title: 'Allocation %',
+                dataIndex: 'projectAllocation',
+                key: 'projectAllocation',
+                width: 110,
+                align: 'center',
+              },
+              {
+                title: 'Duration',
+                dataIndex: 'duration',
+                key: 'duration',
+                width: 90,
+                align: 'center',
+                render: (days) => `${days} days`,
+              },
+              {
+                title: 'Status',
+                dataIndex: 'status',
+                key: 'status',
+                width: 90,
+                align: 'center',
+                render: (text) => (
+                  <span style={{
+                    padding: '2px 8px',
+                    borderRadius: 4,
+                    fontSize: 12,
+                    fontWeight: 500,
+                    backgroundColor: text === 'Active' ? '#f6ffed' : '#fff1f0',
+                    color: text === 'Active' ? '#52c41a' : '#ff4d4f'
+                  }}>
+                    {text}
+                  </span>
+                ),
+              },
+            ]}
+            dataSource={resourceAllocationsData.filter(a => a.allocationType === 'active')}
+            pagination={false}
+            scroll={{ x: 1100 }}
+            size="small"
+            loading={loadingResourceAllocations}
+            locale={{
+              emptyText: 'No current allocations'
+            }}
+          />
+        </div>
+
+        {resourceAllocationsData.filter(a => a.allocationType === 'future').length > 0 && (
+          <div>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              marginBottom: 12,
+              padding: '8px 12px',
+              backgroundColor: '#fff7e6',
+              borderLeft: '4px solid #faad14',
+              borderRadius: 4
+            }}>
+              <ClockCircleOutlined style={{ color: '#faad14', fontSize: 18, marginRight: 8 }} />
+              <span style={{ fontSize: 16, fontWeight: 600, color: '#262626' }}>
+                Future Allocations
+              </span>
+              <span style={{
+                marginLeft: 8,
+                padding: '2px 8px',
+                backgroundColor: '#faad14',
+                color: 'white',
+                borderRadius: 10,
+                fontSize: 12,
+                fontWeight: 500
+              }}>
+                {resourceAllocationsData.filter(a => a.allocationType === 'future').length}
+              </span>
+            </div>
+            <CustomTable
+              columns={[
+                {
+                  title: 'Project',
+                  dataIndex: 'project',
+                  key: 'project',
+                  width: 180,
+                  ellipsis: true,
+                },
+                {
+                  title: 'Effective Date',
+                  dataIndex: 'effectiveDate',
+                  key: 'effectiveDate',
+                  width: 130,
+                  render: (text, record) => (
+                    <div>
+                      <div style={{ fontWeight: 500 }}>{text}</div>
+                      <div style={{
+                        fontSize: 11,
+                        color: '#8c8c8c',
+                        fontStyle: 'italic'
+                      }}>
+                        {record.daysUntilActivation > 0 ?
+                          `in ${record.daysUntilActivation} days` :
+                          'activates today'}
+                      </div>
+                    </div>
+                  ),
+                },
+                {
+                  title: 'Allocated Date',
+                  dataIndex: 'allocatedDate',
+                  key: 'allocatedDate',
+                  width: 130,
+                },
+                {
+                  title: 'Deallocated Date',
+                  dataIndex: 'deallocatedDate',
+                  key: 'deallocatedDate',
+                  width: 140,
+                },
+                {
+                  title: 'Billing Status',
+                  dataIndex: 'billingStatus',
+                  key: 'billingStatus',
+                  width: 120,
+                  render: (text) => (
+                    <span style={{
+                      padding: '2px 8px',
+                      borderRadius: 4,
+                      fontSize: 12,
+                      fontWeight: 500,
+                      backgroundColor: text === 'Billing' ? '#e6f7ff' :
+                        text === 'Bench' ? '#fff7e6' :
+                          text === 'Presale' ? '#f9f0ff' : '#f0f0f0',
+                      color: text === 'Billing' ? '#1890ff' :
+                        text === 'Bench' ? '#fa8c16' :
+                          text === 'Presale' ? '#722ed1' : '#595959'
+                    }}>
+                      {text}
+                    </span>
+                  ),
+                },
+                {
+                  title: 'Allocation %',
+                  dataIndex: 'projectAllocation',
+                  key: 'projectAllocation',
+                  width: 110,
+                  align: 'center',
+                },
+                {
+                  title: 'Duration',
+                  dataIndex: 'duration',
+                  key: 'duration',
+                  width: 90,
+                  align: 'center',
+                  render: (days) => `${days} days`,
+                },
+                {
+                  title: 'Status',
+                  dataIndex: 'status',
+                  key: 'status',
+                  width: 100,
+                  align: 'center',
+                  render: (text) => (
+                    <span style={{
+                      padding: '2px 8px',
+                      borderRadius: 4,
+                      fontSize: 12,
+                      fontWeight: 500,
+                      backgroundColor: '#fffbe6',
+                      color: '#faad14'
+                    }}>
+                      {text}
+                    </span>
+                  ),
+                },
+              ]}
+              dataSource={resourceAllocationsData.filter(a => a.allocationType === 'future')}
+              pagination={false}
+              scroll={{ x: 1100 }}
+              size="small"
+              loading={loadingResourceAllocations}
+              locale={{
+                emptyText: 'No future allocations'
+              }}
+            />
+          </div>
+        )}
+      </CustomModal>
     </div>
   );
 };

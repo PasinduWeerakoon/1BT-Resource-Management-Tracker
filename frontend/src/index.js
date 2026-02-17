@@ -6,6 +6,7 @@ import { ConfigProvider, App as AntApp, theme } from 'antd';
 import { ToastContainer } from 'react-toastify';
 import App from './App';
 import { store } from './redux/store';
+import ErrorBoundary from '@components/ErrorBoundary';
 import '@utils/chartConfig'; // Register Chart.js components
 import '@styles/index.scss';
 import 'react-toastify/dist/ReactToastify.css';
@@ -49,26 +50,28 @@ const antdTheme = {
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
   <React.StrictMode>
-    <Provider store={store}>
-      <BrowserRouter>
-        <ConfigProvider theme={antdTheme}>
-          <AntApp>
-            <App />
-            <ToastContainer
-              position="bottom-right"
-              autoClose={5000}
-              hideProgressBar={false}
-              newestOnTop={false}
-              closeOnClick
-              rtl={false}
-              pauseOnFocusLoss
-              draggable
-              pauseOnHover
-              theme="light"
-            />
-          </AntApp>
-        </ConfigProvider>
-      </BrowserRouter>
-    </Provider>
+    <ErrorBoundary showDetails={process.env.NODE_ENV === 'development'}>
+      <Provider store={store}>
+        <BrowserRouter>
+          <ConfigProvider theme={antdTheme}>
+            <AntApp>
+              <App />
+              <ToastContainer
+                position="bottom-right"
+                autoClose={5000}
+                hideProgressBar={false}
+                newestOnTop={false}
+                closeOnClick
+                rtl={false}
+                pauseOnFocusLoss
+                draggable
+                pauseOnHover
+                theme="light"
+              />
+            </AntApp>
+          </ConfigProvider>
+        </BrowserRouter>
+      </Provider>
+    </ErrorBoundary>
   </React.StrictMode>
 );

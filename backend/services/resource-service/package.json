@@ -13,7 +13,6 @@
         "logs": "serverless logs -f",
         "invoke": "serverless invoke -f"
     },
-    "dependencies": {},
     "devDependencies": {
         "serverless": "^3.38.0"
     },

@@ -13,7 +13,9 @@
         "logs": "serverless logs -f",
         "invoke": "serverless invoke -f"
     },
-    "dependencies": {},
+    "dependencies": {
+        "@aws-sdk/client-eventbridge": "^3.986.0"
+    },
     "devDependencies": {
         "serverless": "^3.38.0"
     },

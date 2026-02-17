@@ -97,6 +97,42 @@ functions:
           method: POST
           authorizer: ${self:custom.authorizer}
 
+  generateSummaryExcel:
+    handler: src/handlers/documents.generate_summary_excel
+    description: Generate summary report Excel
+    events:
+      - httpApi:
+          path: /api/v1/documents/excel/summary
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  generateNonBillingExcel:
+    handler: src/handlers/documents.generate_non_billing_excel
+    description: Generate non-billing (critical shadows) report Excel
+    events:
+      - httpApi:
+          path: /api/v1/documents/excel/non-billing
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  generateProjectsExcel:
+    handler: src/handlers/documents.generate_projects_excel
+    description: Generate projects report Excel
+    events:
+      - httpApi:
+          path: /api/v1/documents/excel/projects
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  generateMonthlyAllocationExcel:
+    handler: src/handlers/documents.generate_monthly_allocation_excel
+    description: Generate monthly allocation report Excel
+    events:
+      - httpApi:
+          path: /api/v1/documents/excel/monthly-allocation
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
   getDocument:
     handler: src/handlers/documents.get_document
     description: Get a generated document

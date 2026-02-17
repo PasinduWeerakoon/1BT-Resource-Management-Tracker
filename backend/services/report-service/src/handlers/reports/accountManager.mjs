@@ -1,0 +1,469 @@
+/**
+ * Account Manager Reports
+ * 
+ * Handlers for account manager related reports:
+ * - getAccountManagers: List of all account managers
+ * - getAccountManagerReport: Comprehensive account manager dashboard
+ * 
+ * Config ID Resolution:
+ * - track_id -> TRACKS config
+ * - tier_id -> TIERS config
+ * - tech_stack_id -> TECH_STACKS config
+ */
+
+import * as db from '/opt/nodejs/database/index.js';
+import logger from '/opt/nodejs/logger/index.js';
+import { success, error } from '/opt/nodejs/utils/response.js';
+// Import shared configs for ID-to-label resolution
+import { TRACKS, TIERS, TECH_STACKS, getConfigById } from '/opt/nodejs/configs/index.js';
+
+/**
+ * Helper function to resolve config IDs to labels
+ */
+const resolveConfigLabel = (configArray, id) => {
+    if (!id) return null;
+    const config = getConfigById(configArray, id);
+    return config ? config.label : null;
+};
+
+/**
+ * Get list of all account managers
+ */
+export const getAccountManagers = async (event) => {
+    const log = logger.child({ handler: 'reports.getAccountManagers' });
+
+    try {
+        log.info('Getting account managers list');
+
+        const query = `
+            SELECT 
+                r.id,
+                r.epf_no,
+                r.name,
+                r.email,
+                d.name as designation,
+                r.track_id,
+                r.tier_id,
+                r.tech_stack_id,
+                r.is_account_manager,
+                (SELECT COUNT(*) FROM projects p WHERE p.account_manager_id = r.id AND p.deleted_at IS NULL) as project_count,
+                (SELECT COUNT(DISTINCT a.employee_id) 
+                 FROM projects p 
+                 JOIN allocations a ON p.id = a.project_id AND a.is_active = true
+                 WHERE p.account_manager_id = r.id AND p.deleted_at IS NULL
+                ) as resource_count
+            FROM employees r
+            LEFT JOIN designations d ON r.designation_id = d.id
+            
+            WHERE r.is_account_manager = true
+            AND r.deleted_at IS NULL
+            AND r.status = 'Active'
+            ORDER BY r.name
+        `;
+
+        const result = await db.query(query);
+
+        // Transform results with config resolution
+        const data = result.rows.map(row => ({
+            ...row,
+            track: resolveConfigLabel(TRACKS, row.track_id),
+            tier: resolveConfigLabel(TIERS, row.tier_id),
+            tech_stack: resolveConfigLabel(TECH_STACKS, row.tech_stack_id)
+        }));
+
+        return success({
+            data,
+            total: data.length,
+            generatedAt: new Date().toISOString()
+        });
+
+    } catch (err) {
+        log.error('Failed to get account managers', { error: err.message });
+        return error('Failed to get account managers', err);
+    }
+};
+
+/**
+ * Get comprehensive account manager report with all data for dashboard
+ * Supports filtering by account_manager_id or returns all data
+ */
+export const getAccountManagerReport = async (event) => {
+    const log = logger.child({ handler: 'reports.getAccountManagerReport' });
+
+    try {
+        const queryParams = event.queryStringParameters || {};
+        const {
+            account_manager_id,
+            project_id,
+            project_status,
+            allocation_status,
+            client_id,
+            billing_status,
+            year,
+            month,
+            employee_status,
+            start_date,
+            end_date,
+            track_id,
+            page = 1,
+            limit = 10
+        } = queryParams;
+
+        log.info('Getting account manager report', { filters: queryParams });
+
+        const offset = (parseInt(page) - 1) * parseInt(limit);
+
+        // Build WHERE clauses for different queries
+        let projectWhereClause = 'WHERE p.deleted_at IS NULL';
+        let allocationWhereClause = 'WHERE a.deleted_at IS NULL';
+        const projectParams = [];
+        const allocationParams = [];
+        let projectParamIndex = 1;
+        let allocationParamIndex = 1;
+
+        // Account Manager filter
+        if (account_manager_id && account_manager_id !== 'all') {
+            projectWhereClause += ` AND p.account_manager_id = $${projectParamIndex}`;
+            projectParams.push(account_manager_id);
+            projectParamIndex++;
+        }
+
+        // Project Status filter
+        if (project_status && project_status !== 'All') {
+            projectWhereClause += ` AND p.status = $${projectParamIndex}`;
+            projectParams.push(project_status);
+            projectParamIndex++;
+        }
+
+        // Client filter
+        if (client_id && client_id !== 'all') {
+            projectWhereClause += ` AND p.client_id = $${projectParamIndex}`;
+            projectParams.push(client_id);
+            projectParamIndex++;
+        }
+
+        // Billing Status filter for projects
+        if (billing_status && billing_status !== 'All') {
+            projectWhereClause += ` AND p.billing_status = $${projectParamIndex}`;
+            projectParams.push(billing_status);
+            projectParamIndex++;
+        }
+
+        // Date range filter for allocations
+        if (start_date) {
+            allocationWhereClause += ` AND (a.deallocated_date IS NULL OR a.deallocated_date >= $${allocationParamIndex})`;
+            allocationParams.push(start_date);
+            allocationParamIndex++;
+        }
+
+        if (end_date) {
+            allocationWhereClause += ` AND a.allocated_date <= $${allocationParamIndex}`;
+            allocationParams.push(end_date);
+            allocationParamIndex++;
+        }
+
+        // Year/Month filter
+        if (year) {
+            const targetYear = parseInt(year);
+            const targetMonth = month && month !== 'All' ? parseInt(month) : null;
+
+            if (targetMonth) {
+                const monthStart = `${targetYear}-${String(targetMonth).padStart(2, '0')}-01`;
+                const monthEnd = new Date(targetYear, targetMonth, 0).toISOString().split('T')[0];
+                allocationWhereClause += ` AND a.allocated_date <= $${allocationParamIndex} AND (a.deallocated_date IS NULL OR a.deallocated_date >= $${allocationParamIndex + 1})`;
+                allocationParams.push(monthEnd, monthStart);
+                allocationParamIndex += 2;
+            } else {
+                allocationWhereClause += ` AND EXTRACT(YEAR FROM a.allocated_date) = $${allocationParamIndex}`;
+                allocationParams.push(targetYear);
+                allocationParamIndex++;
+            }
+        }
+
+        // Allocation Status filter
+        if (allocation_status && allocation_status !== 'All') {
+            if (allocation_status === 'Active') {
+                allocationWhereClause += ` AND a.is_active = true AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)`;
+            } else if (allocation_status === 'Inactive') {
+                allocationWhereClause += ` AND (a.is_active = false OR a.deallocated_date < CURRENT_DATE)`;
+            }
+        }
+
+        // Run all queries in parallel
+        const [
+            summaryResult,
+            projectsResult,
+            projectCountResult,
+            allocationsResult,
+            allocationCountResult,
+            designationsResult,
+            billingStatusChart,
+            tierChart,
+            trackChart,
+            techStackChart
+        ] = await Promise.all([
+            // Summary statistics
+            db.query(`
+                SELECT 
+                    -- Billable Resources: Headcount of Billable Tracks (Excluding Interns)
+                    COUNT(DISTINCT CASE 
+                        WHEN r.track_id IN (1, 2, 3, 4, 5, 8, 11) AND r.employee_type_id != 3 THEN r.id 
+                    END) as billable_resources,
+
+                    -- Allocated Count: Sum of Allocation % / 100 (Exclude Bench)
+                    ROUND(SUM(CASE 
+                        WHEN LOWER(p.project_name) = 'bench' THEN 0
+                        ELSE a.allocation_percentage 
+                    END) / 100.0, 1) as allocated_resource_count,
+
+                    -- Billable Count: Sum of Billing % / 100
+                    ROUND(SUM(a.billing_percentage) / 100.0, 1) as billable_count_fte
+
+                FROM projects p
+                LEFT JOIN billing_statuses bs ON p.billing_status_id = bs.id
+                LEFT JOIN project_types pt ON p.project_type_id = pt.id
+                LEFT JOIN allocations a ON p.id = a.project_id AND a.is_active = true
+                LEFT JOIN employees r ON a.employee_id = r.id AND r.deleted_at IS NULL
+                ${projectWhereClause}
+            `, projectParams),
+
+            // Projects list with pagination
+            db.query(`
+                SELECT 
+                    p.id,
+                    p.project_name as project,
+                    c.client_name as customer,
+                    pt.name as project_type,
+                    p.status,
+                    bs.name as billing_status,
+                    (SELECT COUNT(*) FROM allocations a WHERE a.project_id = p.id AND a.is_active = true) as team_size,
+                    p.account_manager_id,
+                    am.name as account_manager_name
+                FROM projects p
+                LEFT JOIN clients c ON p.client_id = c.id
+                LEFT JOIN employees am ON p.account_manager_id = am.id
+                LEFT JOIN project_types pt ON p.project_type_id = pt.id
+                LEFT JOIN billing_statuses bs ON p.billing_status_id = bs.id
+                ${projectWhereClause}
+                ORDER BY p.project_name
+                LIMIT $${projectParamIndex} OFFSET $${projectParamIndex + 1}
+            `, [...projectParams, parseInt(limit), offset]),
+
+            // Projects count
+            db.query(`
+                SELECT COUNT(*) as total
+                FROM projects p
+                ${projectWhereClause}
+            `, projectParams),
+
+            // Allocations list with pagination
+            db.query(`
+                SELECT 
+                    a.id,
+                    r.name as employee_name,
+                    r.id as resource_id,
+                    r.email,
+                    r.total_allocation,
+                    r.total_resource_billing as total_billing,
+                    a.updated_at as allocation_updated_at,
+                    p.project_name as project,
+                    p.id as project_id,
+                    TO_CHAR(a.allocated_date, 'DD Mon YYYY') as project_allocated_date,
+                    CASE WHEN a.deallocated_date IS NOT NULL THEN TO_CHAR(a.deallocated_date, 'DD Mon YYYY') ELSE NULL END as project_deallocated_date,
+                    bs.name as billing_status,
+                    a.billing_percentage,
+                    a.allocation_percentage as project_allocation,
+                    CASE 
+                        WHEN a.deallocated_date IS NOT NULL THEN a.deallocated_date - a.allocated_date
+                        ELSE CURRENT_DATE - a.allocated_date
+                    END as duration_days,
+                    CASE WHEN a.is_active = true AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE) THEN 'Active' ELSE 'Inactive' END as status,
+                    a.is_active
+                FROM allocations a
+                JOIN employees r ON a.employee_id = r.id
+                JOIN projects p ON a.project_id = p.id
+                LEFT JOIN billing_statuses bs ON p.billing_status_id = bs.id
+                ${allocationWhereClause}
+                ${account_manager_id && account_manager_id !== 'all' ? `AND p.account_manager_id = $${allocationParamIndex}` : ''}
+                ${employee_status && employee_status !== 'All' ? `AND r.status = $${allocationParamIndex + (account_manager_id && account_manager_id !== 'all' ? 1 : 0)}` : ''}
+                ORDER BY a.allocated_date DESC
+                LIMIT $${allocationParamIndex + (account_manager_id && account_manager_id !== 'all' ? 1 : 0) + (employee_status && employee_status !== 'All' ? 1 : 0)} 
+                OFFSET $${allocationParamIndex + (account_manager_id && account_manager_id !== 'all' ? 1 : 0) + (employee_status && employee_status !== 'All' ? 1 : 0) + 1}
+            `, [
+                ...allocationParams,
+                ...(account_manager_id && account_manager_id !== 'all' ? [account_manager_id] : []),
+                ...(employee_status && employee_status !== 'All' ? [employee_status] : []),
+                parseInt(limit),
+                offset
+            ]),
+
+            // Allocations count
+            db.query(`
+                SELECT COUNT(*) as total
+                FROM allocations a
+                JOIN projects p ON a.project_id = p.id
+                ${allocationWhereClause}
+                ${account_manager_id && account_manager_id !== 'all' ? `AND p.account_manager_id = $${allocationParamIndex}` : ''}
+            `, [
+                ...allocationParams,
+                ...(account_manager_id && account_manager_id !== 'all' ? [account_manager_id] : [])
+            ]),
+
+            // By Designation list
+            db.query(`
+                SELECT DISTINCT
+                    r.id,
+                    r.name as employee_name,
+                    r.designation_id,
+                    r.track_id,
+                    r.tech_stack_id,
+                    r.tier_id
+                FROM employees r
+                
+                JOIN allocations a ON r.id = a.employee_id AND a.is_active = true
+                JOIN projects p ON a.project_id = p.id
+                WHERE r.deleted_at IS NULL AND r.status = 'Active'
+                ${account_manager_id && account_manager_id !== 'all' ? `AND p.account_manager_id = $1` : ''}
+                ORDER BY r.name
+            `, account_manager_id && account_manager_id !== 'all' ? [account_manager_id] : []),
+
+            // Chart: Allocations by Billing Status
+            db.query(`
+                SELECT 
+                    CASE 
+                        WHEN pt.name = 'Bench' THEN 'Bench'
+                        WHEN bs.name = 'Non-Billing' THEN 'Non-Billing'
+                        WHEN pt.name = 'Training' THEN 'Training'
+                        WHEN pt.name = 'Pre-Sales' THEN 'Presale'
+                        ELSE 'Billing'
+                    END as category,
+                    COUNT(*) as count
+                FROM allocations a
+                JOIN projects p ON a.project_id = p.id
+                LEFT JOIN project_types pt ON p.project_type_id = pt.id
+                LEFT JOIN billing_statuses bs ON p.billing_status_id = bs.id
+                WHERE a.is_active = true AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
+                ${account_manager_id && account_manager_id !== 'all' ? `AND p.account_manager_id = $1` : ''}
+                GROUP BY category
+                ORDER BY count DESC
+            `, account_manager_id && account_manager_id !== 'all' ? [account_manager_id] : []),
+
+            // Chart: Employees by Tier (using tier_id)
+            db.query(`
+                SELECT 
+                    r.tier_id,
+                    COUNT(DISTINCT r.id) as count
+                FROM employees r
+                JOIN allocations a ON r.id = a.employee_id AND a.is_active = true
+                JOIN projects p ON a.project_id = p.id
+                WHERE r.deleted_at IS NULL AND r.status = 'Active'
+                ${account_manager_id && account_manager_id !== 'all' ? `AND p.account_manager_id = $1` : ''}
+                GROUP BY r.tier_id
+                ORDER BY r.tier_id
+            `, account_manager_id && account_manager_id !== 'all' ? [account_manager_id] : []),
+
+            // Chart: Employees by Track (using track_id)
+            db.query(`
+                SELECT 
+                    r.track_id,
+                    COUNT(DISTINCT r.id) as count
+                FROM employees r
+                JOIN allocations a ON r.id = a.employee_id AND a.is_active = true
+                JOIN projects p ON a.project_id = p.id
+                WHERE r.deleted_at IS NULL AND r.status = 'Active'
+                ${account_manager_id && account_manager_id !== 'all' ? `AND p.account_manager_id = $1` : ''}
+                GROUP BY r.track_id
+                ORDER BY count DESC
+            `, account_manager_id && account_manager_id !== 'all' ? [account_manager_id] : []),
+
+            // Chart: Employees by Tech Stack (using tech_stack_id)
+            db.query(`
+                SELECT 
+                    r.tech_stack_id,
+                    COUNT(DISTINCT r.id) as count
+                FROM employees r
+                JOIN allocations a ON r.id = a.employee_id AND a.is_active = true
+                JOIN projects p ON a.project_id = p.id
+                WHERE r.deleted_at IS NULL AND r.status = 'Active'
+                ${account_manager_id && account_manager_id !== 'all' ? `AND p.account_manager_id = $1` : ''}
+                GROUP BY r.tech_stack_id
+                ORDER BY count DESC
+            `, account_manager_id && account_manager_id !== 'all' ? [account_manager_id] : [])
+        ]);
+
+        // Format summary
+        // Format summary
+        const billableResources = parseInt(summaryResult.rows[0]?.billable_resources || 0);
+        const allocatedCount = parseFloat(summaryResult.rows[0]?.allocated_resource_count || 0);
+        const billableCount = parseFloat(summaryResult.rows[0]?.billable_count_fte || 0);
+
+        const summary = {
+            billableResources,
+            allocatedCount,
+            billableCount, // This is now FTE of billing %
+            // Avg Project Allocation = Allocated Count / Billable Resources
+            averageProjectAllocation: billableResources > 0
+                ? parseFloat((allocatedCount / billableResources * 100).toFixed(1))
+                : 0,
+            // Avg Billing Percentage = Billable Count (FTE) / Billable Resources
+            averageBillingPercentage: billableResources > 0
+                ? parseFloat((billableCount / billableResources * 100).toFixed(1))
+                : 0
+        };
+
+        // Format charts - resolve IDs to labels using configs
+        const charts = {
+            allocationsByBillingStatus: billingStatusChart.rows.reduce((acc, row) => {
+                acc[row.category] = parseInt(row.count);
+                return acc;
+            }, {}),
+            employeesByTier: tierChart.rows.reduce((acc, row) => {
+                const tierLabel = resolveConfigLabel(TIERS, row.tier_id) || 'Unassigned';
+                acc[tierLabel] = parseInt(row.count);
+                return acc;
+            }, {}),
+            employeesByTrack: trackChart.rows.reduce((acc, row) => {
+                const trackLabel = resolveConfigLabel(TRACKS, row.track_id) || 'Unassigned';
+                acc[trackLabel] = parseInt(row.count);
+                return acc;
+            }, {}),
+            employeesByTechStack: techStackChart.rows.reduce((acc, row) => {
+                const techStackLabel = resolveConfigLabel(TECH_STACKS, row.tech_stack_id) || 'Unassigned';
+                acc[techStackLabel] = parseInt(row.count);
+                return acc;
+            }, {})
+        };
+
+        return success({
+            summary,
+            charts,
+            projects: {
+                data: projectsResult.rows,
+                pagination: {
+                    page: parseInt(page),
+                    limit: parseInt(limit),
+                    total: parseInt(projectCountResult.rows[0]?.total || 0),
+                    totalPages: Math.ceil(parseInt(projectCountResult.rows[0]?.total || 0) / parseInt(limit))
+                }
+            },
+            allocations: {
+                data: allocationsResult.rows,
+                pagination: {
+                    page: parseInt(page),
+                    limit: parseInt(limit),
+                    total: parseInt(allocationCountResult.rows[0]?.total || 0),
+                    totalPages: Math.ceil(parseInt(allocationCountResult.rows[0]?.total || 0) / parseInt(limit))
+                }
+            },
+            designations: {
+                data: designationsResult.rows
+            },
+            filters: queryParams,
+            generatedAt: new Date().toISOString()
+        });
+
+    } catch (err) {
+        log.error('Failed to get account manager report', { error: err.message, stack: err.stack });
+        return error('Failed to get account manager report', err);
+    }
+};

@@ -46,6 +46,49 @@ backend/
 
 ## Deployment
 
+### Shared Layer Deployment (Recommended)
+
+When updating the shared Lambda layer, use the automated deployment script:
+
+**PowerShell (Windows):**
+
+```powershell
+# Deploy shared layer + update all services
+.\deploy-shared-layer.ps1
+
+# Deploy for specific stage
+.\deploy-shared-layer.ps1 -Stage qa
+
+# Only redeploy services (without updating layer)
+.\deploy-shared-layer.ps1 -ServicesOnly
+
+# Only deploy layer (without redeploying services)
+.\deploy-shared-layer.ps1 -SkipServiceDeploy
+```
+
+**Bash (Linux/Mac):**
+
+```bash
+# Deploy shared layer + update all services
+./deploy-shared-layer.sh
+
+# Deploy for specific stage
+./deploy-shared-layer.sh qa
+
+# Only redeploy services (without updating layer)
+./deploy-shared-layer.sh --services-only
+
+# Only deploy layer (without redeploying services)
+./deploy-shared-layer.sh --skip-service-deploy
+```
+
+This script automates:
+
+1. ✅ Deploys the shared layer (creates new version)
+2. ✅ Retrieves the new layer version number
+3. ✅ Updates all service serverless.yml files with new version
+4. ✅ Redeploys all services with updated layer
+
 ### Full Deployment (All Services)
 
 ```bash

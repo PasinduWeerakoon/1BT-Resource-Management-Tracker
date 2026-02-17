@@ -16,6 +16,10 @@ provider:
     COGNITO_USER_POOL_ID: !ImportValue onebt-${self:provider.stage}-CognitoUserPoolId
     COGNITO_CLIENT_ID: !ImportValue onebt-${self:provider.stage}-CognitoClientId
     AUDIT_QUEUE_URL: !ImportValue onebt-${self:provider.stage}-AuditQueueUrl
+    DB_HOST: !ImportValue onebt-${self:provider.stage}-RdsEndpoint
+    DB_PORT: !ImportValue onebt-${self:provider.stage}-RdsPort
+    DB_NAME: !ImportValue onebt-${self:provider.stage}-DbName
+    DB_SECRET_ARN: !ImportValue onebt-${self:provider.stage}-RdsSecretArn
 
   iam:
     role:
@@ -31,20 +35,26 @@ provider:
             - cognito-idp:GlobalSignOut
             - cognito-idp:ForgotPassword
             - cognito-idp:ConfirmForgotPassword
+            - cognito-idp:ListUsers
+            - cognito-idp:AdminListGroupsForUser
           Resource: !ImportValue onebt-${self:provider.stage}-CognitoUserPoolArn
         - Effect: Allow
           Action:
             - sqs:SendMessage
           Resource: !ImportValue onebt-${self:provider.stage}-AuditQueueArn
+        - Effect: Allow
+          Action:
+            - secretsmanager:GetSecretValue
+          Resource: !ImportValue onebt-${self:provider.stage}-RdsSecretArn
 
-  # NO VPC - Auth service uses Cognito only, no database access needed
-  # This gives faster cold starts
+  # VPC config is set per-function for functions that need database access
+  # Functions without database access should NOT be in VPC to allow direct Cognito access
 
   httpApi:
     id: !ImportValue onebt-${self:provider.stage}-HttpApiId
 
   layers:
-    - !ImportValue onebt-shared-layer-${self:provider.stage}-arn
+    - arn:aws:lambda:ap-southeast-1:550586832874:layer:onebt-shared-libs-dev:85
 
 plugins:
   - serverless-offline
@@ -116,10 +126,11 @@ functions:
 
   # ============================================
   # INVITE USER - Protected endpoint (Admin only)
+  # Step 1: Creates Cognito user only (no VPC needed)
   # ============================================
   inviteUser:
     handler: src/handlers/auth.inviteUser
-    description: Invite new user (Admin only)
+    description: Create Cognito user for employee invitation (Admin only)
     events:
       - httpApi:
           path: /api/v1/auth/invite
@@ -129,14 +140,54 @@ functions:
             id: !ImportValue onebt-${self:provider.stage}-CognitoAuthorizerId
 
   # ============================================
+  # LINK USER TO EMPLOYEE - Protected endpoint (Admin only)
+  # Step 2: Creates DB record (requires VPC)
+  # ============================================
+  linkUserToEmployee:
+    handler: src/handlers/auth.linkUserToEmployee
+    description: Create database user record linked to employee (Admin only)
+    vpc:
+      securityGroupIds:
+        - !ImportValue onebt-${self:provider.stage}-LambdaSecurityGroupId
+      subnetIds: !Split
+        - ","
+        - !ImportValue onebt-${self:provider.stage}-PrivateSubnetIds
+    events:
+      - httpApi:
+          path: /api/v1/auth/link-user
+          method: POST
+          authorizer:
+            type: jwt
+            id: !ImportValue onebt-${self:provider.stage}-CognitoAuthorizerId
+
+  # ============================================
   # COMPLETE INVITE - Public endpoint
+  # Sets password for invited user (no VPC needed)
   # ============================================
   completeInvite:
     handler: src/handlers/auth.completeInvite
-    description: Complete user invitation
+    description: Complete user invitation - set password
     events:
       - httpApi:
           path: /api/v1/auth/complete-invite
+          method: POST
+
+  # ============================================
+  # ACTIVATE USER - Public endpoint (requires VPC)
+  # Updates user status after password is set
+  # ============================================
+  activateUser:
+    handler: src/handlers/auth.activateUser
+    description: Activate user after password set
+    vpc:
+      securityGroupIds:
+        - !ImportValue onebt-${self:provider.stage}-LambdaSecurityGroupId
+      subnetIds: !Split
+        - ","
+        - !ImportValue onebt-${self:provider.stage}-PrivateSubnetIds
+    events:
+      - httpApi:
+          path: /api/v1/auth/activate-user
           method: POST
 
   # ============================================
@@ -148,6 +199,60 @@ functions:
     events:
       - httpApi:
           path: /api/v1/auth/me
+          method: GET
+          authorizer:
+            type: jwt
+            id: !ImportValue onebt-${self:provider.stage}-CognitoAuthorizerId
+
+  # ============================================
+  # GET SYSTEM USERS - Protected endpoint (Admin only)
+  # ============================================
+  getSystemUsers:
+    handler: src/handlers/auth.getSystemUsers
+    description: Get all system users from Cognito (Admin only)
+    events:
+      - httpApi:
+          path: /api/v1/auth/cognito-users
+          method: GET
+          authorizer:
+            type: jwt
+            id: !ImportValue onebt-${self:provider.stage}-CognitoAuthorizerId
+
+  # ============================================
+  # GET DB USERS - Protected endpoint (Admin only, requires VPC)
+  # ============================================
+  getDbUsers:
+    handler: src/handlers/auth.getDbUsers
+    description: Get all users from database with employee info (Admin only)
+    vpc:
+      securityGroupIds:
+        - !ImportValue onebt-${self:provider.stage}-LambdaSecurityGroupId
+      subnetIds: !Split
+        - ","
+        - !ImportValue onebt-${self:provider.stage}-PrivateSubnetIds
+    events:
+      - httpApi:
+          path: /api/v1/auth/users
+          method: GET
+          authorizer:
+            type: jwt
+            id: !ImportValue onebt-${self:provider.stage}-CognitoAuthorizerId
+
+  # ============================================
+  # GET INVITABLE EMPLOYEES - Protected endpoint (Admin only, requires VPC)
+  # ============================================
+  getInvitableEmployees:
+    handler: src/handlers/auth.getInvitableEmployees
+    description: Get employees eligible for user invitation (Admin only)
+    vpc:
+      securityGroupIds:
+        - !ImportValue onebt-${self:provider.stage}-LambdaSecurityGroupId
+      subnetIds: !Split
+        - ","
+        - !ImportValue onebt-${self:provider.stage}-PrivateSubnetIds
+    events:
+      - httpApi:
+          path: /api/v1/auth/invitable-employees
           method: GET
           authorizer:
             type: jwt

@@ -18,6 +18,8 @@ export const ENDPOINTS = {
     RESET_PASSWORD: `${BASE_URL}/auth/reset-password`,
     INVITE: `${BASE_URL}/auth/invite`,
     COMPLETE_INVITE: `${BASE_URL}/auth/complete-invite`,
+    ACTIVATE_USER: `${BASE_URL}/auth/activate-user`,
+    USERS: `${BASE_URL}/auth/users`,
   },
 
   // Resources (Employees)
@@ -49,6 +51,16 @@ export const ENDPOINTS = {
     UPDATE: (id) => `${BASE_URL}/tracks/${id}`,
   },
 
+  // Tags
+  TAGS: {
+    BASE: `${BASE_URL}/tags`,
+    LIST: `${BASE_URL}/tags`,
+    GET_BY_ID: (id) => `${BASE_URL}/tags/${id}`,
+    CREATE: `${BASE_URL}/tags`,
+    UPDATE: (id) => `${BASE_URL}/tags/${id}`,
+    DELETE: (id) => `${BASE_URL}/tags/${id}`,
+  },
+
   // Designations
   DESIGNATIONS: {
     BASE: `${BASE_URL}/designations`,
@@ -57,6 +69,61 @@ export const ENDPOINTS = {
     CREATE: `${BASE_URL}/designations`,
     UPDATE: (id) => `${BASE_URL}/designations/${id}`,
     HISTORY: (id) => `${BASE_URL}/designations/${id}/history`,
+  },
+
+  // Billing Statuses
+  BILLING_STATUSES: {
+    BASE: `${BASE_URL}/billing-statuses`,
+    LIST: `${BASE_URL}/billing-statuses`,
+    GET_BY_ID: (id) => `${BASE_URL}/billing-statuses/${id}`,
+    CREATE: `${BASE_URL}/billing-statuses`,
+    UPDATE: (id) => `${BASE_URL}/billing-statuses/${id}`,
+    DELETE: (id) => `${BASE_URL}/billing-statuses/${id}`,
+  },
+
+  // Project Types
+  PROJECT_TYPES: {
+    BASE: `${BASE_URL}/project-types`,
+    LIST: `${BASE_URL}/project-types`,
+    GET_BY_ID: (id) => `${BASE_URL}/project-types/${id}`,
+    CREATE: `${BASE_URL}/project-types`,
+    UPDATE: (id) => `${BASE_URL}/project-types/${id}`,
+    DELETE: (id) => `${BASE_URL}/project-types/${id}`,
+  },
+
+  // Account Types
+  ACCOUNT_TYPES: {
+    BASE: `${BASE_URL}/account-types`,
+    LIST: `${BASE_URL}/account-types`,
+    GET_BY_ID: (id) => `${BASE_URL}/account-types/${id}`,
+    CREATE: `${BASE_URL}/account-types`,
+    UPDATE: (id) => `${BASE_URL}/account-types/${id}`,
+    DELETE: (id) => `${BASE_URL}/account-types/${id}`,
+  },
+
+  // Project Statuses
+  PROJECT_STATUSES: {
+    BASE: `${BASE_URL}/project-statuses`,
+    LIST: `${BASE_URL}/project-statuses`,
+    GET_BY_ID: (id) => `${BASE_URL}/project-statuses/${id}`,
+    CREATE: `${BASE_URL}/project-statuses`,
+    UPDATE: (id) => `${BASE_URL}/project-statuses/${id}`,
+    DELETE: (id) => `${BASE_URL}/project-statuses/${id}`,
+  },
+
+  // Tiers
+  TIERS: {
+    BASE: `${BASE_URL}/tiers`,
+    LIST: `${BASE_URL}/tiers`,
+    GET_BY_ID: (id) => `${BASE_URL}/tiers/${id}`,
+    CREATE: `${BASE_URL}/tiers`,
+    UPDATE: (id) => `${BASE_URL}/tiers/${id}`,
+    DELETE: (id) => `${BASE_URL}/tiers/${id}`,
+  },
+
+  // Configs (Unified endpoint for all configurations)
+  CONFIGS: {
+    GET_ALL: `${BASE_URL}/configs`,
   },
 
   // Clients
@@ -91,6 +158,29 @@ export const ENDPOINTS = {
     DELETE: (id) => `${BASE_URL}/allocations/${id}`,
     MONTHLY: `${BASE_URL}/allocations/monthly`,
     HISTORY: (resourceId) => `${BASE_URL}/allocations/history/${resourceId}`,
+    SCHEDULER_ACTIVATE: `${BASE_URL}/allocations/scheduler/activate`,
+  },
+
+  // Future Allocations (3-Table Architecture)
+  FUTURE_ALLOCATIONS: {
+    BASE: `${BASE_URL}/future-allocations`,
+    LIST: `${BASE_URL}/future-allocations`,
+    GET_BY_ID: (id) => `${BASE_URL}/future-allocations/${id}`,
+    BY_RESOURCE: (resourceId) => `${BASE_URL}/future-allocations/resource/${resourceId}`,
+    PENDING: `${BASE_URL}/future-allocations/pending`,
+    STATS: `${BASE_URL}/future-allocations/stats`,
+    CANCEL: (id) => `${BASE_URL}/future-allocations/${id}`,
+  },
+
+  // Allocation History Archive (3-Table Architecture)
+  ALLOCATION_HISTORY: {
+    BASE: `${BASE_URL}/allocation-history`,
+    LIST: `${BASE_URL}/allocation-history`,
+    GET_BY_ID: (id) => `${BASE_URL}/allocation-history/${id}`,
+    BY_RESOURCE: (resourceId) => `${BASE_URL}/allocation-history/resource/${resourceId}`,
+    BY_PROJECT: (projectId) => `${BASE_URL}/allocation-history/project/${projectId}`,
+    STATS: `${BASE_URL}/allocation-history/stats`,
+    TIMELINE: (resourceId) => `${BASE_URL}/allocation-history/timeline/${resourceId}`,
   },
 
   // Reports
@@ -99,10 +189,29 @@ export const ENDPOINTS = {
     BENCH: `${BASE_URL}/reports/bench`,
     ACCOUNT_MANAGER: `${BASE_URL}/reports/account-manager`,
     EMPLOYEE: `${BASE_URL}/reports/employee`,
+    INTERN: `${BASE_URL}/reports/intern`,
     MONTHLY_ALLOCATION: `${BASE_URL}/reports/monthly-allocation`,
     EXCEPTION: `${BASE_URL}/reports/exception`,
     NON_BILLING: `${BASE_URL}/reports/non-billing`,
     PRE_SALE: `${BASE_URL}/reports/pre-sale`,
+    TIER_BREAKDOWN: `${BASE_URL}/reports/tier-breakdown`,
+    EXTERNAL_CONSULTANTS: `${BASE_URL}/reports/external-consultants`,
+    TRAINING: `${BASE_URL}/reports/training`,
+  },
+
+  // Dashboard Summary
+  DASHBOARD: {
+    RESOURCE_COUNTS: `${BASE_URL}/dashboard/resource-counts`,
+    PERCENTAGES: `${BASE_URL}/dashboard/percentages`,
+    CHARTS: `${BASE_URL}/dashboard/charts`,
+  },
+
+  // Documents
+  DOCUMENTS: {
+    EXCEL_SUMMARY: `${BASE_URL}/documents/excel/summary`,
+    EXCEL_NON_BILLING: `${BASE_URL}/documents/excel/non-billing`,
+    EXCEL_PROJECTS: `${BASE_URL}/documents/excel/projects`,
+    EXCEL_MONTHLY_ALLOCATION: `${BASE_URL}/documents/excel/monthly-allocation`,
   },
 
   // Audit Logs
