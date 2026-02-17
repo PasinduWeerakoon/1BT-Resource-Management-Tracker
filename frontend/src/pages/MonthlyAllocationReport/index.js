@@ -1,10 +1,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Row, Col, Card, Table, Radio } from 'antd';
+import { Row, Col, Card, Table, Radio, Button } from 'antd';
+import { DownloadOutlined } from '@ant-design/icons';
 import { useSelector } from 'react-redux';
 import CustomTable from '@components/Table';
+import { documentsService } from '@api';
 import { selectTracks } from '@redux/slices/configSlice';
 import { useReportFilters } from '@hooks/reports';
 import { FilterSection, ReportHeader } from '@components/ReportLayout';
+import { showSuccessToast, showErrorToast } from '@utils/toast.utils';
 import MonthlyAllocationFilters from './components/MonthlyAllocationFilters';
 import { useMonthlyAllocationData } from './hooks/useMonthlyAllocationData';
 import logger from '@utils/logger';
@@ -30,6 +33,7 @@ const MonthlyAllocationReport = () => {
   } = useReportFilters(defaultFilters);
 
   const [viewMode, setViewMode] = useState('detailed'); // 'detailed' or 'grouped'
+  const [isDownloading, setIsDownloading] = useState(false);
 
   // Get tracks from Redux (cached on login)
   const tracksList = useSelector(selectTracks);
@@ -53,6 +57,28 @@ const MonthlyAllocationReport = () => {
     { value: 12, label: 'December' },
   ], []);
 
+
+  // Excel download handler - passes current filters to the backend
+  const handleDownloadExcel = async () => {
+    setIsDownloading(true);
+    try {
+      const params = {
+        year: filters.year,
+        month: filters.month,
+      };
+      if (filters.track_id) {
+        params.track_id = filters.track_id;
+      }
+
+      await documentsService.downloadMonthlyAllocationExcel(params);
+      showSuccessToast('Monthly allocation Excel report downloaded successfully');
+    } catch (error) {
+      logger.error('Failed to download monthly allocation Excel:', error);
+      showErrorToast('Failed to download Excel report');
+    } finally {
+      setIsDownloading(false);
+    }
+  };
 
   // Expand allocations column renderer for grouped view
   const expandedRowRender = (record) => {
@@ -241,7 +267,19 @@ const MonthlyAllocationReport = () => {
 
   return (
     <div className="monthly-allocation-report-page">
-      <ReportHeader title="MONTHLY ALLOCATION REPORT" />
+      <ReportHeader
+        title="MONTHLY ALLOCATION REPORT"
+        extra={
+          <Button
+            type="primary"
+            icon={<DownloadOutlined />}
+            onClick={handleDownloadExcel}
+            loading={isDownloading}
+          >
+            Download Excel
+          </Button>
+        }
+      />
 
       <FilterSection
         expanded={filtersExpanded}

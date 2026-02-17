@@ -26,23 +26,35 @@ const resolveConfigLabel = (configArray, id) => {
 
 /**
  * Get monthly allocation report
+ * Queries both allocations (current) and allocation_history_archive (deallocated) tables
+ * to provide a complete picture of allocations for a given month period.
  */
 export const getMonthlyAllocationReport = async (event) => {
     const log = logger.child({ handler: 'reports.getMonthlyAllocationReport' });
 
     try {
         const queryParams = event.queryStringParameters || {};
-        const { year, month } = queryParams;
+        const { year, month, track_id } = queryParams;
 
         const targetYear = year ? parseInt(year) : new Date().getFullYear();
         const targetMonth = month ? parseInt(month) : new Date().getMonth() + 1;
 
-        log.info('Getting monthly allocation report', { year: targetYear, month: targetMonth });
+        log.info('Getting monthly allocation report', { year: targetYear, month: targetMonth, track_id });
 
         const startDate = `${targetYear}-${String(targetMonth).padStart(2, '0')}-01`;
         const endDate = new Date(targetYear, targetMonth, 0).toISOString().split('T')[0];
 
-        const query = `
+        // Build parameterized query with optional track filter
+        const params = [startDate, endDate];
+        let trackFilter = '';
+        if (track_id) {
+            params.push(parseInt(track_id));
+            trackFilter = `AND r.track_id = $${params.length}`;
+        }
+
+        // Query 1: Current allocations from 'allocations' table
+        // Users still allocated whose allocation overlaps with the given month
+        const currentAllocationsQuery = `
             SELECT 
                 r.name as resource_name,
                 r.email,
@@ -53,20 +65,67 @@ export const getMonthlyAllocationReport = async (event) => {
                 p.project_name,
                 c.client_name,
                 a.allocation_percentage,
-                a.allocated_date,
-                a.deallocated_date
+                a.allocated_date as start_date,
+                a.deallocated_date as end_date,
+                'Current' as source
             FROM allocations a
             JOIN employees r ON a.employee_id = r.id
             JOIN projects p ON a.project_id = p.id
             LEFT JOIN clients c ON p.client_id = c.id
             LEFT JOIN designations d ON r.designation_id = d.id
-            WHERE a.allocated_date <= $2
-            AND (a.deallocated_date IS NULL OR a.deallocated_date >= $1)
-            AND r.deleted_at IS NULL
-            ORDER BY r.name, p.project_name
+            WHERE a.is_active = true
+              AND a.deleted_at IS NULL
+              AND r.deleted_at IS NULL
+              AND r.status = 'Active'
+              AND a.allocated_date <= $2
+              AND (a.deallocated_date IS NULL OR a.deallocated_date >= $1)
+              ${trackFilter}
         `;
 
-        const result = await db.query(query, [startDate, endDate]);
+        // Query 2: Historical allocations from 'allocation_history_archive' table
+        // Users who were deallocated but had an allocation during the given month
+        const archiveAllocationsQuery = `
+            SELECT 
+                r.name as resource_name,
+                r.email,
+                d.name as designation,
+                r.track_id,
+                r.tier_id,
+                r.tech_stack_id,
+                p.project_name,
+                c.client_name,
+                ah.allocation_percentage,
+                ah.allocated_date as start_date,
+                ah.deallocated_date as end_date,
+                'Historical' as source
+            FROM allocation_history_archive ah
+            JOIN employees r ON ah.employee_id = r.id
+            JOIN projects p ON ah.project_id = p.id
+            LEFT JOIN clients c ON p.client_id = c.id
+            LEFT JOIN designations d ON r.designation_id = d.id
+            WHERE ah.allocated_date <= $2
+              AND ah.deallocated_date IS NOT NULL
+              AND ah.deallocated_date >= $1
+              AND r.deleted_at IS NULL
+              AND NOT EXISTS (
+                  SELECT 1 FROM allocations a2 
+                  WHERE a2.employee_id = ah.employee_id 
+                    AND a2.project_id = ah.project_id 
+                    AND a2.is_active = true 
+                    AND a2.deleted_at IS NULL
+              )
+              ${trackFilter}
+        `;
+
+        // Combined query using UNION ALL
+        const combinedQuery = `
+            ${currentAllocationsQuery}
+            UNION ALL
+            ${archiveAllocationsQuery}
+            ORDER BY resource_name, project_name
+        `;
+
+        const result = await db.query(combinedQuery, params);
 
         // Transform results with config resolution
         const data = result.rows.map(row => ({
