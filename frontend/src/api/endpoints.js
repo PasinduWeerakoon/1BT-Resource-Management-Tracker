@@ -211,6 +211,7 @@ export const ENDPOINTS = {
     EXCEL_SUMMARY: `${BASE_URL}/documents/excel/summary`,
     EXCEL_NON_BILLING: `${BASE_URL}/documents/excel/non-billing`,
     EXCEL_PROJECTS: `${BASE_URL}/documents/excel/projects`,
+    EXCEL_MONTHLY_ALLOCATION: `${BASE_URL}/documents/excel/monthly-allocation`,
   },
 
   // Audit Logs

@@ -113,6 +113,31 @@ export const documentsService = {
     
     return blob;
   },
+
+  /**
+   * Download monthly allocation report as Excel
+   * Queries both allocations and allocation_history_archive tables
+   * @param {Object} params - Query parameters
+   * @param {number} params.year - Year for the report
+   * @param {number} params.month - Month for the report (1-12)
+   * @param {string} [params.track_id] - Optional track ID filter
+   * @returns {Promise<Blob>} Excel file blob
+   */
+  downloadMonthlyAllocationExcel: async (params = {}) => {
+    const response = await fileDownloadClient.get(ENDPOINTS.DOCUMENTS.EXCEL_MONTHLY_ALLOCATION, {
+      responseType: 'blob',
+      params,
+    });
+    
+    const blob = response.data;
+    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'];
+    const monthName = monthNames[(params.month || new Date().getMonth() + 1) - 1];
+    const year = params.year || new Date().getFullYear();
+    downloadFileFromBlob(blob, response, `monthly_allocation_${monthName}_${year}.xlsx`);
+    
+    return blob;
+  },
 };
 
 export default documentsService;

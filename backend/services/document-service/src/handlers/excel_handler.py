@@ -987,6 +987,255 @@ def generate_summary_report(event, context):
         close_connection()
 
 
+def generate_monthly_allocation_report(event, context):
+    """
+    Generate monthly allocation report in Excel format
+    Queries both allocations (current) and allocation_history (deallocated) tables
+    to get a complete picture of allocations for a given month.
+    GET /documents/excel/monthly-allocation?year=2026&month=2&track_id=1
+    
+    Columns: emp_num, epf_num, employee name, designation, tier, tech stack,
+    project short code, project name, project allocated date, project deallocated date,
+    billing status, billing percentage, allocation percentage, total billing percentage,
+    total allocation percentage, resource active status, global employee id
+    """
+    try:
+        # Extract query parameters
+        query_params = event.get('queryStringParameters', {}) or {}
+        year = query_params.get('year')
+        month = query_params.get('month')
+        track_id = query_params.get('track_id')
+
+        # Default to current month if not provided
+        now = datetime.now()
+        target_year = int(year) if year else now.year
+        target_month = int(month) if month else now.month
+
+        # Calculate period start and end dates
+        import calendar
+        start_date = f"{target_year}-{str(target_month).zfill(2)}-01"
+        last_day = calendar.monthrange(target_year, target_month)[1]
+        end_date = f"{target_year}-{str(target_month).zfill(2)}-{str(last_day).zfill(2)}"
+
+        month_names = ['January', 'February', 'March', 'April', 'May', 'June',
+                       'July', 'August', 'September', 'October', 'November', 'December']
+        month_name = month_names[target_month - 1]
+
+        logger.info(f"Generating monthly allocation Excel for {month_name} {target_year} (track_id={track_id})")
+
+        # Build track filter (using %s for psycopg2 parameterized queries)
+        # IMPORTANT: Parameter order must match the order of %s placeholders
+        # in the SQL (dates for current query, optional track, then dates for
+        # history query, optional track).
+        track_filter = ''
+        params = [end_date, start_date]  # for current allocations query
+
+        if track_id:
+            track_id_int = int(track_id)
+            params.append(track_id_int)  # track for current allocations
+            track_filter = 'AND e.track_id = %s'
+
+        # Dates (and optional track) for history query
+        params.extend([end_date, start_date])
+        if track_id:
+            params.append(track_id_int)  # track for history allocations
+
+        # Combined query using UNION ALL
+        # Query 1: Current active allocations from 'allocations' table
+        # Query 2: Historical deallocated allocations from 'allocation_history' table (change_type = 'DELETED')
+        # total_allocation and total_resource_billing are read directly from employees table (maintained by trigger)
+        combined_sql = f"""
+            SELECT 
+                e.emp_no,
+                e.epf_no,
+                e.name as employee_name,
+                d.name as designation,
+                e.tier_id,
+                e.tech_stack_id,
+                p.project_code,
+                p.project_name,
+                a.allocated_date,
+                a.deallocated_date,
+                bs.name as billing_status,
+                a.billing_percentage,
+                a.allocation_percentage,
+                e.total_resource_billing as total_billing_percentage,
+                e.total_allocation as total_allocation_percentage,
+                e.status as resource_status,
+                e.global_employee_id
+            FROM allocations a
+            JOIN employees e ON a.employee_id = e.id
+            JOIN projects p ON a.project_id = p.id
+            LEFT JOIN designations d ON e.designation_id = d.id
+            LEFT JOIN billing_statuses bs ON a.billing_status_id = bs.id
+            WHERE a.is_active = true
+              AND a.deleted_at IS NULL
+              AND e.deleted_at IS NULL
+              AND a.allocated_date <= %s
+              AND (a.deallocated_date IS NULL OR a.deallocated_date >= %s)
+              {track_filter}
+
+            UNION ALL
+
+            SELECT 
+                e.emp_no,
+                e.epf_no,
+                e.name as employee_name,
+                d.name as designation,
+                e.tier_id,
+                e.tech_stack_id,
+                p.project_code,
+                p.project_name,
+                ah.allocation_start_date as allocated_date,
+                ah.allocation_end_date as deallocated_date,
+                bs.name as billing_status,
+                ah.billing_percentage,
+                ah.allocation_percentage,
+                e.total_resource_billing as total_billing_percentage,
+                e.total_allocation as total_allocation_percentage,
+                e.status as resource_status,
+                e.global_employee_id
+            FROM allocation_history ah
+            JOIN employees e ON ah.employee_id = e.id
+            JOIN projects p ON ah.project_id = p.id
+            LEFT JOIN designations d ON e.designation_id = d.id
+            LEFT JOIN billing_statuses bs ON ah.billing_status_id = bs.id
+            WHERE ah.change_type = 'DELETED'
+              AND e.deleted_at IS NULL
+              AND ah.allocation_start_date <= %s
+              AND ah.allocation_end_date IS NOT NULL
+              AND ah.allocation_end_date >= %s
+              AND NOT EXISTS (
+                  SELECT 1 FROM allocations a2 
+                  WHERE a2.employee_id = ah.employee_id 
+                    AND a2.project_id = ah.project_id 
+                    AND a2.is_active = true 
+                    AND a2.deleted_at IS NULL
+              )
+              {track_filter}
+            ORDER BY employee_name, project_name
+        """
+
+        data = query(combined_sql, params)
+
+        logger.info(f"Monthly allocation query returned {len(data) if data else 0} rows")
+
+        # Create workbook
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Monthly Allocation"
+
+        # Title
+        num_cols = 17
+        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=num_cols)
+        title_cell = ws.cell(row=1, column=1, value=f"Monthly Allocation Report - {month_name} {target_year}")
+        title_cell.font = Font(bold=True, size=16, color='1F4E79')
+        title_cell.alignment = Alignment(horizontal='center')
+
+        # Metadata row
+        ws.cell(row=2, column=1, value=f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        ws.cell(row=2, column=5, value=f"Period: {start_date} to {end_date}")
+        ws.cell(row=2, column=10, value=f"Total Records: {len(data) if data else 0}")
+
+        # Track filter info
+        if track_id:
+            track_name = get_track_name(int(track_id))
+            ws.cell(row=3, column=1, value=f"Track Filter: {track_name}")
+            ws.cell(row=3, column=1).font = Font(italic=True, size=10)
+
+        # Headers
+        headers = [
+            'Emp No',
+            'EPF No',
+            'Employee Name',
+            'Designation',
+            'Tier',
+            'Tech Stack',
+            'Project Short Code',
+            'Project Name',
+            'Project Allocated Date',
+            'Project Deallocated Date',
+            'Billing Status',
+            'Billing %',
+            'Allocation %',
+            'Total Billing %',
+            'Total Allocation %',
+            'Resource Active Status',
+            'Global Employee ID'
+        ]
+
+        header_row = 5
+        for col, header_text in enumerate(headers, 1):
+            cell = ws.cell(row=header_row, column=col, value=header_text)
+            apply_header_style(cell)
+
+        # Data rows
+        if data:
+            for row_idx, row in enumerate(data, header_row + 1):
+                tier_name = get_tier_name(row.get('tier_id'))
+                tech_stack_name = get_tech_stack_name(row.get('tech_stack_id'))
+
+                alloc_pct = int(row.get('allocation_percentage', 0) or 0)
+                billing_pct = int(row.get('billing_percentage', 0) or 0)
+                total_billing_pct = int(row.get('total_billing_percentage', 0) or 0)
+                total_alloc_pct = int(row.get('total_allocation_percentage', 0) or 0)
+
+                cells = [
+                    row.get('emp_no', ''),
+                    row.get('epf_no', ''),
+                    row.get('employee_name', ''),
+                    row.get('designation', ''),
+                    tier_name,
+                    tech_stack_name,
+                    row.get('project_code', '') or '',
+                    row.get('project_name', ''),
+                    str(row.get('allocated_date', ''))[:10] if row.get('allocated_date') else '',
+                    str(row.get('deallocated_date', ''))[:10] if row.get('deallocated_date') else 'Ongoing',
+                    row.get('billing_status', '') or '',
+                    f"{billing_pct}%",
+                    f"{alloc_pct}%",
+                    f"{total_billing_pct}%",
+                    f"{total_alloc_pct}%",
+                    row.get('resource_status', ''),
+                    row.get('global_employee_id', '') or ''
+                ]
+
+                for col_idx, value in enumerate(cells, 1):
+                    cell = ws.cell(row=row_idx, column=col_idx, value=value)
+                    apply_cell_style(cell)
+
+                    # Highlight ongoing allocations in green for deallocated date column
+                    if col_idx == 10 and value == 'Ongoing':
+                        cell.font = Font(color='008000', bold=True)
+
+                    # Highlight over-allocated resources (total allocation > 100%)
+                    if col_idx == 15 and total_alloc_pct > 100:
+                        cell.font = Font(color='FF0000', bold=True)
+        else:
+            ws.cell(row=header_row + 1, column=1, value="No allocation data found for this period")
+
+        auto_column_width(ws)
+
+        # Save to bytes
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+
+        filename = f"monthly_allocation_{month_name}_{target_year}.xlsx"
+
+        return file_response(
+            output.getvalue(),
+            filename,
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to generate monthly allocation report: {str(e)}", exc_info=True)
+        return error(f"Failed to generate monthly allocation report: {str(e)}")
+    finally:
+        close_connection()
+
+
 def generate_projects_report(event, context):
     """
     Generate projects report in Excel format

@@ -76,6 +76,7 @@ export const useMonthlyAllocationData = (filters) => {
             allocationPercentageFormatted: `${allocationPercentage.toFixed(2)}%`,
             startDate: item.start_date ? new Date(item.start_date).toLocaleDateString() : 'N/A',
             endDate: item.end_date ? new Date(item.end_date).toLocaleDateString() : 'Ongoing',
+            source: item.source || 'Current',
           };
         });
         
