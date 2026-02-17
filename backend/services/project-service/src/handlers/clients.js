@@ -41,14 +41,10 @@ export const list = async (event) => {
             paramIndex++;
         }
 
-        // Get total count
-        const countQuery = `SELECT COUNT(*) as total FROM clients ${whereClause}`;
-        const countResult = await db.query(countQuery, params);
-        const total = parseInt(countResult.rows[0].total);
-
-        // Get paginated results
+        // Optimized: Combined query using window function for count (single round-trip)
         const dataQuery = `
-            SELECT * FROM clients
+            SELECT *, COUNT(*) OVER() as total_count 
+            FROM clients
             ${whereClause}
             ORDER BY client_name ASC
             LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
@@ -57,8 +53,14 @@ export const list = async (event) => {
 
         const result = await db.query(dataQuery, params);
 
+        // Extract total from first row (or 0 if no results)
+        const total = result.rows.length > 0 ? parseInt(result.rows[0].total_count) : 0;
+
+        // Remove total_count from each row
+        const data = result.rows.map(({ total_count, ...row }) => row);
+
         return success({
-            data: result.rows,
+            data,
             pagination: {
                 page: parseInt(page),
                 limit: parseInt(limit),
@@ -107,7 +109,24 @@ export const create = async (event) => {
     try {
         const body = JSON.parse(event.body || '{}');
         const validated = validate(body, clientSchemas.create);
-        const userId = event.requestContext?.authorizer?.jwt?.claims?.sub;
+
+        // Get user ID from Cognito sub - need to look up in users table
+        const cognitoSub = event.requestContext?.authorizer?.jwt?.claims?.sub;
+        let userId = null;
+
+        if (cognitoSub) {
+            const userResult = await db.query(
+                'SELECT id FROM users WHERE cognito_user_id = $1',
+                [cognitoSub]
+            );
+            if (userResult.rows.length > 0) {
+                userId = userResult.rows[0].id;
+            }
+        }
+        // Use system user as fallback
+        if (!userId) {
+            userId = 1;
+        }
 
         log.info('Creating client', { name: validated.client_name, userId });
 
@@ -172,7 +191,20 @@ export const update = async (event) => {
     try {
         const body = JSON.parse(event.body || '{}');
         const validated = validate(body, clientSchemas.update);
-        const userId = event.requestContext?.authorizer?.jwt?.claims?.sub;
+
+        // Get user ID from Cognito sub - need to look up in users table
+        const cognitoSub = event.requestContext?.authorizer?.jwt?.claims?.sub;
+        let userId = null;
+
+        if (cognitoSub) {
+            const userResult = await db.query(
+                'SELECT id FROM users WHERE cognito_user_id = $1',
+                [cognitoSub]
+            );
+            if (userResult.rows.length > 0) {
+                userId = userResult.rows[0].id;
+            }
+        }
 
         log.info('Updating client', { id, userId });
 
@@ -256,7 +288,20 @@ export const update = async (event) => {
 export const remove = async (event) => {
     const log = logger.child({ handler: 'clients.remove' });
     const { id } = event.pathParameters;
-    const userId = event.requestContext?.authorizer?.jwt?.claims?.sub;
+
+    // Get user ID from Cognito sub - need to look up in users table
+    const cognitoSub = event.requestContext?.authorizer?.jwt?.claims?.sub;
+    let userId = null;
+
+    if (cognitoSub) {
+        const userResult = await db.query(
+            'SELECT id FROM users WHERE cognito_user_id = $1',
+            [cognitoSub]
+        );
+        if (userResult.rows.length > 0) {
+            userId = userResult.rows[0].id;
+        }
+    }
 
     try {
         log.info('Deleting client', { id, userId });
@@ -272,6 +317,16 @@ export const remove = async (event) => {
         }
 
         const existing = existingResult.rows[0];
+
+        // Check if any projects exist for this client
+        const projectCheck = await db.query(
+            'SELECT 1 FROM projects WHERE client_id = $1 AND deleted_at IS NULL LIMIT 1',
+            [id]
+        );
+
+        if (projectCheck.rows.length > 0) {
+            return conflict('Cannot delete client that has associated projects');
+        }
 
         await db.query(
             `UPDATE clients 
@@ -298,14 +353,6 @@ export const remove = async (event) => {
         log.error('Failed to delete client', { id, error: err.message });
         return error('Failed to delete client', err);
     }
-};
-
-return success({ message: 'Client deleted successfully' });
-
-    } catch (err) {
-    log.error('Failed to delete client', { id, error: err.message });
-    return error('Failed to delete client', err);
-}
 };
 
 /**

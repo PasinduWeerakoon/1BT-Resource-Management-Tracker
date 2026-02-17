@@ -1,49 +1,82 @@
-import React from 'react';
+import React, { Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { routes } from '@routes';
 import { PrivateRoute } from '@routes/PrivateRoute';
 import { PublicRoute } from '@routes/PublicRoute';
+import LoadingState from '@components/LoadingState';
 
-function App() {
+// Suspense fallback component
+const SuspenseFallback = () => (
+  <div style={{
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+    minHeight: '100vh',
+  }}>
+    <LoadingState message="Loading page..." size="large" />
+  </div>
+);
+
+/**
+ * App Component
+ * Main application component with routing and error boundaries
+ * 
+ * @returns {JSX.Element} Application root component
+ */
+const App = () => {
   return (
-    <Routes>
-      {routes.map((route) => {
-        const { path, component: Component, isPrivate, isPublic } = route;
-        
-        if (isPrivate) {
+    <Suspense fallback={<SuspenseFallback />}>
+      <Routes>
+        {routes.map((route) => {
+          const { path, component: Component, isPrivate, isPublic } = route;
+          
+          if (isPrivate) {
+            return (
+              <Route
+                key={path}
+                path={path}
+                element={
+                  <PrivateRoute>
+                    <Suspense fallback={<SuspenseFallback />}>
+                      <Component />
+                    </Suspense>
+                  </PrivateRoute>
+                }
+              />
+            );
+          }
+          
+          if (isPublic) {
+            return (
+              <Route
+                key={path}
+                path={path}
+                element={
+                  <PublicRoute>
+                    <Suspense fallback={<SuspenseFallback />}>
+                      <Component />
+                    </Suspense>
+                  </PublicRoute>
+                }
+              />
+            );
+          }
+          
           return (
             <Route
               key={path}
               path={path}
               element={
-                <PrivateRoute>
+                <Suspense fallback={<SuspenseFallback />}>
                   <Component />
-                </PrivateRoute>
+                </Suspense>
               }
             />
           );
-        }
-        
-        if (isPublic) {
-          return (
-            <Route
-              key={path}
-              path={path}
-              element={
-                <PublicRoute>
-                  <Component />
-                </PublicRoute>
-              }
-            />
-          );
-        }
-        
-        return (
-          <Route key={path} path={path} element={<Component />} />
-        );
-      })}
-      <Route path="*" element={<Navigate to="/login" replace />} />
-    </Routes>
+        })}
+        <Route path="*" element={<Navigate to="/login" replace />} />
+      </Routes>
+    </Suspense>
   );
 }
 

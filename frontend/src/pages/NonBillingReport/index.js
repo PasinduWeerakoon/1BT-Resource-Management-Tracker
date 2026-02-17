@@ -1,101 +1,105 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Row, Col, Card, Badge, Button, App } from 'antd';
-import { FilterOutlined, UpOutlined, DownOutlined, ReloadOutlined } from '@ant-design/icons';
+import React, { useState } from 'react';
+import { Row, Col, Card, Select, Button } from 'antd';
+import { DownloadOutlined } from '@ant-design/icons';
+import { useSelector } from 'react-redux';
 import CustomTable from '@components/Table';
-import { reportsService } from '@api';
-import { showErrorToast } from '@utils/toast.utils';
+import { reportsService, documentsService } from '@api';
+import { selectTracks, selectTechStacks } from '@redux/slices/configSlice';
+import { useReportFilters, useReportData } from '@hooks/reports';
+import { FilterSection, ReportHeader, SummaryCards } from '@components/ReportLayout';
+import { showSuccessToast, showErrorToast } from '@utils/toast.utils';
+import NonBillingCharts from './components/NonBillingCharts';
 import '@styles/pages/NonBillingReport.scss';
 
+const { Option } = Select;
+
 const NonBillingReport = () => {
-  const { message } = App.useApp();
-  const [filtersExpanded, setFiltersExpanded] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [reportData, setReportData] = useState([]);
-  const [filters, setFilters] = useState({});
-  const fetchInProgressRef = useRef(false);
-
-  // Default filter values for comparison
-  const defaultFilters = {};
-
-  // Count active filters
-  const activeFiltersCount = useMemo(() => {
-    let count = 0;
-    Object.keys(filters).forEach((key) => {
-      if (filters[key] !== defaultFilters[key] && filters[key] !== '' && filters[key] !== null && filters[key] !== undefined) {
-        count++;
-      }
-    });
-    return count;
-  }, [filters]);
-
-  // Reset filters to default values
-  const handleResetFilters = (e) => {
-    e.stopPropagation();
-    setFilters({ ...defaultFilters });
+  const defaultFilters = {
+    track_id: undefined,
+    tech_stack_id: undefined,
   };
 
-  // Fetch non-billing report data
-  const fetchNonBillingReport = async () => {
-    // Prevent duplicate calls
-    if (fetchInProgressRef.current) {
-      return;
-    }
-    
-    try {
-      fetchInProgressRef.current = true;
-      setLoading(true);
-      
-      const response = await reportsService.getNonBilling(filters);
-      
-      // Handle response structure - API returns { data: [...], total: number, generatedAt: string }
-      let reportDataArray = [];
-      if (response) {
-        if (response.data && Array.isArray(response.data)) {
-          reportDataArray = response.data;
-        } else if (Array.isArray(response)) {
-          reportDataArray = response;
-        }
-      }
-      
-      // Transform API data to table format
-      const transformedData = reportDataArray.map((item, index) => {
-        const allocationPercentage = parseFloat(item.allocation_percentage || 0);
-        const billingPercentage = parseFloat(item.billing_percentage || 0);
-        
-        return {
-          key: item.id || `non-billing-${index}`,
-          id: item.id,
-          employeeId: item.employee_id || 'N/A',
-          employeeName: item.name || 'N/A',
-          email: item.email || 'N/A',
-          designation: item.designation || 'N/A',
-          track: item.track || 'N/A',
-          projectName: item.project_name || 'N/A',
-          allocationPercentage: allocationPercentage,
-          allocationPercentageFormatted: `${allocationPercentage.toFixed(2)}%`,
-          billingPercentage: billingPercentage,
-          billingPercentageFormatted: `${billingPercentage.toFixed(2)}%`,
-          startDate: item.start_date ? new Date(item.start_date).toLocaleDateString() : 'N/A',
-          endDate: item.end_date ? new Date(item.end_date).toLocaleDateString() : 'Ongoing',
-        };
-      });
-      
-      setReportData(transformedData);
-    } catch (error) {
-      console.error('Failed to fetch non-billing report:', error);
-      showErrorToast('Failed to load non-billing report');
-      setReportData([]);
-    } finally {
-      setLoading(false);
-      fetchInProgressRef.current = false;
-    }
+  // Use shared hooks
+  const {
+    filters,
+    setFilters,
+    activeFiltersCount,
+    handleResetFilters,
+    filtersExpanded,
+    toggleFiltersExpanded,
+  } = useReportFilters(defaultFilters);
+
+  // Get tracks and tech stacks from Redux (cached on login)
+  const tracksList = useSelector(selectTracks);
+  const techStacksList = useSelector(selectTechStacks);
+
+  // Store chart data from API response
+  const [chartData, setChartData] = useState({
+    nonBillingResourcesByTrack: [],
+    nonBillingResourcesByTechStack: [],
+  });
+
+  // Transform function for report data
+  const transformReportData = (item, index) => {
+    const allocationPercentage = parseFloat(item.allocation_percentage || 0);
+    const billingPercentage = parseFloat(item.billing_percentage || 0);
+
+    return {
+      key: item.id || `non-billing-${index}`,
+      id: item.id,
+      employeeId: item.employee_id || 'N/A',
+      employeeName: item.name || 'N/A',
+      email: item.email || 'N/A',
+      designation: item.designation || 'N/A',
+      track: item.track || 'N/A',
+      techStack: item.tech_stack || 'N/A',
+      projectName: item.project_name || 'N/A',
+      allocationPercentage: allocationPercentage,
+      allocationPercentageFormatted: `${allocationPercentage.toFixed(2)}%`,
+      billingPercentage: billingPercentage,
+      billingPercentageFormatted: `${billingPercentage.toFixed(2)}%`,
+      startDate: item.allocated_date ? new Date(item.allocated_date).toLocaleDateString() : 'N/A',
+      endDate: item.deallocated_date ? new Date(item.deallocated_date).toLocaleDateString() : 'Ongoing',
+    };
   };
 
-  // Fetch data on component mount
-  useEffect(() => {
-    fetchNonBillingReport();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // Fetch report data
+  const { data: reportData, loading } = useReportData(
+    async () => {
+      const queryParams = {};
+      if (filters.track_id) {
+        queryParams.track_id = filters.track_id;
+      }
+      if (filters.tech_stack_id) {
+        queryParams.tech_stack_id = filters.tech_stack_id;
+      }
+      const response = await reportsService.getNonBilling(queryParams);
+
+      // Extract chart data from API response
+      // Backend returns: { success: true, data: { data: [...], charts: {...}, total: number } }
+      // reportsService.getNonBilling returns: response.data || response
+      // So response structure is: { data: [...], charts: {...}, total: number }
+      if (response?.charts) {
+        setChartData({
+          nonBillingResourcesByTrack: response.charts.nonBillingResourcesByTrack || [],
+          nonBillingResourcesByTechStack: response.charts.nonBillingResourcesByTechStack || [],
+        });
+      } else {
+        // Reset charts if not available
+        setChartData({
+          nonBillingResourcesByTrack: [],
+          nonBillingResourcesByTechStack: [],
+        });
+      }
+
+      return response;
+    },
+    transformReportData,
+    {
+      autoFetch: true,
+      dependencies: [filters.track_id, filters.tech_stack_id],
+    }
+  );
 
   // Table columns
   const columns = [
@@ -132,6 +136,12 @@ const NonBillingReport = () => {
       width: 120,
     },
     {
+      title: 'Tech Stack',
+      dataIndex: 'techStack',
+      key: 'techStack',
+      width: 120,
+    },
+    {
       title: 'Project Name',
       dataIndex: 'projectName',
       key: 'projectName',
@@ -157,7 +167,7 @@ const NonBillingReport = () => {
       width: 150,
       sorter: (a, b) => a.billingPercentage - b.billingPercentage,
       render: (text, record) => (
-        <span style={{ 
+        <span style={{
           color: record.billingPercentage === 0 ? '#ff4d4f' : '#999',
           fontWeight: record.billingPercentage === 0 ? 'bold' : 'normal'
         }}>
@@ -184,66 +194,102 @@ const NonBillingReport = () => {
     },
   ];
 
-  // Calculate KPI
-  const totalNonBillingCount = reportData.length;
+  // Summary cards data
+  const summaryCards = [
+    { value: reportData.length, label: 'TOTAL NON-BILLING RESOURCES' },
+  ];
+
+  // Excel download handler
+  const [isDownloading, setIsDownloading] = useState(false);
+
+  const handleDownloadExcel = async () => {
+    setIsDownloading(true);
+    try {
+      // Pass current filters to the download
+      const params = {};
+      if (filters.track_id) {
+        params.track_id = filters.track_id;
+      }
+
+      await documentsService.downloadNonBillingExcel(params);
+      showSuccessToast('Excel report downloaded successfully');
+    } catch (error) {
+      console.error('Failed to download Excel:', error);
+      showErrorToast('Failed to download Excel report');
+    } finally {
+      setIsDownloading(false);
+    }
+  };
 
   return (
     <div className="non-billing-report-page">
-      {/* Header Section */}
-      <div className="report-header">
-        <h1 className="report-title">NON-BILLING REPORT</h1>
-      </div>
+      <ReportHeader
+        title="NON-BILLING REPORT"
+        extra={
+          <Button
+            type="primary"
+            icon={<DownloadOutlined />}
+            onClick={handleDownloadExcel}
+            loading={isDownloading}
+          >
+            Download Excel
+          </Button>
+        }
+      />
 
-      {/* Filters Section */}
-      <Card className="filters-card">
-        <div
-          className="filters-header"
-          onClick={() => setFiltersExpanded(!filtersExpanded)}
-          style={{ cursor: 'pointer' }}
-        >
-          <div className="filters-header-left">
-            <FilterOutlined className="filter-icon" />
-            <span className="filters-title">Filters</span>
-            {activeFiltersCount > 0 && (
-              <>
-                <Badge count={activeFiltersCount} showZero={false} className="active-filters-badge">
-                  <span></span>
-                </Badge>
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<ReloadOutlined />}
-                  onClick={handleResetFilters}
-                  className="reset-filters-btn"
-                >
-                  Reset
-                </Button>
-              </>
-            )}
-          </div>
-          {filtersExpanded ? (
-            <UpOutlined className="collapse-icon" />
-          ) : (
-            <DownOutlined className="collapse-icon" />
-          )}
-        </div>
-        {filtersExpanded && (
-          <div className="filters-content">
-            {/* No filters for non-billing report currently */}
-            <p style={{ padding: '16px', color: '#999' }}>No filters available for this report</p>
-          </div>
-        )}
-      </Card>
+      <FilterSection
+        expanded={filtersExpanded}
+        onToggle={toggleFiltersExpanded}
+        activeFiltersCount={activeFiltersCount}
+        onReset={handleResetFilters}
+      >
+        <Row gutter={[16, 16]} className="filters-row">
+          <Col xs={24} sm={12} md={8} lg={6}>
+            <div className="filter-item">
+              <label>Track</label>
+              <Select
+                value={filters.track_id}
+                onChange={(value) => setFilters({ ...filters, track_id: value || undefined })}
+                style={{ width: '100%' }}
+                allowClear
+                placeholder="All Tracks"
+              >
+                {tracksList.map((track) => (
+                  <Option key={track.id} value={track.id}>
+                    {track.name}
+                  </Option>
+                ))}
+              </Select>
+            </div>
+          </Col>
+          <Col xs={24} sm={12} md={8} lg={6}>
+            <div className="filter-item">
+              <label>Tech Stack</label>
+              <Select
+                value={filters.tech_stack_id}
+                onChange={(value) => setFilters({ ...filters, tech_stack_id: value || undefined })}
+                style={{ width: '100%' }}
+                allowClear
+                placeholder="All Tech Stacks"
+              >
+                {techStacksList.map((techStack) => (
+                  <Option key={techStack.id} value={techStack.id}>
+                    {techStack.name || techStack.label}
+                  </Option>
+                ))}
+              </Select>
+            </div>
+          </Col>
+        </Row>
+      </FilterSection>
 
-      {/* KPI Cards Section */}
-      <Row gutter={[16, 16]} className="kpi-section">
-        <Col xs={24} sm={12} md={8} lg={6}>
-          <Card className="kpi-card">
-            <div className="kpi-value">{totalNonBillingCount}</div>
-            <div className="kpi-label">TOTAL NON-BILLING RESOURCES</div>
-          </Card>
-        </Col>
-      </Row>
+      <SummaryCards cards={summaryCards} />
+
+      {/* Charts Section */}
+      <NonBillingCharts
+        trackData={chartData.nonBillingResourcesByTrack}
+        techStackData={chartData.nonBillingResourcesByTechStack}
+      />
 
       {/* Table Section */}
       <Card className="table-card" title="Non-Billing Resources">

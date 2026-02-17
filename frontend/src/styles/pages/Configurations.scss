@@ -30,6 +30,15 @@
       .ant-tabs-content-holder {
         padding: 24px 0 0 0;
       }
+
+      // Nested tabs styling (sub-tabs)
+      .ant-tabs-tabpane {
+        .ant-tabs {
+          .ant-tabs-content-holder {
+            padding: 16px 0 0 0;
+          }
+        }
+      }
     }
 
     .table-header-section {

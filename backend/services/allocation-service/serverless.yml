@@ -2,7 +2,7 @@ service: onebt-allocation-service
 
 provider:
   name: aws
-  runtime: nodejs22.x
+  runtime: nodejs20.x
   stage: ${opt:stage, 'dev'}
   region: ${opt:region, 'ap-southeast-1'}
   memorySize: 256
@@ -38,12 +38,16 @@ provider:
           Action:
             - sqs:SendMessage
           Resource: !ImportValue onebt-${self:provider.stage}-AuditQueueArn
+        - Effect: Allow
+          Action:
+            - lambda:InvokeFunction
+          Resource: "arn:aws:lambda:${self:provider.region}:${aws:accountId}:function:onebt-report-service-${self:provider.stage}-calculateDailyStats"
 
   httpApi:
     id: !ImportValue onebt-${self:provider.stage}-HttpApiId
 
   layers:
-    - !ImportValue onebt-shared-layer-${self:provider.stage}-arn
+    - arn:aws:lambda:ap-southeast-1:550586832874:layer:onebt-shared-libs-dev:85
 
 plugins:
   - serverless-offline
@@ -56,6 +60,7 @@ package:
     - "!*.md"
     - "!tests/**"
     - "src/**"
+    - "package.json"
 
 custom:
   authorizer:
@@ -65,7 +70,7 @@ custom:
 functions:
   # ==================== ALLOCATIONS ====================
   listAllocations:
-    handler: src/handlers/allocations.list
+    handler: src/handlers/allocations/index.list
     description: List all allocations with filters
     events:
       - httpApi:
@@ -74,7 +79,7 @@ functions:
           authorizer: ${self:custom.authorizer}
 
   getAllocation:
-    handler: src/handlers/allocations.getById
+    handler: src/handlers/allocations/index.getById
     description: Get an allocation by ID
     events:
       - httpApi:
@@ -83,7 +88,7 @@ functions:
           authorizer: ${self:custom.authorizer}
 
   createAllocation:
-    handler: src/handlers/allocations.create
+    handler: src/handlers/allocations/index.create
     description: Create a new allocation
     events:
       - httpApi:
@@ -92,7 +97,7 @@ functions:
           authorizer: ${self:custom.authorizer}
 
   updateAllocation:
-    handler: src/handlers/allocations.update
+    handler: src/handlers/allocations/index.update
     description: Update an existing allocation
     events:
       - httpApi:
@@ -101,7 +106,7 @@ functions:
           authorizer: ${self:custom.authorizer}
 
   deleteAllocation:
-    handler: src/handlers/allocations.remove
+    handler: src/handlers/allocations/index.remove
     description: Remove an allocation
     events:
       - httpApi:
@@ -110,7 +115,7 @@ functions:
           authorizer: ${self:custom.authorizer}
 
   getMonthlyAllocations:
-    handler: src/handlers/allocations.getMonthly
+    handler: src/handlers/allocations/index.getMonthly
     description: Get monthly allocation view
     events:
       - httpApi:
@@ -119,10 +124,104 @@ functions:
           authorizer: ${self:custom.authorizer}
 
   getAllocationHistory:
-    handler: src/handlers/allocations.getHistory
+    handler: src/handlers/allocations/index.getHistory
     description: Get allocation history for a resource
     events:
       - httpApi:
           path: /api/v1/allocations/history/{resourceId}
           method: GET
           authorizer: ${self:custom.authorizer}
+
+  # ==================== FUTURE ALLOCATIONS ====================
+  listFutureAllocations:
+    handler: src/handlers/futureAllocations.list
+    description: List all future allocations
+    events:
+      - httpApi:
+          path: /api/v1/future-allocations
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  createFutureAllocation:
+    handler: src/handlers/futureAllocations.create
+    description: Create a new future allocation
+    events:
+      - httpApi:
+          path: /api/v1/future-allocations
+          method: POST
+          authorizer: ${self:custom.authorizer}
+
+  getFutureAllocation:
+    handler: src/handlers/futureAllocations.getById
+    description: Get a future allocation by ID
+    events:
+      - httpApi:
+          path: /api/v1/future-allocations/{id}
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  getFutureAllocationsByResource:
+    handler: src/handlers/futureAllocations.getByResource
+    description: Get future allocations for a resource
+    events:
+      - httpApi:
+          path: /api/v1/future-allocations/resource/{resourceId}
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  cancelFutureAllocation:
+    handler: src/handlers/futureAllocations.cancel
+    description: Cancel a future allocation
+    events:
+      - httpApi:
+          path: /api/v1/future-allocations/{id}
+          method: DELETE
+          authorizer: ${self:custom.authorizer}
+
+  getPendingFutureAllocations:
+    handler: src/handlers/futureAllocations.getPending
+    description: Get future allocations pending activation
+    events:
+      - httpApi:
+          path: /api/v1/future-allocations/pending
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  getFutureAllocationStats:
+    handler: src/handlers/futureAllocations.getStats
+    description: Get future allocation statistics
+    events:
+      - httpApi:
+          path: /api/v1/future-allocations/stats
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  # ==================== SCHEDULED JOBS ====================
+  gapDetectionJob:
+    handler: src/handlers/allocations/index.gapDetectionJob
+    description: Nightly job to detect and fill allocation gaps with Bench
+    timeout: 300
+    events:
+      - schedule:
+          rate: cron(0 * * * ? *) # Run hourly
+          description: Enhancement 3.4 - Gap Detection & Auto-Bench Fill
+          enabled: true
+
+  billingStatusTransitionJob:
+    handler: src/handlers/allocations/index.billingStatusTransitionJob
+    description: Daily job to auto-transition billing status based on project type
+    timeout: 300
+    events:
+      - schedule:
+          rate: cron(0 3 * * ? *) # Run daily at 3:00 AM UTC
+          description: Enhancement 3.10 - Auto-Transition Billing Status
+          enabled: true
+  utilizationSnapshotJob:
+    handler: src/handlers/allocations/index.utilizationSnapshotJob
+    description: Daily job to capture historical utilization snapshots
+    timeout: 300
+    events:
+      - schedule:
+          rate: cron(0 0 * * ? *) # Run daily at midnight UTC
+          description: Enhancement 3.12 - Historical Utilization Snapshots
+          enabled: true

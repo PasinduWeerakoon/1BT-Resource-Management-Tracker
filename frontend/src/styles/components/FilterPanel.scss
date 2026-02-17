@@ -1,0 +1,48 @@
+.filters-card {
+  margin-bottom: 16px;
+
+  .filters-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+
+    .filters-header-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+
+      .filter-icon {
+        font-size: 16px;
+        color: #1890ff;
+      }
+
+      .filters-title {
+        font-weight: 500;
+        font-size: 14px;
+      }
+
+      .active-filters-badge {
+        margin-left: 8px;
+      }
+
+      .reset-filters-btn {
+        margin-left: 8px;
+        padding: 0 8px;
+        height: 24px;
+        font-size: 12px;
+      }
+    }
+
+    .collapse-icon {
+      font-size: 12px;
+      color: #8c8c8c;
+    }
+  }
+
+  .filters-content {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid #f0f0f0;
+  }
+}

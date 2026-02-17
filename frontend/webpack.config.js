@@ -1,7 +1,18 @@
 const path = require('path');
 const webpack = require('webpack');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
+const CopyWebpackPlugin = require('copy-webpack-plugin');
 const fs = require('fs');
+
+// Conditionally require BundleAnalyzerPlugin only when needed
+let BundleAnalyzerPlugin = null;
+try {
+  if (process.env.ANALYZE === 'true' || process.argv.includes('--analyze')) {
+    BundleAnalyzerPlugin = require('webpack-bundle-analyzer').BundleAnalyzerPlugin;
+  }
+} catch (error) {
+  console.warn('⚠️  webpack-bundle-analyzer not found. Install it with: npm install --save-dev webpack-bundle-analyzer');
+}
 
 // Load .env file if it exists
 const loadEnvFile = () => {
@@ -125,12 +136,34 @@ module.exports = {
       template: './public/index.html',
       filename: 'index.html',
     }),
+    new CopyWebpackPlugin({
+      patterns: [
+        {
+          from: 'public',
+          to: '',
+          globOptions: {
+            ignore: ['**/index.html'],
+          },
+        },
+      ],
+    }),
     new webpack.DefinePlugin({
-      'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV || 'development'),
+      // NODE_ENV is automatically set by webpack based on --mode flag, so we don't define it here
+      // 'process.env.NODE_ENV' is handled by webpack automatically
       'process.env.REACT_APP_ENV': JSON.stringify(envVars.REACT_APP_ENV || process.env.REACT_APP_ENV || 'qa'),
       'process.env.REACT_APP_API_BASE_URL': JSON.stringify(envVars.REACT_APP_API_BASE_URL || process.env.REACT_APP_API_BASE_URL || ''),
     }),
     new SuppressSassWarningsPlugin(),
+    // Add BundleAnalyzerPlugin if --analyze flag is passed and plugin is available
+    ...(BundleAnalyzerPlugin && (process.env.ANALYZE === 'true' || process.argv.includes('--analyze')) ? [
+      new BundleAnalyzerPlugin({
+        analyzerMode: 'static',
+        openAnalyzer: true,
+        reportFilename: 'bundle-report.html',
+        generateStatsFile: true,
+        statsFilename: 'bundle-stats.json',
+      })
+    ] : []),
   ],
   resolve: {
     extensions: ['.js', '.jsx', '.mjs'],
@@ -149,6 +182,7 @@ module.exports = {
       '@styles': path.resolve(__dirname, 'src/styles'),
       '@hooks': path.resolve(__dirname, 'src/hooks'),
       '@api': path.resolve(__dirname, 'src/api'),
+      '@constants': path.resolve(__dirname, 'src/constants'),
     },
     fallback: {
       "crypto": false,
@@ -177,5 +211,56 @@ module.exports = {
   ],
   infrastructureLogging: {
     level: 'error',
+  },
+  optimization: {
+    // Enable tree shaking
+    usedExports: true,
+    sideEffects: false,
+    // Code splitting configuration
+    splitChunks: {
+      chunks: 'all',
+      cacheGroups: {
+        // Vendor chunk for node_modules
+        vendor: {
+          test: /[\\/]node_modules[\\/]/,
+          name: 'vendors',
+          priority: 10,
+          reuseExistingChunk: true,
+        },
+        // Ant Design chunk (large library)
+        antd: {
+          test: /[\\/]node_modules[\\/]antd[\\/]/,
+          name: 'antd',
+          priority: 20,
+          reuseExistingChunk: true,
+        },
+        // Chart.js chunk
+        charts: {
+          test: /[\\/]node_modules[\\/](chart\.js|react-chartjs-2)[\\/]/,
+          name: 'charts',
+          priority: 20,
+          reuseExistingChunk: true,
+        },
+        // Redux chunk
+        redux: {
+          test: /[\\/]node_modules[\\/](redux|@reduxjs|react-redux)[\\/]/,
+          name: 'redux',
+          priority: 20,
+          reuseExistingChunk: true,
+        },
+        // Common chunk for shared code
+        common: {
+          minChunks: 2,
+          priority: 5,
+          reuseExistingChunk: true,
+        },
+      },
+    },
+    // Runtime chunk for webpack runtime code
+    runtimeChunk: {
+      name: 'runtime',
+    },
+    // Minimize in production
+    minimize: process.env.NODE_ENV === 'production',
   },
 };

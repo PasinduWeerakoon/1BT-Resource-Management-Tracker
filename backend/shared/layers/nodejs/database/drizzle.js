@@ -1,7 +1,7 @@
 /**
  * Drizzle ORM Client
  * Type-safe database client with transaction support
- * Version: 1.0.1 - Initial Drizzle ORM implementation
+ * Version: 1.0.2 - Full query logging for debugging
  */
 
 import { drizzle } from 'drizzle-orm/node-postgres';
@@ -25,9 +25,9 @@ export const getDrizzle = async () => {
         schema,
         logger: {
             logQuery: (query, params) => {
-                logger.debug('Drizzle query', {
-                    query: query.substring(0, 200),
-                    params: params?.slice(0, 5)
+                logger.info('Drizzle SQL', {
+                    query: query,
+                    params: params
                 });
             }
         }
@@ -86,20 +86,50 @@ export const withTransactionOptions = async (callback, options = {}) => {
 // Re-export schema for convenience
 export { schema };
 
-// Export individual tables
+// Export individual tables and enums
 export {
-    tracks,
+    // Enums
+    userRoleEnum,
+    userStatusEnum,
+    employeeStatusEnum,
+    projectStatusEnum,
+    accountTypeEnum,
+    changeTypeEnum,
+    allocationChangeTypeEnum,
+    auditActionEnum,
+
+    // Lookup tables (serial IDs)
     designations,
-    tiers,
-    resources,
+    billingStatuses,
+    projectTypes,
+    employeeTypes,
+    universities,
+    tags,
+
+    // Core tables (UUIDs)
+    employees,
+    employeeTags,
     users,
     clients,
     projects,
     allocations,
-    resourceChangeHistory,
-    allocationChangeHistory,
-    designationChangeHistory,
+    futureAllocations,
+
+    // History tables
+    allocationHistory,
+    allocationHistoryArchive,
+    designationHistory,
+
+    // System tables
+    permissions,
     auditLogs,
+
+    // Relations
+    employeesRelations,
+    usersRelations,
+    projectsRelations,
+    allocationsRelations,
+    employeeTagsRelations,
 } from './schema.js';
 
 export default {

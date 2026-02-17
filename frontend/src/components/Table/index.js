@@ -1,10 +1,12 @@
-import React from 'react';
+import React, { useMemo, memo } from 'react';
 import { Table } from 'antd';
+import { PAGINATION } from '@constants/app';
 import '@styles/components/Table.scss';
 
 /**
  * Reusable Ant Design Table component
  * Wrapper around Ant Design Table with consistent styling
+ * Optimized with React.memo and useMemo for better performance
  * 
  * @param {Array} columns - Table columns configuration
  * @param {Array} dataSource - Table data
@@ -29,9 +31,10 @@ const CustomTable = ({
   fixedFirstColumn = true,
   ...rest
 }) => {
-  // Make first column fixed if fixedFirstColumn is true
-  const processedColumns = fixedFirstColumn && columns && columns.length > 0
-    ? columns.map((col, index) => {
+  // Memoize processed columns to avoid recalculation on every render
+  const processedColumns = useMemo(() => {
+    if (fixedFirstColumn && columns && columns.length > 0) {
+      return columns.map((col, index) => {
         if (index === 0) {
           return {
             ...col,
@@ -39,47 +42,58 @@ const CustomTable = ({
           };
         }
         return col;
-      })
-    : columns;
-
-  // Ensure scroll configuration includes x for horizontal scrolling
-  // If scroll.x is provided, use it; otherwise calculate based on columns
-  const calculateScrollX = () => {
-    if (scroll?.x) {
-      return scroll.x;
+      });
     }
-    // Calculate approximate width based on column widths
-    if (processedColumns && processedColumns.length > 0) {
-      const totalWidth = processedColumns.reduce((sum, col) => {
-        return sum + (col.width || 150);
-      }, 0);
-      return totalWidth;
-    }
-    return 'max-content';
-  };
+    return columns;
+  }, [columns, fixedFirstColumn]);
 
-  const scrollX = calculateScrollX();
-  const scrollConfig = scroll
-    ? {
-        ...scroll,
-        x: scrollX,
+  // Memoize scroll configuration to avoid recalculation
+  const scrollConfig = useMemo(() => {
+    const calculateScrollX = () => {
+      if (scroll?.x) {
+        return scroll.x;
       }
-    : {
-        x: scrollX,
-      };
+      // Calculate approximate width based on column widths
+      if (processedColumns && processedColumns.length > 0) {
+        const totalWidth = processedColumns.reduce((sum, col) => {
+          return sum + (col.width || 150);
+        }, 0);
+        return totalWidth;
+      }
+      return 'max-content';
+    };
+
+    const scrollX = calculateScrollX();
+    return scroll
+      ? {
+          ...scroll,
+          x: scrollX,
+        }
+      : {
+          x: scrollX,
+        };
+  }, [scroll, processedColumns]);
+
+  // Memoize pagination configuration
+  const paginationConfig = useMemo(() => {
+    if (pagination === false) {
+      return false;
+    }
+    return {
+      showSizeChanger: true,
+      showTotal: (total) => `Total ${total} items`,
+      pageSizeOptions: PAGINATION.PAGE_SIZE_OPTIONS,
+      defaultPageSize: PAGINATION.DEFAULT_PAGE_SIZE,
+      ...pagination,
+    };
+  }, [pagination]);
 
   return (
     <Table
       columns={processedColumns}
       dataSource={dataSource}
       loading={loading}
-      pagination={pagination !== false ? {
-        showSizeChanger: true,
-        showTotal: (total) => `Total ${total} items`,
-        pageSizeOptions: ['10', '20', '50', '100'],
-        defaultPageSize: 20,
-        ...pagination,
-      } : false}
+      pagination={paginationConfig}
       rowKey={rowKey || 'id'}
       onRow={onRow}
       scroll={scrollConfig}
@@ -91,4 +105,19 @@ const CustomTable = ({
   );
 };
 
-export default CustomTable;
+// Memoize component to prevent unnecessary re-renders
+// Custom comparison function for better performance
+export default memo(CustomTable, (prevProps, nextProps) => {
+  // Only re-render if these props change
+  return (
+    prevProps.loading === nextProps.loading &&
+    prevProps.size === nextProps.size &&
+    prevProps.bordered === nextProps.bordered &&
+    prevProps.rowKey === nextProps.rowKey &&
+    prevProps.dataSource === nextProps.dataSource &&
+    prevProps.columns === nextProps.columns &&
+    prevProps.pagination === nextProps.pagination &&
+    prevProps.scroll === nextProps.scroll &&
+    prevProps.onRow === nextProps.onRow
+  );
+});

@@ -116,6 +116,71 @@ export const reportsService = {
     });
     return response.data || response;
   },
+
+  /**
+   * Get tier breakdown report
+   * Resources grouped by tier with allocation details
+   * @param {Object} params - Query parameters
+   * @param {string} params.tier - Filter by tier (0, 1, 2, 3, 4, 5, 99, or 'All')
+   * @returns {Promise<{success: boolean, summary: {totalEmployees: number}, tierDistribution: Array<{tier: string, count: number}>, employeeDetails: Array, generatedAt: string}>}
+   */
+  getTierBreakdown: async (params = {}) => {
+    const response = await apiClient.get(ENDPOINTS.REPORTS.TIER_BREAKDOWN, {
+      params,
+    });
+    return response.data || response;
+  },
+
+  /**
+   * Get intern report
+   * All interns with their current projects, total count, and percentage
+   * @param {Object} params - Query parameters (none required)
+   * @returns {Promise<{success: boolean, summary: {totalInternCount: number, totalEmployees: number, internPercentage: number}, data: Array, total: number, generatedAt: string}>}
+   */
+  getIntern: async (params = {}) => {
+    const response = await apiClient.get(ENDPOINTS.REPORTS.INTERN, {
+      params,
+    });
+    return response.data || response;
+  },
+
+  /**
+   * Get external consultants report
+   * Comprehensive report of all external consultant resources with allocations
+   * @param {Object} params - Query parameters
+   * @param {string} params.track_id - Filter by track ID (optional)
+   * @param {string} params.tech_stack - Filter by tech stack (optional)
+   * @param {string} params.project_id - Filter by project ID (optional)
+   * @param {string} params.project_name - Filter by project name (optional)
+   * @param {string} params.account_manager - Filter by account manager ID (optional)
+   * @param {string} params.start_date - Filter by start date YYYY-MM-DD (optional)
+   * @param {string} params.end_date - Filter by end date YYYY-MM-DD (optional)
+   * @returns {Promise<{success: boolean, summary: {totalConsultants: number, billingConsultants: number, nonBillingConsultants: number, totalBillingAllocation: string, totalNonBillingAllocation: string}, charts: {trackDistribution: Array<{track: string, count: number}>}, tables: {byProject: Array, byAllocation: Array}, filters: Object, generatedAt: string}>}
+   */
+  getExternalConsultants: async (params = {}) => {
+    const response = await apiClient.get(ENDPOINTS.REPORTS.EXTERNAL_CONSULTANTS, {
+      params,
+    });
+    return response.data || response;
+  },
+
+  /**
+   * Get training report
+   * Resources allocated to training projects or with training billing status
+   * @param {Object} params - Query parameters
+   * @param {string} params.designation - Filter by designation (optional)
+   * @param {string} params.track - Filter by track (optional)
+   * @param {string} params.tech_stack - Filter by tech stack (optional)
+   * @param {string} params.start_date - Filter by start date YYYY-MM-DD (optional)
+   * @param {string} params.end_date - Filter by end date YYYY-MM-DD (optional)
+   * @returns {Promise<{success: boolean, summary: {totalEmployeesInTraining: number, totalEmployees: number}, charts: {trackDistribution: Array, techStackDistribution: Array, designationDistribution: Array}, tables: {byDesignation: Array, byAllocation: Array}, generatedAt: string}>}
+   */
+  getTraining: async (params = {}) => {
+    const response = await apiClient.get(ENDPOINTS.REPORTS.TRAINING, {
+      params,
+    });
+    return response.data || response;
+  },
 };
 
 export default reportsService;

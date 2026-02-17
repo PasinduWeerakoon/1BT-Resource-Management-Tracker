@@ -1,0 +1,303 @@
+service: onebt-configuration-service
+
+provider:
+  name: aws
+  runtime: nodejs22.x
+  stage: ${opt:stage, 'dev'}
+  region: ${opt:region, 'ap-southeast-1'}
+  memorySize: 256
+  timeout: 30
+  tags:
+    Service: configuration
+    Project: 1BT-Resource-Management
+
+  # VPC Configuration - Required for RDS access
+  vpc:
+    securityGroupIds:
+      - !ImportValue onebt-${self:provider.stage}-LambdaSecurityGroupId
+    subnetIds: !Split
+      - ","
+      - !ImportValue onebt-${self:provider.stage}-PrivateSubnetIds
+
+  environment:
+    NODE_ENV: ${self:provider.stage}
+    DB_HOST: !ImportValue onebt-${self:provider.stage}-RdsEndpoint
+    DB_PORT: !ImportValue onebt-${self:provider.stage}-RdsPort
+    DB_NAME: !ImportValue onebt-${self:provider.stage}-DbName
+    DB_SECRET_ARN: !ImportValue onebt-${self:provider.stage}-RdsSecretArn
+    AUDIT_QUEUE_URL: !ImportValue onebt-${self:provider.stage}-AuditQueueUrl
+
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - secretsmanager:GetSecretValue
+          Resource: !ImportValue onebt-${self:provider.stage}-RdsSecretArn
+        - Effect: Allow
+          Action:
+            - sqs:SendMessage
+          Resource: !ImportValue onebt-${self:provider.stage}-AuditQueueArn
+
+  httpApi:
+    id: !ImportValue onebt-${self:provider.stage}-HttpApiId
+
+  layers:
+    - arn:aws:lambda:ap-southeast-1:550586832874:layer:onebt-shared-libs-dev:85
+
+plugins:
+  - serverless-offline
+
+package:
+  individually: true
+  patterns:
+    - "!.git/**"
+    - "!.gitignore"
+    - "!*.md"
+    - "!tests/**"
+    - "src/**"
+
+custom:
+  authorizer:
+    type: jwt
+    id: !ImportValue onebt-${self:provider.stage}-CognitoAuthorizerId
+
+functions:
+  # ==================== ALL CONFIGS (unified endpoint) ====================
+  getAllConfigs:
+    handler: src/handlers/allConfigs.getAll
+    events:
+      - httpApi:
+          path: /api/v1/configs
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  # ==================== DESIGNATIONS ====================
+  listDesignations:
+    handler: src/handlers/designations.list
+    events:
+      - httpApi:
+          path: /api/v1/designations
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  getDesignation:
+    handler: src/handlers/designations.getById
+    events:
+      - httpApi:
+          path: /api/v1/designations/{id}
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  createDesignation:
+    handler: src/handlers/designations.create
+    events:
+      - httpApi:
+          path: /api/v1/designations
+          method: POST
+          authorizer: ${self:custom.authorizer}
+
+  updateDesignation:
+    handler: src/handlers/designations.update
+    events:
+      - httpApi:
+          path: /api/v1/designations/{id}
+          method: PUT
+          authorizer: ${self:custom.authorizer}
+
+  # ==================== TRACKS ====================
+  listTracks:
+    handler: src/handlers/tracks.list
+    events:
+      - httpApi:
+          path: /api/v1/tracks
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  getTrack:
+    handler: src/handlers/tracks.getById
+    events:
+      - httpApi:
+          path: /api/v1/tracks/{id}
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  createTrack:
+    handler: src/handlers/tracks.create
+    events:
+      - httpApi:
+          path: /api/v1/tracks
+          method: POST
+          authorizer: ${self:custom.authorizer}
+
+  updateTrack:
+    handler: src/handlers/tracks.update
+    events:
+      - httpApi:
+          path: /api/v1/tracks/{id}
+          method: PUT
+          authorizer: ${self:custom.authorizer}
+
+  # ==================== TIERS ====================
+  listTiers:
+    handler: src/handlers/tiers.list
+    events:
+      - httpApi:
+          path: /api/v1/tiers
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  getTier:
+    handler: src/handlers/tiers.getById
+    events:
+      - httpApi:
+          path: /api/v1/tiers/{id}
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  createTier:
+    handler: src/handlers/tiers.create
+    events:
+      - httpApi:
+          path: /api/v1/tiers
+          method: POST
+          authorizer: ${self:custom.authorizer}
+
+  updateTier:
+    handler: src/handlers/tiers.update
+    events:
+      - httpApi:
+          path: /api/v1/tiers/{id}
+          method: PUT
+          authorizer: ${self:custom.authorizer}
+
+  deleteTier:
+    handler: src/handlers/tiers.remove
+    events:
+      - httpApi:
+          path: /api/v1/tiers/{id}
+          method: DELETE
+          authorizer: ${self:custom.authorizer}
+
+  # ==================== BILLING STATUSES ====================
+  listBillingStatuses:
+    handler: src/handlers/billingStatuses.list
+    events:
+      - httpApi:
+          path: /api/v1/billing-statuses
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  getBillingStatus:
+    handler: src/handlers/billingStatuses.getById
+    events:
+      - httpApi:
+          path: /api/v1/billing-statuses/{id}
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  createBillingStatus:
+    handler: src/handlers/billingStatuses.create
+    events:
+      - httpApi:
+          path: /api/v1/billing-statuses
+          method: POST
+          authorizer: ${self:custom.authorizer}
+
+  updateBillingStatus:
+    handler: src/handlers/billingStatuses.update
+    events:
+      - httpApi:
+          path: /api/v1/billing-statuses/{id}
+          method: PUT
+          authorizer: ${self:custom.authorizer}
+
+  deleteBillingStatus:
+    handler: src/handlers/billingStatuses.remove
+    events:
+      - httpApi:
+          path: /api/v1/billing-statuses/{id}
+          method: DELETE
+          authorizer: ${self:custom.authorizer}
+
+  # ==================== PROJECT TYPES ====================
+  listProjectTypes:
+    handler: src/handlers/projectTypes.list
+    events:
+      - httpApi:
+          path: /api/v1/project-types
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  getProjectType:
+    handler: src/handlers/projectTypes.getById
+    events:
+      - httpApi:
+          path: /api/v1/project-types/{id}
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  createProjectType:
+    handler: src/handlers/projectTypes.create
+    events:
+      - httpApi:
+          path: /api/v1/project-types
+          method: POST
+          authorizer: ${self:custom.authorizer}
+
+  updateProjectType:
+    handler: src/handlers/projectTypes.update
+    events:
+      - httpApi:
+          path: /api/v1/project-types/{id}
+          method: PUT
+          authorizer: ${self:custom.authorizer}
+
+  deleteProjectType:
+    handler: src/handlers/projectTypes.remove
+    events:
+      - httpApi:
+          path: /api/v1/project-types/{id}
+          method: DELETE
+          authorizer: ${self:custom.authorizer}
+
+  # ==================== TAGS ====================
+  listTags:
+    handler: src/handlers/tags.list
+    events:
+      - httpApi:
+          path: /api/v1/tags
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  getTag:
+    handler: src/handlers/tags.getById
+    events:
+      - httpApi:
+          path: /api/v1/tags/{id}
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
+  createTag:
+    handler: src/handlers/tags.create
+    events:
+      - httpApi:
+          path: /api/v1/tags
+          method: POST
+          authorizer: ${self:custom.authorizer}
+
+  updateTag:
+    handler: src/handlers/tags.update
+    events:
+      - httpApi:
+          path: /api/v1/tags/{id}
+          method: PUT
+          authorizer: ${self:custom.authorizer}
+
+  deleteTag:
+    handler: src/handlers/tags.remove
+    events:
+      - httpApi:
+          path: /api/v1/tags/{id}
+          method: DELETE
+          authorizer: ${self:custom.authorizer}

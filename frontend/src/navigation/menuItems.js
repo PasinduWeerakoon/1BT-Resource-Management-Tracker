@@ -51,11 +51,12 @@ export const getMenuItems = (role) => {
       icon: <UserOutlined />,
       label: 'Intern Report',
     },
-    {
-      key: '/allocation-history',
-      icon: <HistoryOutlined />,
-      label: 'Allocation History',
-    },
+    // Temporarily hidden - will be enabled later
+    // {
+    //   key: '/allocation-history',
+    //   icon: <HistoryOutlined />,
+    //   label: 'Allocation History',
+    // },
     {
       key: '/training-report',
       icon: <BookOutlined />,

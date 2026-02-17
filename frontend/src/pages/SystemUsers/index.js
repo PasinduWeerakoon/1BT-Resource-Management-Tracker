@@ -1,10 +1,11 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { Card, Button, Form, Input, Select, Table, Space, Tooltip, Modal, Row, Col } from 'antd';
-import { PlusOutlined, EditOutlined, UserDeleteOutlined, UserAddOutlined } from '@ant-design/icons';
+import React, { useState, useRef, useEffect } from 'react';
+import { Card, Button, Form, Input, Select, Space, Tooltip, Modal, Row, Col } from 'antd';
+import { EditOutlined, UserAddOutlined } from '@ant-design/icons';
 import CustomModal from '@components/Modal';
 import CustomTable from '@components/Table';
 import { authService, resourcesService } from '@api';
 import { showErrorToast, showSuccessToast } from '@utils/toast.utils';
+import logger from '@utils/logger';
 import '@styles/pages/SystemUsers.scss';
 
 const { Option } = Select;
@@ -22,49 +23,13 @@ const SystemUsers = () => {
   const [resourcesList, setResourcesList] = useState([]);
   const [loadingResources, setLoadingResources] = useState(false);
   const [selectedResourceId, setSelectedResourceId] = useState(null);
+  const [systemUsers, setSystemUsers] = useState([]);
+  const [loadingSystemUsers, setLoadingSystemUsers] = useState(false);
 
   // Refs to prevent duplicate API calls
   const fetchInProgressRef = useRef(false);
   const fetchResourcesInProgressRef = useRef(false);
-
-  // Mock employees data (from Employee Management)
-  const [employees] = useState([
-    { key: '1', employeeNumber: 'EMP001', name: 'John Doe', tier: 'Tier 01', position: 'Senior Software Engineer', status: 'Active' },
-    { key: '2', employeeNumber: 'EMP002', name: 'Jane Smith', tier: 'Tier 02', position: 'Software Engineer', status: 'Active' },
-    { key: '3', employeeNumber: 'EMP003', name: 'Bob Johnson', tier: 'Tier 03', position: 'Tech Lead', status: 'Active' },
-  ]);
-
-  // Mock system users data
-  const [systemUsers, setSystemUsers] = useState([
-    {
-      key: '1',
-      employeeNumber: 'EMP001',
-      employeeName: 'John Doe',
-      email: 'john.doe@company.com',
-      username: 'johndoe',
-      userType: 'Super Admin',
-      status: 'Active',
-      tier: 'Tier 01',
-      position: 'Senior Software Engineer',
-    },
-    {
-      key: '2',
-      employeeNumber: 'EMP002',
-      employeeName: 'Jane Smith',
-      email: 'jane.smith@company.com',
-      username: 'janesmith',
-      userType: 'Admin',
-      status: 'Active',
-      tier: 'Tier 02',
-      position: 'Software Engineer',
-    },
-  ]);
-
-  // Get employees who are not yet system users
-  const availableEmployees = useMemo(() => {
-    const systemUserEmployeeNumbers = systemUsers.map(user => user.employeeNumber);
-    return employees.filter(emp => !systemUserEmployeeNumbers.includes(emp.employeeNumber));
-  }, [employees, systemUsers]);
+  const fetchSystemUsersInProgressRef = useRef(false);
 
   // Fetch resources from API
   const fetchResources = async () => {
@@ -98,7 +63,7 @@ const SystemUsers = () => {
       const resourcesWithEmail = resourcesData.filter(resource => resource.email);
       setResourcesList(resourcesWithEmail);
     } catch (error) {
-      console.error('Failed to fetch resources:', error);
+      logger.error('Failed to fetch resources:', error);
       showErrorToast('Failed to load resources');
     } finally {
       setLoadingResources(false);
@@ -106,10 +71,78 @@ const SystemUsers = () => {
     }
   };
 
-  // Fetch resources on component mount
+  // Fetch system users from API
+  const fetchSystemUsers = async () => {
+    if (fetchSystemUsersInProgressRef.current) {
+      return;
+    }
+
+    try {
+      fetchSystemUsersInProgressRef.current = true;
+      setLoadingSystemUsers(true);
+
+      const response = await authService.getSystemUsers({
+        limit: 100, // Fetch all users
+      });
+
+      // Handle response structure
+      let usersData = [];
+      if (response) {
+        if (response.data && response.data.users && Array.isArray(response.data.users)) {
+          usersData = response.data.users;
+        } else if (response.users && Array.isArray(response.users)) {
+          usersData = response.users;
+        } else if (Array.isArray(response)) {
+          usersData = response;
+        }
+      }
+
+      // Map API response to table format and enrich with resource data if available
+      const mappedUsers = usersData.map((user) => {
+        // Try to find matching resource by email to get additional info
+        const matchingResource = resourcesList.find(
+          (resource) => resource.email && resource.email.toLowerCase() === user.email?.toLowerCase()
+        );
+
+        return {
+          key: user.id || user.email || user.username,
+          id: user.id || user.email || user.username,
+          email: user.email || user.username,
+          employeeName: user.name || matchingResource?.name || matchingResource?.employee_name || user.email || 'N/A',
+          username: user.username || user.email,
+          userType: user.userType || 'User',
+          status: user.status || 'Unknown',
+          tier: matchingResource?.tier || null,
+          employeeNumber: matchingResource?.employee_number || matchingResource?.employeeNumber || null,
+          position: matchingResource?.position || matchingResource?.designation || null,
+          groups: user.groups || [],
+          enabled: user.enabled !== false,
+          createdAt: user.createdAt,
+          lastModified: user.lastModified,
+        };
+      });
+
+      setSystemUsers(mappedUsers);
+    } catch (error) {
+      logger.error('Failed to fetch system users:', error);
+      showErrorToast(error?.response?.data?.message || error?.message || 'Failed to load system users');
+    } finally {
+      setLoadingSystemUsers(false);
+      fetchSystemUsersInProgressRef.current = false;
+    }
+  };
+
+  // Fetch resources and system users on component mount
   useEffect(() => {
     fetchResources();
   }, []);
+
+  // Fetch system users after resources are loaded (to match users with resources)
+  useEffect(() => {
+    if (resourcesList.length > 0 || fetchResourcesInProgressRef.current === false) {
+      fetchSystemUsers();
+    }
+  }, [resourcesList]);
 
   // Handle Invite User
   const handleInviteUser = () => {
@@ -161,7 +194,7 @@ const SystemUsers = () => {
       const selectedResource = resourcesList.find(r => r.id === resourceId);
 
       if (!selectedResource) {
-        console.error('Resource not found:', { resourceId, resourcesListLength: resourcesList.length });
+        logger.error('Resource not found:', { resourceId, resourcesListLength: resourcesList.length });
         showErrorToast('Selected user not found. Please try selecting again.');
         return;
       }
@@ -169,9 +202,15 @@ const SystemUsers = () => {
       // Extract name and email from selected resource
       const userName = selectedResource.name || selectedResource.employee_name || '';
       const userEmail = selectedResource.email || values.email || '';
+      const employeeId = selectedResource.id || selectedResource.employee_id;
 
       if (!userEmail) {
         showErrorToast('Selected user does not have an email address');
+        return;
+      }
+
+      if (!employeeId) {
+        showErrorToast('Selected user does not have an employee ID');
         return;
       }
 
@@ -182,11 +221,12 @@ const SystemUsers = () => {
       const apiRole = values.role === 'Admin' ? 'Admin' : 'User';
 
       // Call invite API - POST /api/v1/auth/invite
-      // Payload: {email: string, name: string, role: "Admin"|"User"}
+      // Payload: {email: string, name: string, role: "Admin"|"User", employee_id: string}
       const response = await authService.invite(
         userEmail,
         userName,
-        apiRole
+        apiRole,
+        employeeId
       );
 
       // API returns: {success: true, message: "Invitation sent to email"}
@@ -215,10 +255,10 @@ const SystemUsers = () => {
       grantAccessForm.resetFields();
       setSelectedResourceId(null);
 
-      // TODO: Refresh system users list if you have an API to fetch them
-      // await fetchSystemUsers();
+      // Refresh system users list after successful invite
+      await fetchSystemUsers();
     } catch (error) {
-      console.error('Failed to invite user:', error);
+      logger.error('Failed to invite user:', error);
       showErrorToast(error?.response?.data?.message || error?.message || 'Failed to send invitation');
     } finally {
       setIsSubmittingInvite(false);
@@ -260,7 +300,7 @@ const SystemUsers = () => {
       changeRoleForm.resetFields();
       setSelectedUser(null);
     } catch (error) {
-      console.error('Validation failed:', error);
+      logger.error('Validation failed:', error);
     }
   };
 
@@ -376,6 +416,7 @@ const SystemUsers = () => {
           dataSource={systemUsers}
           scroll={{ x: 800 }}
           pagination={{ pageSize: 20 }}
+          loading={loadingSystemUsers}
         />
       </Card>
 

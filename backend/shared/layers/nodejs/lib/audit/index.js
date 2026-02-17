@@ -125,12 +125,8 @@ export const sendAuditEvent = async (event, auditData, serviceName) => {
                     DataType: 'String',
                     StringValue: serviceName
                 }
-            },
-            // Use entityId + timestamp for deduplication (5 min window)
-            MessageDeduplicationId: auditEvent.entityId
-                ? `${auditEvent.entityId}-${auditEvent.action}-${Date.now()}`
-                : undefined,
-            MessageGroupId: auditEvent.entityType // Group by entity type for FIFO (if using FIFO queue)
+            }
+            // Note: MessageDeduplicationId and MessageGroupId are only valid for FIFO queues
         });
 
         const response = await sqs.send(command);

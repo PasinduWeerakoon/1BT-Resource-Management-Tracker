@@ -6,8 +6,10 @@ import Footer from '../Footer';
 import Sidebar from '../Sidebar';
 import { setMobile } from '@redux/slices/layoutSlice';
 import { setCredentials } from '@redux/slices/authSlice';
+import { fetchAllConfigData, selectTiers, selectTracks, selectProjectTypes, selectBillingStatuses, selectTags, selectDesignations, selectTechStacks, selectUniversities, selectEmployeeTypes } from '@redux/slices/configSlice';
 import { storeAuth } from '@utils/auth.utils';
 import { authService } from '@api';
+import logger from '@utils/logger';
 import '@styles/layouts/MainLayout.scss';
 
 const { Content } = Layout;
@@ -16,7 +18,17 @@ const MainLayout = ({ children }) => {
   const dispatch = useDispatch();
   const { sidebarCollapsed, isMobile } = useSelector((state) => state.layout);
   const { isAuthenticated, accessToken, refreshToken, idToken, user: currentUser } = useSelector((state) => state.auth);
+  const tiers = useSelector(selectTiers);
+  const tracks = useSelector(selectTracks);
+  const projectTypes = useSelector(selectProjectTypes);
+  const billingStatuses = useSelector(selectBillingStatuses);
+  const tags = useSelector(selectTags);
+  const designations = useSelector(selectDesignations);
+  const techStacks = useSelector(selectTechStacks);
+  const universities = useSelector(selectUniversities);
+  const employeeTypes = useSelector(selectEmployeeTypes);
   const fetchUserInfoInProgressRef = useRef(false);
+  const fetchConfigDataInProgressRef = useRef(false);
 
   // Fetch user info from /auth/me on mount if authenticated
   useEffect(() => {
@@ -109,7 +121,7 @@ const MainLayout = ({ children }) => {
         }
       } catch (error) {
         // If /auth/me fails, continue with existing user info
-        console.warn('Failed to fetch user info from /auth/me:', error);
+        logger.warn('Failed to fetch user info from /auth/me', error);
       } finally {
         fetchUserInfoInProgressRef.current = false;
       }
@@ -118,6 +130,46 @@ const MainLayout = ({ children }) => {
     fetchUserInfo();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only run once on mount
+
+  // Fetch configuration data on mount if authenticated and data not loaded
+  useEffect(() => {
+    const fetchConfigData = async () => {
+      // Prevent duplicate calls
+      if (fetchConfigDataInProgressRef.current || !isAuthenticated || !accessToken) {
+        return;
+      }
+
+      // Check if any config data is missing (if all are loaded, no need to fetch)
+      const hasTiers = tiers && tiers.length > 0;
+      const hasTracks = tracks && tracks.length > 0;
+      const hasProjectTypes = projectTypes && projectTypes.length > 0;
+      const hasBillingStatuses = billingStatuses && billingStatuses.length > 0;
+      const hasTags = tags && tags.length > 0;
+      const hasDesignations = designations && designations.length > 0;
+      const hasTechStacks = techStacks && techStacks.length > 0;
+      const hasUniversities = universities && universities.length > 0;
+      const hasEmployeeTypes = employeeTypes && employeeTypes.length > 0;
+
+      // Only fetch if at least one is missing (since we fetch all in one call)
+      if (hasTiers && hasTracks && hasProjectTypes && hasBillingStatuses && 
+          hasTags && hasDesignations && hasTechStacks && hasUniversities && hasEmployeeTypes) {
+        return;
+      }
+
+      try {
+        fetchConfigDataInProgressRef.current = true;
+        await dispatch(fetchAllConfigData()).unwrap();
+        logger.debug('Configuration data fetched successfully on app initialization');
+      } catch (error) {
+        logger.warn('Failed to fetch configuration data on app initialization:', error);
+      } finally {
+        fetchConfigDataInProgressRef.current = false;
+      }
+    };
+
+    fetchConfigData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated, accessToken, tiers.length, tracks.length, projectTypes.length, billingStatuses.length, tags.length, designations.length, techStacks.length, universities.length, employeeTypes.length]); // Run when auth state changes or configs are missing
 
   useEffect(() => {
     const handleResize = () => {

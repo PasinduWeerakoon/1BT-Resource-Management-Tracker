@@ -1,27 +1,35 @@
-import Login from '@pages/Auth/Login';
-import ResetPassword from '@pages/Auth/ResetPassword';
-import Dashboard from '@pages/Dashboard';
-import Resources from '@pages/Resources';
-import Projects from '@pages/Projects';
-import Allocations from '@pages/Allocations';
-import Billing from '@pages/Billing';
-import Users from '@pages/Users';
-import AccountManagerReport from '@pages/AccountManagerReport';
-import BenchReport from '@pages/BenchReport';
-import NonBillingReport from '@pages/NonBillingReport';
-import TierBreakdownReport from '@pages/TierBreakdownReport';
-import ExceptionAllocationReport from '@pages/ExceptionAllocationReport';
-import InternReport from '@pages/InternReport';
-import AllocationHistory from '@pages/AllocationHistory';
-import TrainingReport from '@pages/TrainingReport';
-import ExternalConsultantsReport from '@pages/ExternalConsultantsReport';
-import EmployeeReport from '@pages/EmployeeReport';
-import MonthlyAllocationReport from '@pages/MonthlyAllocationReport';
-import PreSaleReport from '@pages/PreSaleReport';
-import Settings from '@pages/Settings';
-import Configurations from '@pages/Configurations';
-import ActivityLog from '@pages/ActivityLog';
-import SystemUsers from '@pages/SystemUsers';
+/**
+ * Routes Configuration
+ * All routes with lazy loading for better performance
+ */
+
+import React, { lazy } from 'react';
+
+// Lazy load all page components for code splitting
+const Login = lazy(() => import('@pages/Auth/Login'));
+const ResetPassword = lazy(() => import('@pages/Auth/ResetPassword'));
+const Dashboard = lazy(() => import('@pages/Dashboard'));
+const Resources = lazy(() => import('@pages/Resources'));
+const Projects = lazy(() => import('@pages/Projects'));
+const Allocations = lazy(() => import('@pages/Allocations'));
+const Billing = lazy(() => import('@pages/Billing'));
+const Users = lazy(() => import('@pages/Users'));
+const AccountManagerReport = lazy(() => import('@pages/AccountManagerReport'));
+const BenchReport = lazy(() => import('@pages/BenchReport'));
+const NonBillingReport = lazy(() => import('@pages/NonBillingReport'));
+const TierBreakdownReport = lazy(() => import('@pages/TierBreakdownReport'));
+const ExceptionAllocationReport = lazy(() => import('@pages/ExceptionAllocationReport'));
+const InternReport = lazy(() => import('@pages/InternReport'));
+const AllocationHistory = lazy(() => import('@pages/AllocationHistory'));
+const TrainingReport = lazy(() => import('@pages/TrainingReport'));
+const ExternalConsultantsReport = lazy(() => import('@pages/ExternalConsultantsReport'));
+const EmployeeReport = lazy(() => import('@pages/EmployeeReport'));
+const MonthlyAllocationReport = lazy(() => import('@pages/MonthlyAllocationReport'));
+const PreSaleReport = lazy(() => import('@pages/PreSaleReport'));
+const Settings = lazy(() => import('@pages/Settings'));
+const Configurations = lazy(() => import('@pages/Configurations'));
+const ActivityLog = lazy(() => import('@pages/ActivityLog'));
+const SystemUsers = lazy(() => import('@pages/SystemUsers'));
 
 export const routes = [
   {

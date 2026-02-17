@@ -17,7 +17,7 @@ export const resourcesService = {
    * @param {string} params.designation_id - Filter by designation ID
    * @param {string} params.status - Filter by status (Active|Inactive|Serving Notice Period|On Leave)
    * @param {boolean} params.is_intern - Filter by intern status
-   * @param {string} params.tier - Filter by tier (Synergy|Tier - 1|Tier - 2|Tier - 3|Tier - 4|Intern)
+   * @param {string} params.tier - Filter by tier (Tier - 1|Tier - 2|Tier - 3|Tier - 4)
    * @returns {Promise<{success: boolean, data: {data: Array, pagination: {total: number, page: number, limit: number, totalPages: number}}}>}
    */
   getAll: async (params = {}) => {
@@ -57,7 +57,7 @@ export const resourcesService = {
    * @param {string} resourceData.date_of_birth - Date of birth (YYYY-MM-DD, optional)
    * @param {string} resourceData.nic_passport - NIC or Passport (optional)
    * @param {boolean} resourceData.is_intern - Is intern (optional, default: false)
-   * @param {string} resourceData.tier - Tier (Synergy|Tier - 1|Tier - 2|Tier - 3|Tier - 4|Intern, optional)
+   * @param {string} resourceData.tier - Tier (Tier - 1|Tier - 2|Tier - 3|Tier - 4, optional)
    * @param {string} resourceData.tech_stack - Tech stack (.NET|Full Stack|QA|BA/PM|Data Science|Java|React, optional)
    * @param {string} resourceData.photo_url - Photo URL (optional)
    * @param {string} resourceData.status - Status (Active|Inactive|Serving Notice Period|On Leave, optional)
@@ -80,7 +80,7 @@ export const resourcesService = {
    * @param {string} resourceData.date_of_birth - Date of birth (YYYY-MM-DD)
    * @param {string} resourceData.nic_passport - NIC or Passport
    * @param {boolean} resourceData.is_intern - Is intern
-   * @param {string} resourceData.tier - Tier (Synergy|Tier - 1|Tier - 2|Tier - 3|Tier - 4|Intern)
+   * @param {string} resourceData.tier - Tier (Tier - 1|Tier - 2|Tier - 3|Tier - 4)
    * @param {string} resourceData.tech_stack - Tech stack (.NET|Full Stack|QA|BA/PM|Data Science|Java|React)
    * @param {string} resourceData.photo_url - Photo URL
    * @param {string} resourceData.status - Status (Active|Inactive|Serving Notice Period|On Leave)
@@ -140,7 +140,7 @@ export const resourcesService = {
    * Update resource tier
    * @param {string} id - Resource ID
    * @param {Object} data - Tier data
-   * @param {string} data.tier - Tier value (Synergy|Tier - 1|Tier - 2|Tier - 3|Tier - 4|Intern)
+   * @param {string} data.tier - Tier value (Tier - 1|Tier - 2|Tier - 3|Tier - 4)
    * @returns {Promise<{success: boolean, message: string, data: Object}>}
    */
   updateTier: async (id, data) => {

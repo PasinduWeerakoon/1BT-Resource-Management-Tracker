@@ -58,3 +58,6 @@ temp/
 
 # Serverless
 .serverless/
+
+.pem
+*.key
