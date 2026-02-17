@@ -58,7 +58,7 @@ const LoginForm = ({
           </Button>
         </Form.Item>
       </Form>
-      <div className="login-info">
+      {/* <div className="login-info">
         <div style={{ marginTop: 12, textAlign: 'center' }}>
           <Button
             type="link"
@@ -68,7 +68,7 @@ const LoginForm = ({
             Forgot Password?
           </Button>
         </div>
-      </div>
+      </div> */}
     </>
   );
 };
@@ -76,7 +76,7 @@ const LoginForm = ({
 LoginForm.propTypes = {
   onFinish: PropTypes.func.isRequired,
   loading: PropTypes.bool,
-  onForgotPassword: PropTypes.func.isRequired,
+  // onForgotPassword: PropTypes.func.isRequired,
 };
 
 export default LoginForm;

@@ -202,9 +202,15 @@ const SystemUsers = () => {
       // Extract name and email from selected resource
       const userName = selectedResource.name || selectedResource.employee_name || '';
       const userEmail = selectedResource.email || values.email || '';
+      const employeeId = selectedResource.id || selectedResource.employee_id;
 
       if (!userEmail) {
         showErrorToast('Selected user does not have an email address');
+        return;
+      }
+
+      if (!employeeId) {
+        showErrorToast('Selected user does not have an employee ID');
         return;
       }
 
@@ -215,11 +221,12 @@ const SystemUsers = () => {
       const apiRole = values.role === 'Admin' ? 'Admin' : 'User';
 
       // Call invite API - POST /api/v1/auth/invite
-      // Payload: {email: string, name: string, role: "Admin"|"User"}
+      // Payload: {email: string, name: string, role: "Admin"|"User", employee_id: string}
       const response = await authService.invite(
         userEmail,
         userName,
-        apiRole
+        apiRole,
+        employeeId
       );
 
       // API returns: {success: true, message: "Invitation sent to email"}

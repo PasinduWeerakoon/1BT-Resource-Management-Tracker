@@ -22,7 +22,8 @@ export { getMonthlyAllocationReport } from './allocation.mjs';
 export {
     getBenchReport,
     getInternReport,
-    getExternalConsultantsReport
+    getExternalConsultantsReport,
+    getTrainingReport
 } from './resource.mjs';
 
 // Account Manager Reports

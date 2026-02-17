@@ -18,6 +18,7 @@ export const ENDPOINTS = {
     RESET_PASSWORD: `${BASE_URL}/auth/reset-password`,
     INVITE: `${BASE_URL}/auth/invite`,
     COMPLETE_INVITE: `${BASE_URL}/auth/complete-invite`,
+    ACTIVATE_USER: `${BASE_URL}/auth/activate-user`,
     USERS: `${BASE_URL}/auth/users`,
   },
 
@@ -195,6 +196,7 @@ export const ENDPOINTS = {
     PRE_SALE: `${BASE_URL}/reports/pre-sale`,
     TIER_BREAKDOWN: `${BASE_URL}/reports/tier-breakdown`,
     EXTERNAL_CONSULTANTS: `${BASE_URL}/reports/external-consultants`,
+    TRAINING: `${BASE_URL}/reports/training`,
   },
 
   // Dashboard Summary
