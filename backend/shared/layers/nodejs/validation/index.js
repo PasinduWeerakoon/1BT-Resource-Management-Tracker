@@ -294,19 +294,19 @@ export const projectSchemas = {
 
     update: Joi.object({
         project_name: Joi.string().max(200).optional(),
-        project_code: Joi.string().max(50).optional(),
+        project_code: Joi.string().max(50).allow(null, '').optional(),
         project_type_id: Joi.number().integer().min(1).allow(null).optional(),
         account_type: Joi.string().valid('Internal', 'External').optional(),
         client_id: Joi.number().integer().min(1).allow(null).optional(),
-        project_start_date: Joi.date().iso().optional(),
-        project_end_date: Joi.date().iso().optional(),
+        project_start_date: Joi.date().iso().allow(null).optional(),
+        project_end_date: Joi.date().iso().allow(null).optional(),
         status: Joi.string().valid('Active', 'Completed', 'On Hold', 'Cancelled').optional(),
         billing_status_id: Joi.number().integer().min(1).allow(null).optional(),
         team_size: Joi.number().integer().min(1).optional(),
         account_manager_id: Joi.number().integer().min(1).allow(null).optional(),
-        account_reg_sales_owner: Joi.string().max(100).optional(),
+        account_reg_sales_owner: Joi.string().max(100).allow(null, '').optional(),
         budget: Joi.number().min(0).allow(null).optional(),
-        description: Joi.string().max(1000).optional(),
+        description: Joi.string().max(1000).allow(null, '').optional(),
         version: Joi.number().integer().min(1).optional(), // For optimistic locking
     }),
 };
