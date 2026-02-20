@@ -13,192 +13,208 @@ import {
 
 /**
  * Get project table columns
- * @param {Object} handlers - { onEdit, onAddTeamMembers }
+ * @param {Object} handlers - { onEdit, onAddTeamMembers, isAdmin }
  */
-export const getProjectColumns = ({ onEdit, onAddTeamMembers }) => [
-  {
-    title: 'Project',
-    dataIndex: 'project',
-    key: 'project',
-    width: 150,
-  },
-  {
-    title: 'Customer',
-    dataIndex: 'customer',
-    key: 'customer',
-    width: 150,
-  },
-  {
-    title: 'Project Type',
-    dataIndex: 'projectType',
-    key: 'projectType',
-    width: 150,
-  },
-  {
-    title: 'Team Size',
-    dataIndex: 'teamSize',
-    key: 'teamSize',
-    width: 120,
-  },
-  {
-    title: 'Allocated Resource Count',
-    dataIndex: 'allocatedResourceCount',
-    key: 'allocatedResourceCount',
-    width: 180,
-    align: 'center',
-    render: (count) => count ?? 0,
-  },
-  {
-    title: 'Billing Count',
-    dataIndex: 'billingCount',
-    key: 'billingCount',
-    width: 130,
-    align: 'center',
-    render: (count) => count ?? 0,
-  },
-  {
-    title: 'Actions',
-    key: 'actions',
-    width: 120,
-    fixed: 'right',
-    align: 'center',
-    render: (_, record) => (
-      <Space size="small" style={{ justifyContent: 'center', width: '100%' }}>
-        <Tooltip title="Edit">
-          <Button
-            type="default"
-            icon={<EditOutlined />}
-            onClick={(e) => { e.stopPropagation(); onEdit(record); }}
-            size="small"
-            className="action-icon-btn"
-          />
-        </Tooltip>
-        <Tooltip title="Add Members">
-          <Button
-            type="default"
-            icon={<UserAddOutlined />}
-            onClick={(e) => { e.stopPropagation(); onAddTeamMembers(record); }}
-            size="small"
-            className="action-icon-btn"
-          />
-        </Tooltip>
-      </Space>
-    ),
-  },
-];
+export const getProjectColumns = ({ onEdit, onAddTeamMembers, isAdmin = false }) => {
+  const columns = [
+    {
+      title: 'Project',
+      dataIndex: 'project',
+      key: 'project',
+      width: 150,
+    },
+    {
+      title: 'Customer',
+      dataIndex: 'customer',
+      key: 'customer',
+      width: 150,
+    },
+    {
+      title: 'Project Type',
+      dataIndex: 'projectType',
+      key: 'projectType',
+      width: 150,
+    },
+    {
+      title: 'Team Size',
+      dataIndex: 'teamSize',
+      key: 'teamSize',
+      width: 120,
+    },
+    {
+      title: 'Allocated Resource Count',
+      dataIndex: 'allocatedResourceCount',
+      key: 'allocatedResourceCount',
+      width: 180,
+      align: 'center',
+      render: (count) => count ?? 0,
+    },
+    {
+      title: 'Billing Count',
+      dataIndex: 'billingCount',
+      key: 'billingCount',
+      width: 130,
+      align: 'center',
+      render: (count) => count ?? 0,
+    },
+  ];
+
+  // Only add Actions column if user is Admin
+  if (isAdmin) {
+    columns.push({
+      title: 'Actions',
+      key: 'actions',
+      width: 120,
+      fixed: 'right',
+      align: 'center',
+      render: (_, record) => (
+        <Space size="small" style={{ justifyContent: 'center', width: '100%' }}>
+          <Tooltip title="Edit">
+            <Button
+              type="default"
+              icon={<EditOutlined />}
+              onClick={(e) => { e.stopPropagation(); onEdit(record); }}
+              size="small"
+              className="action-icon-btn"
+            />
+          </Tooltip>
+          <Tooltip title="Add Members">
+            <Button
+              type="default"
+              icon={<UserAddOutlined />}
+              onClick={(e) => { e.stopPropagation(); onAddTeamMembers(record); }}
+              size="small"
+              className="action-icon-btn"
+            />
+          </Tooltip>
+        </Space>
+      ),
+    });
+  }
+
+  return columns;
+};
 
 /**
  * Get allocation (BY ALLOCATION) table columns
- * @param {Object} handlers - { onView, onEdit, onDelete }
+ * @param {Object} handlers - { onView, onEdit, onDelete, isAdmin }
  */
-export const getAllocationColumns = ({ onView, onEdit, onDelete }) => [
-  {
-    title: 'Employee Name',
-    dataIndex: 'employeeName',
-    key: 'employeeName',
-    width: 180,
-  },
-  {
-    title: 'Project',
-    dataIndex: 'project',
-    key: 'project',
-    width: 150,
-  },
-  {
-    title: 'Project Allocated Date',
-    dataIndex: 'allocatedDate',
-    key: 'allocatedDate',
-    width: 160,
-  },
-  {
-    title: 'Project Deallocated Date',
-    dataIndex: 'deallocatedDate',
-    key: 'deallocatedDate',
-    width: 180,
-  },
-  {
-    title: 'Billing Status',
-    dataIndex: 'billingStatus',
-    key: 'billingStatus',
-    width: 130,
-  },
-  {
-    title: 'Billing Percentage',
-    dataIndex: 'billingPercentage',
-    key: 'billingPercentage',
-    width: 140,
-  },
-  {
-    title: 'Total Billing',
-    dataIndex: 'totalBilling',
-    key: 'totalBilling',
-    width: 140,
-  },
-  {
-    title: 'Project Allocation',
-    dataIndex: 'projectAllocation',
-    key: 'projectAllocation',
-    width: 140,
-  },
-  {
-    title: 'Total Allocation',
-    dataIndex: 'totalAllocation',
-    key: 'totalAllocation',
-    width: 140,
-  },
-  {
-    title: 'Status',
-    dataIndex: 'status',
-    key: 'status',
-    width: 100,
-  },
-  {
-    title: 'Last Updated',
-    dataIndex: 'lastUpdated',
-    key: 'lastUpdated',
-    width: 140,
-  },
-  {
-    title: 'Actions',
-    key: 'actions',
-    width: 120,
-    align: 'center',
-    fixed: 'right',
-    render: (_, record) => (
-      <Space size="small" style={{ justifyContent: 'center', width: '100%' }}>
-        <Tooltip title="View Allocations">
-          <Button
-            type="text"
-            icon={<EyeOutlined />}
-            onClick={(e) => { e.stopPropagation(); onView(record); }}
-            className="action-icon-btn"
-            size="small"
-          />
-        </Tooltip>
-        <Tooltip title="Edit">
-          <Button
-            type="text"
-            icon={<EditOutlined />}
-            onClick={(e) => { e.stopPropagation(); onEdit(record); }}
-            className="action-icon-btn"
-            size="small"
-          />
-        </Tooltip>
-        <Tooltip title={record.project === 'Bench' ? 'Cannot delete Bench allocations' : 'Delete'}>
-          <Button
-            type="text"
-            icon={<DeleteOutlined />}
-            onClick={(e) => { e.stopPropagation(); onDelete(record); }}
-            className="action-icon-btn"
-            danger
-            size="small"
-            disabled={record.project === 'Bench'}
-          />
-        </Tooltip>
-      </Space>
-    ),
-  },
-];
+export const getAllocationColumns = ({ onView, onEdit, onDelete, isAdmin = false }) => {
+  const columns = [
+    {
+      title: 'Employee Name',
+      dataIndex: 'employeeName',
+      key: 'employeeName',
+      width: 180,
+    },
+    {
+      title: 'Project',
+      dataIndex: 'project',
+      key: 'project',
+      width: 150,
+    },
+    {
+      title: 'Project Allocated Date',
+      dataIndex: 'allocatedDate',
+      key: 'allocatedDate',
+      width: 160,
+    },
+    {
+      title: 'Project Deallocated Date',
+      dataIndex: 'deallocatedDate',
+      key: 'deallocatedDate',
+      width: 180,
+    },
+    {
+      title: 'Billing Status',
+      dataIndex: 'billingStatus',
+      key: 'billingStatus',
+      width: 130,
+    },
+    {
+      title: 'Billing Percentage',
+      dataIndex: 'billingPercentage',
+      key: 'billingPercentage',
+      width: 140,
+    },
+    {
+      title: 'Total Billing',
+      dataIndex: 'totalBilling',
+      key: 'totalBilling',
+      width: 140,
+    },
+    {
+      title: 'Project Allocation',
+      dataIndex: 'projectAllocation',
+      key: 'projectAllocation',
+      width: 140,
+    },
+    {
+      title: 'Total Allocation',
+      dataIndex: 'totalAllocation',
+      key: 'totalAllocation',
+      width: 140,
+    },
+    {
+      title: 'Status',
+      dataIndex: 'status',
+      key: 'status',
+      width: 100,
+    },
+    {
+      title: 'Last Updated',
+      dataIndex: 'lastUpdated',
+      key: 'lastUpdated',
+      width: 140,
+    },
+  ];
+
+  // Only add Actions column if user is Admin
+  if (isAdmin) {
+    columns.push({
+      title: 'Actions',
+      key: 'actions',
+      width: 120,
+      align: 'center',
+      fixed: 'right',
+      render: (_, record) => (
+        <Space size="small" style={{ justifyContent: 'center', width: '100%' }}>
+          <Tooltip title="View Allocations">
+            <Button
+              type="text"
+              icon={<EyeOutlined />}
+              onClick={(e) => { e.stopPropagation(); onView(record); }}
+              className="action-icon-btn"
+              size="small"
+            />
+          </Tooltip>
+          <Tooltip title="Edit">
+            <Button
+              type="text"
+              icon={<EditOutlined />}
+              onClick={(e) => { e.stopPropagation(); onEdit(record); }}
+              className="action-icon-btn"
+              size="small"
+            />
+          </Tooltip>
+          <Tooltip title={record.project === 'Bench' ? 'Cannot delete Bench allocations' : 'Delete'}>
+            <Button
+              type="text"
+              icon={<DeleteOutlined />}
+              onClick={(e) => { e.stopPropagation(); onDelete(record); }}
+              className="action-icon-btn"
+              danger
+              size="small"
+              disabled={record.project === 'Bench'}
+            />
+          </Tooltip>
+        </Space>
+      ),
+    });
+  }
+
+  return columns;
+};
 
 /**
  * Get resource allocation detail columns (for the Resource Allocations Modal - active)

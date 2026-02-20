@@ -7,6 +7,7 @@ import React from 'react';
 import { Card, Button } from 'antd';
 import { PlusOutlined, UpOutlined, DownOutlined } from '@ant-design/icons';
 import CustomTable from '@components/Table';
+import PropTypes from 'prop-types';
 
 const AllocationsTable = ({
   allocationData,
@@ -19,6 +20,7 @@ const AllocationsTable = ({
   onRowClick,
   onPaginationChange,
   displayProjectName,
+  isAdmin = false,
 }) => {
   return (
     <Card
@@ -34,7 +36,7 @@ const AllocationsTable = ({
             )}
           </span>
           <div className="project-overview-actions">
-            {expanded && (
+            {expanded && isAdmin && (
               <Button
                 type="primary"
                 icon={<PlusOutlined />}
@@ -75,6 +77,20 @@ const AllocationsTable = ({
       )}
     </Card>
   );
+};
+
+AllocationsTable.propTypes = {
+  allocationData: PropTypes.array.isRequired,
+  allocationColumns: PropTypes.array.isRequired,
+  allocationPagination: PropTypes.object.isRequired,
+  loadingAllocations: PropTypes.bool,
+  expanded: PropTypes.bool.isRequired,
+  onToggleExpanded: PropTypes.func.isRequired,
+  onAddAllocation: PropTypes.func.isRequired,
+  onRowClick: PropTypes.func.isRequired,
+  onPaginationChange: PropTypes.func.isRequired,
+  displayProjectName: PropTypes.string,
+  isAdmin: PropTypes.bool,
 };
 
 export default React.memo(AllocationsTable);
