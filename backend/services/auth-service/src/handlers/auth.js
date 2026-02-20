@@ -237,6 +237,34 @@ const inviteUserHandler = async (event) => {
             GroupName: cognitoGroup
         }));
 
+        // Trigger internal link-user API call to create DB record
+        try {
+            const domainName = event.requestContext?.domainName;
+            const stage = event.requestContext?.stage || process.env.NODE_ENV || 'dev';
+
+            if (domainName) {
+                const linkUserUrl = `https://${domainName}/${stage}/api/v1/auth/link-user`;
+
+                // Keep the same Authorization header from the incoming request (JWT Admin token)
+                await fetch(linkUserUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': event.headers?.authorization || event.headers?.Authorization
+                    },
+                    body: JSON.stringify({
+                        email: email,
+                        role: role,
+                        employee_id: employee_id,
+                        cognito_user_id: cognitoUserId
+                    })
+                });
+            }
+        } catch (linkError) {
+            console.error('Failed to auto-link user to employee in DB:', linkError);
+            // We don't throw because the Cognito user was created successfully
+        }
+
         // Audit log (uses SQS, no VPC needed)
         await audit.create(event, 'user', employee_id, email, {
             employeeId: employee_id,
@@ -246,13 +274,12 @@ const inviteUserHandler = async (event) => {
         }, SERVICE_NAME, { action: 'INVITE_USER_COGNITO' });
 
         return success({
-            message: `Cognito user created. Invitation sent to ${email}`,
+            message: `Cognito user created and linked in database. Invitation sent to ${email}`,
             cognitoUserId: cognitoUserId,
             email: email,
             name: name,
             role: role,
-            employeeId: employee_id,
-            nextStep: 'Call POST /api/v1/auth/link-user to create database record'
+            employeeId: employee_id
         });
     } catch (error) {
         console.error('Invite error:', error);
@@ -406,13 +433,35 @@ const completeInviteHandler = async (event) => {
         const payload = JSON.parse(Buffer.from(tokenParts[1], 'base64').toString());
         const cognitoSub = payload.sub;
 
+        // Trigger internal activate-user API call to update DB record status
+        try {
+            const domainName = event.requestContext?.domainName;
+            const stage = event.requestContext?.stage || process.env.NODE_ENV || 'dev';
+
+            if (domainName) {
+                const activateUserUrl = `https://${domainName}/${stage}/api/v1/auth/activate-user`;
+
+                await fetch(activateUserUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        email: email,
+                        cognito_sub: cognitoSub
+                    })
+                });
+            }
+        } catch (activateError) {
+            console.error('Failed to auto-activate database user:', activateError);
+        }
+
         return success({
             accessToken: response.AuthenticationResult.AccessToken,
             idToken: response.AuthenticationResult.IdToken,
             refreshToken: response.AuthenticationResult.RefreshToken,
             cognitoSub: cognitoSub,
-            email: email,
-            nextStep: 'Call POST /api/v1/auth/activate-user to update database status'
+            email: email
         });
     } catch (error) {
         console.error('Complete invite error:', error);
