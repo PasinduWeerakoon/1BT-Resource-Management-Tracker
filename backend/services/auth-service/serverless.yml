@@ -37,6 +37,9 @@ provider:
             - cognito-idp:ConfirmForgotPassword
             - cognito-idp:ListUsers
             - cognito-idp:AdminListGroupsForUser
+            - cognito-idp:AdminRemoveUserFromGroup
+            - cognito-idp:AdminDisableUser
+            - cognito-idp:AdminEnableUser
           Resource: !ImportValue onebt-${self:provider.stage}-CognitoUserPoolArn
         - Effect: Allow
           Action:
@@ -254,6 +257,46 @@ functions:
       - httpApi:
           path: /api/v1/auth/invitable-employees
           method: GET
+          authorizer:
+            type: jwt
+            id: !ImportValue onebt-${self:provider.stage}-CognitoAuthorizerId
+
+  # ============================================
+  # UPDATE USER ROLE - Protected endpoint (Admin only, requires VPC)
+  # ============================================
+  updateUserRole:
+    handler: src/handlers/auth.updateUserRole
+    description: Update user role in Cognito and database (Admin only)
+    vpc:
+      securityGroupIds:
+        - !ImportValue onebt-${self:provider.stage}-LambdaSecurityGroupId
+      subnetIds: !Split
+        - ","
+        - !ImportValue onebt-${self:provider.stage}-PrivateSubnetIds
+    events:
+      - httpApi:
+          path: /api/v1/auth/update-role
+          method: PUT
+          authorizer:
+            type: jwt
+            id: !ImportValue onebt-${self:provider.stage}-CognitoAuthorizerId
+
+  # ============================================
+  # REVOKE USER ACCESS - Protected endpoint (Admin only, requires VPC)
+  # ============================================
+  revokeUserAccess:
+    handler: src/handlers/auth.revokeUserAccess
+    description: Revoke user access - disable in Cognito and database (Admin only)
+    vpc:
+      securityGroupIds:
+        - !ImportValue onebt-${self:provider.stage}-LambdaSecurityGroupId
+      subnetIds: !Split
+        - ","
+        - !ImportValue onebt-${self:provider.stage}-PrivateSubnetIds
+    events:
+      - httpApi:
+          path: /api/v1/auth/revoke-access
+          method: POST
           authorizer:
             type: jwt
             id: !ImportValue onebt-${self:provider.stage}-CognitoAuthorizerId

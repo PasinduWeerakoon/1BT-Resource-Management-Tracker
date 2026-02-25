@@ -17,6 +17,8 @@ import {
     ForgotPasswordCommand,
     ConfirmForgotPasswordCommand,
     AdminAddUserToGroupCommand,
+    AdminRemoveUserFromGroupCommand,
+    AdminDisableUserCommand,
     AdminGetUserCommand,
     ListUsersCommand,
     AdminListGroupsForUserCommand
@@ -761,6 +763,151 @@ const getDbUsersHandler = async (event) => {
     }
 };
 
+/**
+ * Update User Role Handler (Protected - Admin only, VPC)
+ * Changes user's Cognito group and updates DB role
+ */
+const updateUserRoleHandler = async (event) => {
+    const callingUserGroups = event.user?.groups || [];
+    const isAdmin = callingUserGroups.includes('Admin') || callingUserGroups.includes('SuperAdmin');
+    if (!isAdmin) {
+        throw createError(403, 'Forbidden: Admin access required');
+    }
+
+    const { email, newRole } = event.body;
+    if (!email) throw createError(400, 'Email is required');
+    if (!newRole) throw createError(400, 'New role is required');
+
+    const validRoles = ['Super User', 'Admin', 'User'];
+    if (!validRoles.includes(newRole)) {
+        throw createError(400, `Invalid role. Must be one of: ${validRoles.join(', ')}`);
+    }
+
+    const cognitoGroupMap = {
+        'Super User': 'SuperAdmin',
+        'Admin': 'Admin',
+        'User': 'User'
+    };
+    const newCognitoGroup = cognitoGroupMap[newRole];
+
+    try {
+        // Get user's current Cognito groups
+        const groupsResponse = await cognito.send(new AdminListGroupsForUserCommand({
+            UserPoolId: USER_POOL_ID,
+            Username: email
+        }));
+        const currentGroups = groupsResponse.Groups?.map(g => g.GroupName) || [];
+
+        // Remove all existing role groups
+        const roleGroups = ['SuperAdmin', 'Admin', 'User'];
+        for (const group of currentGroups) {
+            if (roleGroups.includes(group)) {
+                await cognito.send(new AdminRemoveUserFromGroupCommand({
+                    UserPoolId: USER_POOL_ID,
+                    Username: email,
+                    GroupName: group
+                }));
+            }
+        }
+
+        // Add to new group
+        await cognito.send(new AdminAddUserToGroupCommand({
+            UserPoolId: USER_POOL_ID,
+            Username: email,
+            GroupName: newCognitoGroup
+        }));
+
+        // Update DB role
+        const drizzle = await getDrizzle();
+        const result = await drizzle
+            .update(users)
+            .set({
+                role: newRole,
+                updatedAt: new Date()
+            })
+            .where(eq(users.email, email))
+            .returning();
+
+        // Audit log
+        await audit.update(event, 'user', result[0]?.id || null, email, {
+            previousGroups: currentGroups,
+            newRole: newRole,
+            newCognitoGroup: newCognitoGroup
+        }, SERVICE_NAME, { action: 'UPDATE_USER_ROLE' });
+
+        return success({
+            message: `User role updated to ${newRole}`,
+            email: email,
+            newRole: newRole,
+            user: result[0] ? {
+                id: result[0].id,
+                email: result[0].email,
+                role: result[0].role,
+                status: result[0].status
+            } : null
+        });
+    } catch (error) {
+        console.error('Update role error:', error);
+        if (error.statusCode) throw error;
+        throw createError(500, 'Failed to update user role: ' + error.message);
+    }
+};
+
+/**
+ * Revoke User Access Handler (Protected - Admin only, VPC)
+ * Disables Cognito user and updates DB status to Inactive
+ */
+const revokeUserAccessHandler = async (event) => {
+    const callingUserGroups = event.user?.groups || [];
+    const isAdmin = callingUserGroups.includes('Admin') || callingUserGroups.includes('SuperAdmin');
+    if (!isAdmin) {
+        throw createError(403, 'Forbidden: Admin access required');
+    }
+
+    const { email } = event.body;
+    if (!email) throw createError(400, 'Email is required');
+
+    try {
+        // Disable user in Cognito
+        await cognito.send(new AdminDisableUserCommand({
+            UserPoolId: USER_POOL_ID,
+            Username: email
+        }));
+
+        // Update DB status to Inactive
+        const drizzle = await getDrizzle();
+        const result = await drizzle
+            .update(users)
+            .set({
+                status: 'Inactive',
+                updatedAt: new Date()
+            })
+            .where(eq(users.email, email))
+            .returning();
+
+        // Audit log
+        await audit.update(event, 'user', result[0]?.id || null, email, {
+            action: 'REVOKE_ACCESS',
+            previousStatus: 'Active',
+            newStatus: 'Inactive'
+        }, SERVICE_NAME, { action: 'REVOKE_USER_ACCESS' });
+
+        return success({
+            message: `Access revoked for ${email}`,
+            email: email,
+            user: result[0] ? {
+                id: result[0].id,
+                email: result[0].email,
+                status: result[0].status
+            } : null
+        });
+    } catch (error) {
+        console.error('Revoke access error:', error);
+        if (error.statusCode) throw error;
+        throw createError(500, 'Failed to revoke user access: ' + error.message);
+    }
+};
+
 // Export wrapped handlers
 export const login = withMiddleware(loginHandler, { requireAuth: false, serviceName: 'auth-service' });
 export const logout = withMiddleware(logoutHandler, { requireAuth: false, serviceName: 'auth-service' });
@@ -775,3 +922,5 @@ export const getCurrentUser = withMiddleware(getCurrentUserHandler, { requireAut
 export const getSystemUsers = withMiddleware(getSystemUsersHandler, { requireAuth: true, serviceName: 'auth-service', parseBody: false });
 export const getInvitableEmployees = withMiddleware(getInvitableEmployeesHandler, { requireAuth: true, serviceName: 'auth-service', parseBody: false });
 export const getDbUsers = withMiddleware(getDbUsersHandler, { requireAuth: true, serviceName: 'auth-service', parseBody: false });
+export const updateUserRole = withMiddleware(updateUserRoleHandler, { requireAuth: true, serviceName: 'auth-service' });
+export const revokeUserAccess = withMiddleware(revokeUserAccessHandler, { requireAuth: true, serviceName: 'auth-service' });
