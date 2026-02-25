@@ -764,8 +764,8 @@ const getDbUsersHandler = async (event) => {
 };
 
 /**
- * Update User Role Handler (Protected - Admin only, VPC)
- * Changes user's Cognito group and updates DB role
+ * Update User Role Handler (Protected - Admin only, NON-VPC)
+ * Step 1: Changes user's Cognito group, then calls internal VPC endpoint for DB update
  */
 const updateUserRoleHandler = async (event) => {
     const callingUserGroups = event.user?.groups || [];
@@ -817,7 +817,65 @@ const updateUserRoleHandler = async (event) => {
             GroupName: newCognitoGroup
         }));
 
-        // Update DB role
+        // Call internal VPC endpoint to update DB
+        try {
+            const domainName = event.requestContext?.domainName;
+            const stage = event.requestContext?.stage || process.env.NODE_ENV || 'dev';
+
+            if (domainName) {
+                const updateDbUrl = `https://${domainName}/${stage}/api/v1/auth/update-role-db`;
+                await fetch(updateDbUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': event.headers?.authorization || event.headers?.Authorization
+                    },
+                    body: JSON.stringify({
+                        email: email,
+                        newRole: newRole,
+                        previousGroups: currentGroups
+                    })
+                });
+            }
+        } catch (dbError) {
+            console.error('Failed to update role in DB:', dbError);
+        }
+
+        // Audit log (uses SQS, no VPC needed)
+        await audit.update(event, 'user', null, email, {
+            previousGroups: currentGroups,
+            newRole: newRole,
+            newCognitoGroup: newCognitoGroup
+        }, SERVICE_NAME, { action: 'UPDATE_USER_ROLE' });
+
+        return success({
+            message: `User role updated to ${newRole}`,
+            email: email,
+            newRole: newRole
+        });
+    } catch (error) {
+        console.error('Update role error:', error);
+        if (error.statusCode) throw error;
+        throw createError(500, 'Failed to update user role: ' + error.message);
+    }
+};
+
+/**
+ * Update User Role DB Handler (Protected - Admin only, VPC)
+ * Step 2: Updates the role in the database
+ */
+const updateUserRoleDbHandler = async (event) => {
+    const callingUserGroups = event.user?.groups || [];
+    const isAdmin = callingUserGroups.includes('Admin') || callingUserGroups.includes('SuperAdmin');
+    if (!isAdmin) {
+        throw createError(403, 'Forbidden: Admin access required');
+    }
+
+    const { email, newRole } = event.body;
+    if (!email) throw createError(400, 'Email is required');
+    if (!newRole) throw createError(400, 'New role is required');
+
+    try {
         const drizzle = await getDrizzle();
         const result = await drizzle
             .update(users)
@@ -828,17 +886,8 @@ const updateUserRoleHandler = async (event) => {
             .where(eq(users.email, email))
             .returning();
 
-        // Audit log
-        await audit.update(event, 'user', result[0]?.id || null, email, {
-            previousGroups: currentGroups,
-            newRole: newRole,
-            newCognitoGroup: newCognitoGroup
-        }, SERVICE_NAME, { action: 'UPDATE_USER_ROLE' });
-
         return success({
-            message: `User role updated to ${newRole}`,
-            email: email,
-            newRole: newRole,
+            message: `User role updated in database`,
             user: result[0] ? {
                 id: result[0].id,
                 email: result[0].email,
@@ -847,15 +896,15 @@ const updateUserRoleHandler = async (event) => {
             } : null
         });
     } catch (error) {
-        console.error('Update role error:', error);
+        console.error('Update role DB error:', error);
         if (error.statusCode) throw error;
-        throw createError(500, 'Failed to update user role: ' + error.message);
+        throw createError(500, 'Failed to update user role in DB: ' + error.message);
     }
 };
 
 /**
- * Revoke User Access Handler (Protected - Admin only, VPC)
- * Disables Cognito user and updates DB status to Inactive
+ * Revoke User Access Handler (Protected - Admin only, NON-VPC)
+ * Step 1: Disables Cognito user, then calls internal VPC endpoint for DB update
  */
 const revokeUserAccessHandler = async (event) => {
     const callingUserGroups = event.user?.groups || [];
@@ -874,7 +923,59 @@ const revokeUserAccessHandler = async (event) => {
             Username: email
         }));
 
-        // Update DB status to Inactive
+        // Call internal VPC endpoint to update DB
+        try {
+            const domainName = event.requestContext?.domainName;
+            const stage = event.requestContext?.stage || process.env.NODE_ENV || 'dev';
+
+            if (domainName) {
+                const revokeDbUrl = `https://${domainName}/${stage}/api/v1/auth/revoke-access-db`;
+                await fetch(revokeDbUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': event.headers?.authorization || event.headers?.Authorization
+                    },
+                    body: JSON.stringify({ email: email })
+                });
+            }
+        } catch (dbError) {
+            console.error('Failed to update status in DB:', dbError);
+        }
+
+        // Audit log (uses SQS, no VPC needed)
+        await audit.update(event, 'user', null, email, {
+            action: 'REVOKE_ACCESS',
+            previousStatus: 'Active',
+            newStatus: 'Inactive'
+        }, SERVICE_NAME, { action: 'REVOKE_USER_ACCESS' });
+
+        return success({
+            message: `Access revoked for ${email}`,
+            email: email
+        });
+    } catch (error) {
+        console.error('Revoke access error:', error);
+        if (error.statusCode) throw error;
+        throw createError(500, 'Failed to revoke user access: ' + error.message);
+    }
+};
+
+/**
+ * Revoke User Access DB Handler (Protected - Admin only, VPC)
+ * Step 2: Updates the status in the database to Inactive
+ */
+const revokeUserAccessDbHandler = async (event) => {
+    const callingUserGroups = event.user?.groups || [];
+    const isAdmin = callingUserGroups.includes('Admin') || callingUserGroups.includes('SuperAdmin');
+    if (!isAdmin) {
+        throw createError(403, 'Forbidden: Admin access required');
+    }
+
+    const { email } = event.body;
+    if (!email) throw createError(400, 'Email is required');
+
+    try {
         const drizzle = await getDrizzle();
         const result = await drizzle
             .update(users)
@@ -885,16 +986,8 @@ const revokeUserAccessHandler = async (event) => {
             .where(eq(users.email, email))
             .returning();
 
-        // Audit log
-        await audit.update(event, 'user', result[0]?.id || null, email, {
-            action: 'REVOKE_ACCESS',
-            previousStatus: 'Active',
-            newStatus: 'Inactive'
-        }, SERVICE_NAME, { action: 'REVOKE_USER_ACCESS' });
-
         return success({
-            message: `Access revoked for ${email}`,
-            email: email,
+            message: `User status updated to Inactive in database`,
             user: result[0] ? {
                 id: result[0].id,
                 email: result[0].email,
@@ -902,9 +995,9 @@ const revokeUserAccessHandler = async (event) => {
             } : null
         });
     } catch (error) {
-        console.error('Revoke access error:', error);
+        console.error('Revoke access DB error:', error);
         if (error.statusCode) throw error;
-        throw createError(500, 'Failed to revoke user access: ' + error.message);
+        throw createError(500, 'Failed to update user status in DB: ' + error.message);
     }
 };
 
@@ -923,4 +1016,6 @@ export const getSystemUsers = withMiddleware(getSystemUsersHandler, { requireAut
 export const getInvitableEmployees = withMiddleware(getInvitableEmployeesHandler, { requireAuth: true, serviceName: 'auth-service', parseBody: false });
 export const getDbUsers = withMiddleware(getDbUsersHandler, { requireAuth: true, serviceName: 'auth-service', parseBody: false });
 export const updateUserRole = withMiddleware(updateUserRoleHandler, { requireAuth: true, serviceName: 'auth-service' });
+export const updateUserRoleDb = withMiddleware(updateUserRoleDbHandler, { requireAuth: true, serviceName: 'auth-service' });
 export const revokeUserAccess = withMiddleware(revokeUserAccessHandler, { requireAuth: true, serviceName: 'auth-service' });
+export const revokeUserAccessDb = withMiddleware(revokeUserAccessDbHandler, { requireAuth: true, serviceName: 'auth-service' });
