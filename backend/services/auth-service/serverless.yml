@@ -37,6 +37,9 @@ provider:
             - cognito-idp:ConfirmForgotPassword
             - cognito-idp:ListUsers
             - cognito-idp:AdminListGroupsForUser
+            - cognito-idp:AdminRemoveUserFromGroup
+            - cognito-idp:AdminDisableUser
+            - cognito-idp:AdminEnableUser
           Resource: !ImportValue onebt-${self:provider.stage}-CognitoUserPoolArn
         - Effect: Allow
           Action:
@@ -257,3 +260,72 @@ functions:
           authorizer:
             type: jwt
             id: !ImportValue onebt-${self:provider.stage}-CognitoAuthorizerId
+
+  # ============================================
+  # UPDATE USER ROLE - Protected endpoint (Admin only, NO VPC - calls Cognito)
+  # ============================================
+  updateUserRole:
+    handler: src/handlers/auth.updateUserRole
+    description: Update user role in Cognito groups (Admin only, non-VPC)
+    events:
+      - httpApi:
+          path: /api/v1/auth/update-role
+          method: PUT
+          authorizer:
+            type: jwt
+            id: !ImportValue onebt-${self:provider.stage}-CognitoAuthorizerId
+
+  # ============================================
+  # UPDATE USER ROLE DB - Internal endpoint (Admin only, VPC)
+  # ============================================
+  updateUserRoleDb:
+    handler: src/handlers/auth.updateUserRoleDb
+    description: Update user role in database (Admin only, VPC)
+    vpc:
+      securityGroupIds:
+        - !ImportValue onebt-${self:provider.stage}-LambdaSecurityGroupId
+      subnetIds: !Split
+        - ","
+        - !ImportValue onebt-${self:provider.stage}-PrivateSubnetIds
+    events:
+      - httpApi:
+          path: /api/v1/auth/update-role-db
+          method: POST
+          authorizer:
+            type: jwt
+            id: !ImportValue onebt-${self:provider.stage}-CognitoAuthorizerId
+
+  # ============================================
+  # REVOKE USER ACCESS - Protected endpoint (Admin only, NO VPC - calls Cognito)
+  # ============================================
+  revokeUserAccess:
+    handler: src/handlers/auth.revokeUserAccess
+    description: Revoke user access - disable in Cognito (Admin only, non-VPC)
+    events:
+      - httpApi:
+          path: /api/v1/auth/revoke-access
+          method: POST
+          authorizer:
+            type: jwt
+            id: !ImportValue onebt-${self:provider.stage}-CognitoAuthorizerId
+
+  # ============================================
+  # REVOKE USER ACCESS DB - Internal endpoint (Admin only, VPC)
+  # ============================================
+  revokeUserAccessDb:
+    handler: src/handlers/auth.revokeUserAccessDb
+    description: Revoke user access - update status in database (Admin only, VPC)
+    vpc:
+      securityGroupIds:
+        - !ImportValue onebt-${self:provider.stage}-LambdaSecurityGroupId
+      subnetIds: !Split
+        - ","
+        - !ImportValue onebt-${self:provider.stage}-PrivateSubnetIds
+    events:
+      - httpApi:
+          path: /api/v1/auth/revoke-access-db
+          method: POST
+          authorizer:
+            type: jwt
+            id: !ImportValue onebt-${self:provider.stage}-CognitoAuthorizerId
+
