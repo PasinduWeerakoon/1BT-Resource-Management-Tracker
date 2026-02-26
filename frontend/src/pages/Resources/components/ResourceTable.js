@@ -21,6 +21,7 @@ const ResourceTable = ({
   onToggleAccountManager,
   updatingAccountManager,
   columns: customColumns,
+  isAdmin = false,
 }) => {
   // Memoize default columns to avoid recreation on every render
   const defaultColumns = useMemo(() => [
@@ -99,7 +100,7 @@ const ResourceTable = ({
           checkedChildren="Yes"
           unCheckedChildren="No"
           loading={updatingAccountManager[record.id]}
-          disabled={updatingAccountManager[record.id]}
+          disabled={updatingAccountManager[record.id] || !isAdmin}
         />
       ),
     },
@@ -118,26 +119,30 @@ const ResourceTable = ({
               className="action-icon-btn"
             />
           </Tooltip>
-          <Tooltip title="Edit">
-            <Button
-              type="text"
-              icon={<EditOutlined />}
-              onClick={() => onEdit(record)}
-              className="action-icon-btn"
-            />
-          </Tooltip>
-          <Tooltip title="Quick Actions">
-            <Button
-              type="text"
-              icon={<SettingOutlined />}
-              onClick={() => onQuickActions(record)}
-              className="action-icon-btn"
-            />
-          </Tooltip>
+          {isAdmin && (
+            <>
+              <Tooltip title="Edit">
+                <Button
+                  type="text"
+                  icon={<EditOutlined />}
+                  onClick={() => onEdit(record)}
+                  className="action-icon-btn"
+                />
+              </Tooltip>
+              <Tooltip title="Quick Actions">
+                <Button
+                  type="text"
+                  icon={<SettingOutlined />}
+                  onClick={() => onQuickActions(record)}
+                  className="action-icon-btn"
+                />
+              </Tooltip>
+            </>
+          )}
         </Space>
       ),
     },
-  ], [onEdit, onViewProfile, onQuickActions, onToggleAccountManager, updatingAccountManager]);
+  ], [onEdit, onViewProfile, onQuickActions, onToggleAccountManager, updatingAccountManager, isAdmin]);
 
   // Memoize columns
   const columns = useMemo(() => customColumns || defaultColumns, [customColumns, defaultColumns]);

@@ -23,6 +23,7 @@ import PropTypes from 'prop-types';
  * @param {boolean} props.projectOverviewExpanded - Whether table is expanded
  * @param {Function} props.onToggleExpanded - Toggle expanded state
  * @param {string} props.selectedAccountManagerName - Selected account manager name for display
+ * @param {boolean} props.isAdmin - Whether user is Admin (controls button visibility)
  */
 const ProjectsTable = ({
   projectData,
@@ -36,6 +37,7 @@ const ProjectsTable = ({
   projectOverviewExpanded,
   onToggleExpanded,
   selectedAccountManagerName,
+  isAdmin = false,
 }) => {
   return (
     <Card
@@ -51,7 +53,7 @@ const ProjectsTable = ({
             )}
           </span>
           <div className="project-overview-actions">
-            {projectOverviewExpanded && (
+            {projectOverviewExpanded && isAdmin && (
               <Button
                 type="primary"
                 icon={<PlusOutlined />}
@@ -117,6 +119,7 @@ ProjectsTable.propTypes = {
   projectOverviewExpanded: PropTypes.bool.isRequired,
   onToggleExpanded: PropTypes.func.isRequired,
   selectedAccountManagerName: PropTypes.string,
+  isAdmin: PropTypes.bool,
 };
 
 export default ProjectsTable;

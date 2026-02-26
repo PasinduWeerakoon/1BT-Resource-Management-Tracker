@@ -16,6 +16,7 @@ import ResourceTable from './components/ResourceTable';
 import ResourceModal from './components/ResourceModal';
 import ResourceProfile from './components/ResourceProfile';
 import { selectEmployeeTypes, selectTechStacks, selectUniversities } from '@redux/slices/configSlice';
+import { parseGroups } from '@pages/Auth/Login/utils/authHelpers';
 import '@styles/pages/Resources.scss';
 
 const { Option } = Select;
@@ -35,6 +36,14 @@ const Resources = () => {
   const employeeTypes = useSelector(selectEmployeeTypes);
   const techStacks = useSelector(selectTechStacks);
   const universities = useSelector(selectUniversities);
+  
+  // Get user from Redux to check Admin role
+  const user = useSelector((state) => state.auth.user);
+  const isAdmin = useMemo(() => {
+    if (!user) return false;
+    const groups = parseGroups(user.groups);
+    return groups.some(group => group === 'Admin' || group === 'SuperAdmin');
+  }, [user]);
 
   // Use custom hooks
   const {
@@ -196,13 +205,15 @@ const Resources = () => {
             <span className="table-title">Employee List</span>
           </div>
           <div className="table-header-actions">
-            <Button
-              type="primary"
-              icon={<PlusOutlined />}
-              onClick={handleAddEmployee}
-            >
-              Add New Employee
-            </Button>
+            {isAdmin && (
+              <Button
+                type="primary"
+                icon={<PlusOutlined />}
+                onClick={handleAddEmployee}
+              >
+                Add New Employee
+              </Button>
+            )}
           </div>
         </div>
         <ResourceTable
@@ -215,6 +226,7 @@ const Resources = () => {
           onQuickActions={handleQuickActions}
           onToggleAccountManager={handleToggleAccountManager}
           updatingAccountManager={updatingAccountManager}
+          isAdmin={isAdmin}
         />
       </Card>
 

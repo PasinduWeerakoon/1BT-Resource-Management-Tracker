@@ -21,9 +21,9 @@ export const useTrainingData = (filters) => {
   const fetchTrainingReport = async () => {
     try {
       setLoading(true);
-      
+
       const queryParams = {};
-      
+
       // Add filters to query params
       if (filters.track && filters.track !== 'All') {
         queryParams.track = filters.track;
@@ -31,9 +31,9 @@ export const useTrainingData = (filters) => {
       if (filters.techStack && filters.techStack !== 'All') {
         queryParams.tech_stack = filters.techStack;
       }
-      
+
       const response = await reportsService.getTraining(queryParams);
-      
+
       if (response && response.success !== false) {
         setReportData(response);
       } else {
