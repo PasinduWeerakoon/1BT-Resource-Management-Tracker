@@ -10,9 +10,8 @@ import '@styles/pages/SystemUsers.scss';
 
 const { Option } = Select;
 
-/** Maps UI role labels to API role values (backend expects 'Super User', not 'Super Admin') */
+/** Maps UI role labels to API role values for update-role API */
 const UI_ROLE_TO_API_ROLE = {
-  'Super Admin': 'Super User',
   Admin: 'Admin',
   User: 'User',
 };
