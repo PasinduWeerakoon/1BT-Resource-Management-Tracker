@@ -20,6 +20,8 @@ export const ENDPOINTS = {
     COMPLETE_INVITE: `${BASE_URL}/auth/complete-invite`,
     ACTIVATE_USER: `${BASE_URL}/auth/activate-user`,
     USERS: `${BASE_URL}/auth/users`,
+    UPDATE_ROLE: `${BASE_URL}/auth/update-role`,
+    REVOKE_ACCESS: `${BASE_URL}/auth/revoke-access`,
   },
 
   // Resources (Employees)

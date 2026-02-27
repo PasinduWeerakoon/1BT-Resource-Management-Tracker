@@ -4,11 +4,18 @@ import { EditOutlined, UserAddOutlined } from '@ant-design/icons';
 import CustomModal from '@components/Modal';
 import CustomTable from '@components/Table';
 import { authService, resourcesService } from '@api';
-import { showErrorToast, showSuccessToast } from '@utils/toast.utils';
+import { showErrorToast, showSuccessToast, getErrorMessage } from '@utils/toast.utils';
 import logger from '@utils/logger';
 import '@styles/pages/SystemUsers.scss';
 
 const { Option } = Select;
+
+/** Maps UI role labels to API role values (backend expects 'Super User', not 'Super Admin') */
+const UI_ROLE_TO_API_ROLE = {
+  'Super Admin': 'Super User',
+  Admin: 'Admin',
+  User: 'User',
+};
 
 const SystemUsers = () => {
   const [grantAccessForm] = Form.useForm();
@@ -25,11 +32,15 @@ const SystemUsers = () => {
   const [selectedResourceId, setSelectedResourceId] = useState(null);
   const [systemUsers, setSystemUsers] = useState([]);
   const [loadingSystemUsers, setLoadingSystemUsers] = useState(false);
+  const [isUpdatingRole, setIsUpdatingRole] = useState(false);
+  const [isRevokingAccess, setIsRevokingAccess] = useState(false);
 
   // Refs to prevent duplicate API calls
   const fetchInProgressRef = useRef(false);
   const fetchResourcesInProgressRef = useRef(false);
   const fetchSystemUsersInProgressRef = useRef(false);
+  const updateRoleInProgressRef = useRef(false);
+  const revokeAccessInProgressRef = useRef(false);
 
   // Fetch resources from API
   const fetchResources = async () => {
@@ -275,14 +286,25 @@ const SystemUsers = () => {
     setIsChangeRoleModalVisible(true);
   };
 
+  /**
+   * Submit Change User Role: calls update-role API, then refetches system users.
+   * Guards against duplicate submit and validates Super Admin uniqueness.
+   */
   const handleChangeRoleSubmit = async () => {
+    if (updateRoleInProgressRef.current) return;
+    if (!selectedUser?.email) {
+      showErrorToast('User email is missing');
+      return;
+    }
+
     try {
       const values = await changeRoleForm.validateFields();
       const newUserType = values.userType;
 
-      // Check if trying to change to Super Admin and one already exists
       if (newUserType === 'Super Admin') {
-        const existingSuperAdmin = systemUsers.find(user => user.userType === 'Super Admin' && user.key !== selectedUser.key);
+        const existingSuperAdmin = systemUsers.find(
+          (user) => user.userType === 'Super Admin' && user.key !== selectedUser.key
+        );
         if (existingSuperAdmin) {
           Modal.error({
             title: 'Cannot Change Role',
@@ -292,15 +314,24 @@ const SystemUsers = () => {
         }
       }
 
-      setSystemUsers(systemUsers.map(user =>
-        user.key === selectedUser.key ? { ...user, userType: newUserType } : user
-      ));
+      const apiRole = UI_ROLE_TO_API_ROLE[newUserType] ?? newUserType;
 
+      updateRoleInProgressRef.current = true;
+      setIsUpdatingRole(true);
+
+      await authService.updateUserRole(selectedUser.email, apiRole);
+
+      showSuccessToast(`User role updated to ${newUserType}`);
       setIsChangeRoleModalVisible(false);
       changeRoleForm.resetFields();
       setSelectedUser(null);
+      await fetchSystemUsers();
     } catch (error) {
-      logger.error('Validation failed:', error);
+      logger.error('Update role failed:', error);
+      showErrorToast(getErrorMessage(error) || 'Failed to update user role');
+    } finally {
+      updateRoleInProgressRef.current = false;
+      setIsUpdatingRole(false);
     }
   };
 
@@ -310,12 +341,34 @@ const SystemUsers = () => {
     setRevokeModalVisible(true);
   };
 
-  const handleConfirmRevoke = () => {
-    setSystemUsers(systemUsers.map(user =>
-      user.key === userToRevoke.key ? { ...user, status: 'Revoked' } : user
-    ));
-    setRevokeModalVisible(false);
-    setUserToRevoke(null);
+  /**
+   * Confirm Revoke Access: calls revoke-access API, then refetches system users.
+   * Guards against duplicate submit.
+   */
+  const handleConfirmRevoke = async () => {
+    if (revokeAccessInProgressRef.current) return;
+    if (!userToRevoke?.email) {
+      showErrorToast('User email is missing');
+      return;
+    }
+
+    try {
+      revokeAccessInProgressRef.current = true;
+      setIsRevokingAccess(true);
+
+      await authService.revokeUserAccess(userToRevoke.email);
+
+      showSuccessToast('Access revoked successfully');
+      setRevokeModalVisible(false);
+      setUserToRevoke(null);
+      await fetchSystemUsers();
+    } catch (error) {
+      logger.error('Revoke access failed:', error);
+      showErrorToast(getErrorMessage(error) || 'Failed to revoke access');
+    } finally {
+      revokeAccessInProgressRef.current = false;
+      setIsRevokingAccess(false);
+    }
   };
 
   // Table columns
@@ -532,12 +585,13 @@ const SystemUsers = () => {
                 setSelectedUser(null);
               }
             },
-            disabled: selectedUser?.userType === 'Super Admin',
+            disabled: selectedUser?.userType === 'Super Admin' || isUpdatingRole,
           },
           {
             text: 'Update Role',
             type: 'primary',
             onClick: handleChangeRoleSubmit,
+            loading: isUpdatingRole,
           },
         ]}
       >
@@ -600,7 +654,7 @@ const SystemUsers = () => {
           setUserToRevoke(null);
         }}
         okText="Revoke Access"
-        okButtonProps={{ danger: true }}
+        okButtonProps={{ danger: true, loading: isRevokingAccess }}
       >
         {userToRevoke && (
           <div>

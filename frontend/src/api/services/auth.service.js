@@ -159,6 +159,32 @@ export const authService = {
     // The interceptor transforms the response
     return response.data || response;
   },
+
+  /**
+   * Update user role (Admin only)
+   * @param {string} email - User email
+   * @param {string} newRole - New role: 'User' | 'Admin' | 'Super User'
+   * @returns {Promise<{success: boolean, message: string, email: string, newRole: string}>}
+   */
+  updateUserRole: async (email, newRole) => {
+    const response = await apiClient.post(ENDPOINTS.AUTH.UPDATE_ROLE, {
+      email,
+      newRole,
+    });
+    return response.data || response;
+  },
+
+  /**
+   * Revoke user access - disables user in Cognito and sets status Inactive (Admin only)
+   * @param {string} email - User email
+   * @returns {Promise<{success: boolean, message: string, email: string}>}
+   */
+  revokeUserAccess: async (email) => {
+    const response = await apiClient.post(ENDPOINTS.AUTH.REVOKE_ACCESS, {
+      email,
+    });
+    return response.data || response;
+  },
 };
 
 export default authService;
