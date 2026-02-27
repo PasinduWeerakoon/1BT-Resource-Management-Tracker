@@ -633,9 +633,6 @@ const SystemUsers = () => {
                 <Select placeholder="Select user type" size="large">
                   <Option value="User">User</Option>
                   <Option value="Admin">Admin</Option>
-                  <Option value="Super Admin" disabled={systemUsers.some(u => u.userType === 'Super Admin' && u.key !== selectedUser?.key)}>
-                    Super Admin {systemUsers.some(u => u.userType === 'Super Admin' && u.key !== selectedUser?.key) ? '(Already exists)' : ''}
-                  </Option>
                 </Select>
               </Form.Item>
             </Col>
