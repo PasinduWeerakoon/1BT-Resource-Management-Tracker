@@ -167,7 +167,7 @@ export const authService = {
    * @returns {Promise<{success: boolean, message: string, email: string, newRole: string}>}
    */
   updateUserRole: async (email, newRole) => {
-    const response = await apiClient.post(ENDPOINTS.AUTH.UPDATE_ROLE, {
+    const response = await apiClient.put(ENDPOINTS.AUTH.UPDATE_ROLE, {
       email,
       newRole,
     });
