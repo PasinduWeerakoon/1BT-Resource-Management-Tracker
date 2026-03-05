@@ -176,10 +176,15 @@ export const list = async (event) => {
             paramIndex++;
         }
 
-        if (is_active !== undefined) {
+        if (is_active === 'all') {
+            // No filter - return both active and inactive
+        } else if (is_active !== undefined) {
             whereClause += ` AND a.is_active = $${paramIndex}`;
             params.push(is_active === 'true' || is_active === true);
             paramIndex++;
+        } else {
+            // Default: only return active allocations
+            whereClause += ` AND a.is_active = true`;
         }
 
         // Optimized: Combined query using window function for count (single round-trip)
@@ -393,10 +398,10 @@ export const create = async (event) => {
                 'SELECT name FROM billing_statuses WHERE id = $1',
                 [validated.billing_status_id]
             );
-            
+
             if (billingStatusResult.rows.length > 0) {
                 const billingStatusName = billingStatusResult.rows[0].name;
-                
+
                 // If billing status is "Non-Billing", force billing percentage to 0
                 if (billingStatusName === 'Non-Billing' && validated.billing_percentage > 0) {
                     log.warn('Forcing billing percentage to 0 for Non-Billing status', {
@@ -833,10 +838,10 @@ export const update = async (event) => {
                 'SELECT name FROM billing_statuses WHERE id = $1',
                 [validated.billing_status_id]
             );
-            
+
             if (billingStatusResult.rows.length > 0) {
                 const billingStatusName = billingStatusResult.rows[0].name;
-                
+
                 // If billing status is "Non-Billing", force billing percentage to 0
                 if (billingStatusName === 'Non-Billing') {
                     if (validated.billing_percentage === undefined || validated.billing_percentage > 0) {

@@ -3,7 +3,7 @@
 
 -- Create system user if not exists
 INSERT INTO users (username, email, password_hash, role, status)
-VALUES ('system', 'system@onebt.com', '$2b$10$placeholder', 'Super User', 'Active')
+VALUES ('system', 'hirun.dealwis@1billiontech.com', '$2b$10$placeholder', 'Super User', 'Active')
 ON CONFLICT DO NOTHING;
 
 -- Create Bench project if not exists

@@ -1,7 +1,7 @@
 # ==============================================
 # PROD Environment Parameters
 # ==============================================
-# Cost Estimate: ~$160/month (RDS Multi-AZ + NAT Multi-AZ + VPC Endpoints)
+# Cost Estimate: ~$15/month (RDS only, no NAT)
 # ==============================================
 
 # Network Configuration
@@ -14,22 +14,22 @@ vpc:
   databaseSubnet1Cidr: "10.3.20.0/24"
   databaseSubnet2Cidr: "10.3.21.0/24"
 
-# NAT Gateway (Multi-AZ for high availability)
+# NAT Gateway (disabled to save ~$32/month)
 natGateway:
-  enabled: true # ~$32/month per NAT
-  multiAz: true # ~$64/month total for 2 NATs
+  enabled: false
+  multiAz: false
 
 # RDS Database Configuration
 database:
-  instanceClass: db.t3.medium # ~$48/month (x2 for Multi-AZ = ~$96)
-  allocatedStorage: 50 # GB
-  maxAllocatedStorage: 200 # GB (auto-scaling limit)
-  backupRetentionDays: 30
-  multiAz: true # High availability
-  deletionProtection: true # CRITICAL: Protect production data
-  deletionPolicy: Retain # CRITICAL: Never delete prod database
-  performanceInsights: true # Enable for monitoring
-  monitoringInterval: 60 # Enhanced monitoring every 60 seconds
+  instanceClass: db.t3.small # ~$15/month
+  allocatedStorage: 20 # GB
+  maxAllocatedStorage: 100 # GB (auto-scaling limit)
+  backupRetentionDays: 7
+  multiAz: false # Single AZ
+  deletionProtection: true # Protect production data
+  deletionPolicy: Retain # Never delete prod database
+  performanceInsights: false
+  monitoringInterval: 0 # Disabled
 
 # Cognito Configuration
 cognito:
@@ -45,11 +45,17 @@ cognito:
 
 # API Gateway Configuration
 apiGateway:
-  throttlingBurstLimit: 2000
-  throttlingRateLimit: 1000
+  throttlingBurstLimit: 500
+  throttlingRateLimit: 250
   corsMaxAge: 86400
+
+# Bastion Host (disabled for production)
+bastion:
+  enabled: false
+  instanceType: t3.micro
+  keyPairName: onebt-bastion-prod
 
 # Feature Flags
 features:
-  vpcEndpoints: true # Enable VPC endpoints (~$7/month each)
+  vpcEndpoints: true # Enable VPC endpoints for Secrets Manager access
   autoShutdown: false # NEVER auto-shutdown production

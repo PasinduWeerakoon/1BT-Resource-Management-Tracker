@@ -79,3 +79,26 @@ def delete_document(event, context):
     # TODO: Implement document deletion from S3
     from ..utils.response import error
     return error("Not implemented", 501)
+
+
+# ==================== UPLOAD HANDLERS ====================
+from .upload_handler import (
+    upload_projects as _upload_projects,
+    upload_employees as _upload_employees,
+    upload_allocations as _upload_allocations,
+)
+
+
+def upload_projects(event, context):
+    """Upload projects from Excel file"""
+    return _upload_projects(event, context)
+
+
+def upload_employees(event, context):
+    """Upload employees from Excel file"""
+    return _upload_employees(event, context)
+
+
+def upload_allocations(event, context):
+    """Upload allocations from Excel file"""
+    return _upload_allocations(event, context)

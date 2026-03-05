@@ -169,6 +169,24 @@ export const USER_STATUSES = [
 ];
 
 // ============================================================================
+// ALLOCATED ROLES - Roles assigned to resources on project allocations
+// ============================================================================
+export const ALLOCATED_ROLES = [
+    { id: 1, value: 1, label: 'Software Engineer', description: 'Software Engineer', isActive: true, displayOrder: 1 },
+    { id: 2, value: 2, label: 'Senior Software Engineer', description: 'Senior Software Engineer', isActive: true, displayOrder: 2 },
+    { id: 3, value: 3, label: 'Tech Lead', description: 'Technical Lead', isActive: true, displayOrder: 3 },
+    { id: 4, value: 4, label: 'Architect', description: 'Solution Architect', isActive: true, displayOrder: 4 },
+    { id: 5, value: 5, label: 'QA Lead', description: 'QA Lead', isActive: true, displayOrder: 5 },
+    { id: 6, value: 6, label: 'UI Engineer', description: 'UI Engineer', isActive: true, displayOrder: 6 },
+    { id: 7, value: 7, label: 'Senior UI Engineer', description: 'Senior UI Engineer', isActive: true, displayOrder: 7 },
+    { id: 8, value: 8, label: 'UI Lead', description: 'UI Lead', isActive: true, displayOrder: 8 },
+    { id: 9, value: 9, label: 'Team Lead', description: 'Team Lead', isActive: true, displayOrder: 9 },
+    { id: 10, value: 10, label: 'Project Manager', description: 'Project Manager', isActive: true, displayOrder: 10 },
+    { id: 11, value: 11, label: 'QA Engineer', description: 'QA Engineer', isActive: true, displayOrder: 11 },
+    { id: 12, value: 12, label: 'Senior QA Engineer', description: 'Senior QA Engineer', isActive: true, displayOrder: 12 },
+];
+
+// ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
 
@@ -248,13 +266,14 @@ export const ALL_CONFIGS = {
     accountTypes: ACCOUNT_TYPES,
     userRoles: USER_ROLES,
     userStatuses: USER_STATUSES,
+    allocatedRoles: ALLOCATED_ROLES,
 };
 
 /**
  * Config metadata
  */
 export const CONFIG_METADATA = {
-    configBased: ['tracks', 'techStacks', 'tiers', 'employeeStatuses', 'projectStatuses', 'accountTypes', 'userRoles', 'userStatuses'],
+    configBased: ['tracks', 'techStacks', 'tiers', 'employeeStatuses', 'projectStatuses', 'accountTypes', 'userRoles', 'userStatuses', 'allocatedRoles'],
     databaseBased: ['designations', 'billingStatuses', 'projectTypes', 'employeeTypes', 'tags', 'universities'],
 };
 
@@ -267,6 +286,7 @@ export default {
     ACCOUNT_TYPES,
     USER_ROLES,
     USER_STATUSES,
+    ALLOCATED_ROLES,
     BILLABLE_TRACK_IDS,
     ALL_CONFIGS,
     CONFIG_METADATA,

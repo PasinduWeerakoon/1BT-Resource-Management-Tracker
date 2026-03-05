@@ -56,7 +56,7 @@ plugins:
 
 custom:
   pythonRequirements:
-    dockerizePip: false # Set to 'non-linux' if packages have native binaries
+    dockerizePip: non-linux # Changed from false to bundle native Linux OS binaries for pandas
     slim: true
     strip: false
     noDeploy:
@@ -158,6 +158,40 @@ functions:
       - httpApi:
           path: /api/v1/documents/{id}
           method: DELETE
+          authorizer: ${self:custom.authorizer}
+
+  # ==================== EXCEL UPLOAD (Data Import) ====================
+  uploadProjects:
+    handler: src/handlers/documents.upload_projects
+    description: Upload projects from Excel file
+    memorySize: 1024
+    timeout: 120
+    events:
+      - httpApi:
+          path: /api/v1/documents/upload/projects
+          method: POST
+          authorizer: ${self:custom.authorizer}
+
+  uploadEmployees:
+    handler: src/handlers/documents.upload_employees
+    description: Upload employees from Excel file
+    memorySize: 1024
+    timeout: 120
+    events:
+      - httpApi:
+          path: /api/v1/documents/upload/employees
+          method: POST
+          authorizer: ${self:custom.authorizer}
+
+  uploadAllocations:
+    handler: src/handlers/documents.upload_allocations
+    description: Upload allocations from Excel file
+    memorySize: 1024
+    timeout: 120
+    events:
+      - httpApi:
+          path: /api/v1/documents/upload/allocations
+          method: POST
           authorizer: ${self:custom.authorizer}
 
 resources:

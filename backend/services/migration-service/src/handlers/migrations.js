@@ -240,6 +240,23 @@ export const status = async (event) => {
     const client = await db.getClient();
 
     try {
+        const hirun = await client.query(`SELECT id, name, total_allocation, total_resource_billing FROM employees WHERE emp_no = 'LE00566'`);
+        const hirunAllocs = await client.query(`SELECT a.id, a.project_id, a.allocation_percentage, a.allocated_date, a.deallocated_date, a.is_active, p.project_name FROM allocations a JOIN projects p ON a.project_id = p.id WHERE a.employee_id = (SELECT id FROM employees WHERE emp_no = 'LE00566' LIMIT 1)`);
+        const sumAllocs = await client.query(`
+            SELECT COALESCE(SUM(a.allocation_percentage), 0) as total
+            FROM allocations a
+            JOIN projects p ON a.project_id = p.id
+            WHERE a.employee_id = (SELECT id FROM employees WHERE emp_no = 'LE00566' LIMIT 1)
+            AND a.is_active = true
+            AND a.deleted_at IS NULL
+            AND p.is_bench_project = false
+        `);
+
+        return success({
+            hirun: hirun.rows,
+            hirunAllocs: hirunAllocs.rows,
+            sumAllocs: sumAllocs.rows
+        });
         // Load migrations from files
         const MIGRATIONS = loadMigrations();
 

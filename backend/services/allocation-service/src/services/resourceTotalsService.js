@@ -23,6 +23,8 @@ export const updateResourceTotals = async (resourceId, log) => {
                     AND a.is_active = true
                     AND a.deleted_at IS NULL
                     AND p.is_bench_project = false
+                    AND a.allocated_date <= CURRENT_DATE
+                    AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
                 ),
                 total_billing = (
                     SELECT COALESCE(SUM(a.billing_percentage), 0)
@@ -34,6 +36,8 @@ export const updateResourceTotals = async (resourceId, log) => {
                     AND a.deleted_at IS NULL
                     AND bs.name = 'Billing'
                     AND p.is_bench_project = false
+                    AND a.allocated_date <= CURRENT_DATE
+                    AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
                 ),
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = $1

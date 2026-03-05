@@ -254,6 +254,16 @@ export const detectAndFillGaps = async (resourceId, userId, log) => {
     const totalActiveAllocation = parseInt(totalResult.rows[0].total, 10);
 
     if (totalActiveAllocation >= 100) {
+        // Deactivate any existing bench allocation since resource is fully allocated
+        const benchAllocation = await getBenchAllocation(resourceId);
+        if (benchAllocation && benchAllocation.is_active) {
+            await db.query(`
+                UPDATE allocations 
+                SET is_active = false, allocation_percentage = 0, updated_by = $2, updated_at = CURRENT_TIMESTAMP
+                WHERE id = $1
+            `, [benchAllocation.id, userId || 1]);
+            log.info('Deactivated stale bench allocation - resource fully allocated', { resourceId, totalActiveAllocation });
+        }
         log.info('No gap detected - resource fully allocated', { resourceId, totalActiveAllocation });
         return { gapDetected: false, totalActiveAllocation };
     }
