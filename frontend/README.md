@@ -57,6 +57,61 @@ The application will start on `http://localhost:3000`
 npm run build
 ```
 
+## Running different environments
+
+The app supports **dev**, **qa**, and **prod** (see `src/api/config.js` for API URLs).
+
+### Local development (per env)
+
+```bash
+npm start          # Uses .env or default (dev)
+npm run start:dev  # Dev API
+npm run start:qa   # QA API
+npm run start:prod # Prod API
+```
+
+### Build for a specific env
+
+```bash
+npm run build        # Production build (uses .env or dev)
+npm run build:dev    # Build with dev API URL
+npm run build:qa     # Build with QA API URL
+npm run build:prod   # Build with prod API URL
+```
+
+## Deployment (S3 + CloudFront)
+
+**One script for all environments.** The same `deploy.sh` deploys dev, qa, or prod. Build and deploy target both use the same env (from `config.js`: dev → dev API, qa → QA API, prod → prod API).
+
+### Prerequisites
+
+- AWS CLI: `aws configure --profile rmproject`
+- Run from the **frontend** directory
+
+### Deploy (single script)
+
+```bash
+cd frontend
+
+./deploy.sh              # Deploy dev (default)
+./deploy.sh qa            # Deploy QA
+./deploy.sh prod          # Deploy prod
+
+# Or use REACT_APP_ENV (same as passing the arg):
+REACT_APP_ENV=qa ./deploy.sh    # Build + deploy for QA
+REACT_APP_ENV=prod ./deploy.sh # Build + deploy for prod
+```
+
+Each env has its own stack (`rm-frontend-dev-stack`, `rm-frontend-qa-stack`, `rm-frontend-prod-stack`), so all can be deployed at once.
+
+### Override API URL
+
+To use a custom API URL instead of the dev/qa/prod URLs in `config.js`:
+
+```bash
+REACT_APP_API_BASE_URL=https://your-api.example.com/api/v1 ./deploy.sh dev
+```
+
 ## Sample Login Credentials
 
 - **Super Admin**: `superadmin` / `superadmin123`
