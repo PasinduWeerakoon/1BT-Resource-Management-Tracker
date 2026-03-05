@@ -79,7 +79,7 @@ export const createTechStackBarChartData = (techStackData) => {
   }
 
   return {
-    labels: techStackData.map(item => item.techStack || item.name),
+    labels: techStackData.map(item => item.tech_stack || item.techStack || item.name),
     datasets: [{
       label: 'Number of Employees',
       data: techStackData.map(item => item.count || 0),
