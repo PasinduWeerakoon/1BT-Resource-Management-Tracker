@@ -238,7 +238,26 @@ export const getAccountManagerReport = async (event) => {
                     bs.name as billing_status,
                     (SELECT COUNT(*) FROM allocations a WHERE a.project_id = p.id AND a.is_active = true) as team_size,
                     p.account_manager_id,
-                    am.name as account_manager_name
+                    am.name as account_manager_name,
+                    COALESCE((
+                        SELECT COUNT(DISTINCT a.employee_id)
+                        FROM allocations a
+                        WHERE a.project_id = p.id
+                        AND a.is_active = true
+                        AND a.deleted_at IS NULL
+                        AND a.allocated_date <= CURRENT_DATE
+                        AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
+                    ), 0) as allocated_resource_count,
+                    COALESCE((
+                        SELECT COUNT(DISTINCT a.employee_id)
+                        FROM allocations a
+                        WHERE a.project_id = p.id
+                        AND a.is_active = true
+                        AND a.deleted_at IS NULL
+                        AND a.billing_percentage > 0
+                        AND a.allocated_date <= CURRENT_DATE
+                        AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
+                    ), 0) as billing_count
                 FROM projects p
                 LEFT JOIN clients c ON p.client_id = c.id
                 LEFT JOIN employees am ON p.account_manager_id = am.id
