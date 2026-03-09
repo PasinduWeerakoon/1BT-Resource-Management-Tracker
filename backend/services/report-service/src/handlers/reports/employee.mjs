@@ -34,6 +34,27 @@ export const getEmployeeReport = async (event) => {
     try {
         log.info('Getting employee report');
 
+        // Extract filter query parameters
+        const queryParams = event.queryStringParameters || {};
+        const resourceId = queryParams.resource_id;
+        const trackId = queryParams.track_id;
+
+        // Build dynamic WHERE conditions
+        const conditions = ['r.deleted_at IS NULL'];
+        const params = [];
+
+        if (resourceId) {
+            params.push(parseInt(resourceId));
+            conditions.push(`r.id = $${params.length}`);
+        }
+
+        if (trackId) {
+            params.push(parseInt(trackId));
+            conditions.push(`r.track_id = $${params.length}`);
+        }
+
+        const whereClause = conditions.join(' AND ');
+
         const query = `
             SELECT 
                 r.id,
@@ -66,11 +87,11 @@ export const getEmployeeReport = async (event) => {
                 ) as current_projects
             FROM employees r
             LEFT JOIN designations d ON r.designation_id = d.id
-            WHERE r.deleted_at IS NULL
+            WHERE ${whereClause}
             ORDER BY r.name ASC
         `;
 
-        const result = await db.query(query);
+        const result = await db.query(query, params);
 
         // Transform results with config resolution
         const data = result.rows.map(row => ({
@@ -108,7 +129,7 @@ export const getExceptionReport = async (event) => {
         // Build project filter clause
         let projectFilterClause = '';
         const params = [];
-        
+
         if (projectId) {
             projectFilterClause = 'AND a.project_id = $1';
             params.push(parseInt(projectId));
