@@ -149,14 +149,14 @@ const TeamMembersModal = ({
                   name={['members', member.key, 'projectAllocation']}
                   rules={[
                     { required: true, message: 'Project allocation is required' },
-                    { type: 'number', min: 0, max: 100, message: 'Must be between 0 and 100' },
+                    { type: 'number', min: 0, message: 'Must be 0 or greater' },
                   ]}
                   initialValue={member.projectAllocation}
                 >
                   <InputNumber
                     style={{ width: '100%' }}
                     placeholder="Enter project allocation"
-                    min={0} max={100}
+                    min={0}
                     value={member.projectAllocation}
                     onChange={(value) => onFieldChange(member.key, 'projectAllocation', value)}
                     formatter={(value) => `${value}%`}

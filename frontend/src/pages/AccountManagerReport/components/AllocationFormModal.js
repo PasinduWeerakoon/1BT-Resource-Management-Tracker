@@ -4,9 +4,11 @@
  */
 
 import React, { useEffect, useMemo } from 'react';
+import { useSelector } from 'react-redux';
 import { Row, Col, Select, DatePicker, InputNumber, Form, Switch, Input, Tooltip } from 'antd';
 import { InfoCircleOutlined } from '@ant-design/icons';
 import CustomModal from '@components/Modal';
+import { selectBillingStatuses } from '@redux/slices/configSlice';
 
 const { Option } = Select;
 const { useWatch } = Form;
@@ -20,24 +22,19 @@ const AllocationFormModal = ({
   isSubmitting,
   resourcesList,
   projectsForFilter,
-  resourceBillingStatuses,
 }) => {
-  // Filter billing statuses to only show "Billing" and "Non-Billing"
-  const filteredBillingStatuses = useMemo(() => {
-    return resourceBillingStatuses.filter(
-      status => status.name === 'Billing' || status.name === 'Non-Billing'
-    );
-  }, [resourceBillingStatuses]);
+  // Billing status options from Redux config (same as Configurations -> Billing Statuses)
+  const billingStatuses = useSelector(selectBillingStatuses) || [];
 
   // Watch the billing_status_id to determine if billing percentage should be disabled
   const billingStatusId = useWatch('billing_status_id', form);
-  
-  // Find the selected billing status name
+
+  // Find the selected billing status name (use name or label from config)
   const selectedBillingStatus = useMemo(() => {
     if (!billingStatusId) return null;
-    const status = resourceBillingStatuses.find(s => s.id === billingStatusId);
-    return status ? status.name : null;
-  }, [billingStatusId, resourceBillingStatuses]);
+    const status = billingStatuses.find((s) => s.id === billingStatusId);
+    return status ? (status.name || status.label) : null;
+  }, [billingStatusId, billingStatuses]);
   
   const isBillingDisabled = selectedBillingStatus === 'Non-Billing';
 
@@ -108,13 +105,13 @@ const AllocationFormModal = ({
               name="allocation_percentage"
               rules={[
                 { required: true, message: 'Allocation percentage is required' },
-                { type: 'number', min: 0, max: 100, message: 'Must be between 0 and 100' },
+                { type: 'number', min: 0, message: 'Must be 0 or greater' },
               ]}
             >
               <InputNumber
                 style={{ width: '100%' }}
                 placeholder="Enter allocation percentage"
-                min={0} max={100}
+                min={0}
                 formatter={(v) => `${v}%`}
                 parser={(v) => v.replace('%', '')}
               />
@@ -129,7 +126,7 @@ const AllocationFormModal = ({
                 allowClear
                 filterOption={(input, option) => (option?.children ?? '').toLowerCase().includes(input.toLowerCase())}
               >
-                {filteredBillingStatuses.map((s) => (
+                {billingStatuses.map((s) => (
                   <Option key={s.id} value={s.id}>{s.label || s.name}</Option>
                 ))}
               </Select>

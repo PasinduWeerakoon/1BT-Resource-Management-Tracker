@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Badge, Row, Col, Tooltip } from 'antd';
-import { CheckCircleOutlined, ClockCircleOutlined, DollarOutlined, EyeOutlined, PercentageOutlined } from '@ant-design/icons';
+import { CheckCircleOutlined, ClockCircleOutlined, DollarOutlined, EyeOutlined, HistoryOutlined, PercentageOutlined } from '@ant-design/icons';
 import { useSelector } from 'react-redux';
 import CustomTable from '@components/Table';
 import CustomModal from '@components/Modal';
-import { reportsService, resourcesService } from '@api';
+import { reportsService, resourcesService, allocationsService } from '@api';
 import { selectTracks } from '@redux/slices/configSlice';
 import { useReportFilters, useReportData } from '@hooks/reports';
 import { FilterSection, ReportHeader } from '@components/ReportLayout';
@@ -13,6 +13,46 @@ import logger from '@utils/logger';
 import { showErrorToast, showWarningToast } from '@utils/toast.utils';
 import dayjs from 'dayjs';
 import '@styles/pages/EmployeeReport.scss';
+
+const getBillingStatusFromAllocation = (allocation) => {
+  if (allocation.billing_status) {
+    return allocation.billing_status;
+  }
+
+  if (allocation.project_type === 'Client' || allocation.project_is_billable) {
+    return 'Billing';
+  }
+  if (allocation.project_type === 'Bench') {
+    return 'Bench';
+  }
+  if (allocation.project_type === 'Pre-Sales' || allocation.project_type === 'Presale' || allocation.project_type === 'Pre-Sale') {
+    return 'Presale';
+  }
+  if (allocation.project_type === 'Training') {
+    return 'Training';
+  }
+
+  return 'Non-Billing';
+};
+
+const getDisplayAllocationStatus = (allocation, fallback = 'Active') => {
+  if (allocation.allocation_status) {
+    if (allocation.allocation_status === 'future') {
+      return 'Scheduled';
+    }
+
+    return allocation.allocation_status
+      .split('_')
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(' ');
+  }
+
+  if (allocation.is_active !== undefined) {
+    return allocation.is_active ? 'Active' : 'Inactive';
+  }
+
+  return allocation.status || fallback;
+};
 
 const EmployeeReport = () => {
   const defaultFilters = {
@@ -35,7 +75,9 @@ const EmployeeReport = () => {
   const [resourcesList, setResourcesList] = useState([]);
   const [isResourceAllocationsModalVisible, setIsResourceAllocationsModalVisible] = useState(false);
   const [resourceAllocationsData, setResourceAllocationsData] = useState([]);
+  const [allocationHistoryData, setAllocationHistoryData] = useState([]);
   const [loadingResourceAllocations, setLoadingResourceAllocations] = useState(false);
+  const [loadingAllocationHistory, setLoadingAllocationHistory] = useState(false);
   const [selectedResourceId, setSelectedResourceId] = useState(null);
   const [selectedResourceName, setSelectedResourceName] = useState('');
   const [selectedResourceTotalAllocation, setSelectedResourceTotalAllocation] = useState(0);
@@ -156,28 +198,17 @@ const EmployeeReport = () => {
           ? parseFloat(allocation.billing_percentage)
           : (allocation.billing_percentage || 0);
 
-        let billingStatus = 'Non-Billing';
-        if (allocation.project_type === 'Client' || allocation.project_is_billable) {
-          billingStatus = 'Billing';
-        } else if (allocation.project_type === 'Bench') {
-          billingStatus = 'Bench';
-        } else if (allocation.project_type === 'Pre-Sales' || allocation.project_type === 'Presale' || allocation.project_type === 'Pre-Sale') {
-          billingStatus = 'Presale';
-        } else if (allocation.project_type === 'Training') {
-          billingStatus = 'Training';
-        }
-
         return {
           key: allocation.id || `allocation-${index}`,
           id: allocation.id,
           project: allocation.project_name || 'N/A',
           allocatedDate: allocation.allocated_date ? dayjs(allocation.allocated_date).format('YYYY-MM-DD') : '-',
           deallocatedDate: allocation.deallocated_date ? dayjs(allocation.deallocated_date).format('YYYY-MM-DD') : '-',
-          billingStatus: billingStatus,
+          billingStatus: getBillingStatusFromAllocation(allocation),
           billingPercentage: billingPercentage ? `${billingPercentage.toFixed(0)}%` : '0%',
           projectAllocation: allocationPercentage ? `${allocationPercentage.toFixed(0)}%` : '0%',
           duration: duration,
-          status: allocation.is_active !== undefined ? (allocation.is_active ? 'Active' : 'Inactive') : (allocation.status || 'Active'),
+          status: getDisplayAllocationStatus(allocation),
           project_id: allocation.project_id,
           allocationType: 'active'
         };
@@ -202,17 +233,6 @@ const EmployeeReport = () => {
           ? parseFloat(allocation.billing_percentage)
           : (allocation.billing_percentage || 0);
 
-        let billingStatus = 'Non-Billing';
-        if (allocation.project_type === 'Client' || allocation.project_is_billable) {
-          billingStatus = 'Billing';
-        } else if (allocation.project_type === 'Bench') {
-          billingStatus = 'Bench';
-        } else if (allocation.project_type === 'Pre-Sales' || allocation.project_type === 'Presale' || allocation.project_type === 'Pre-Sale') {
-          billingStatus = 'Presale';
-        } else if (allocation.project_type === 'Training') {
-          billingStatus = 'Training';
-        }
-
         return {
           key: allocation.id || `future-allocation-${index}`,
           id: allocation.id,
@@ -221,11 +241,11 @@ const EmployeeReport = () => {
           deallocatedDate: allocation.deallocated_date ? dayjs(allocation.deallocated_date).format('YYYY-MM-DD') : '-',
           effectiveDate: allocation.effective_date ? dayjs(allocation.effective_date).format('YYYY-MM-DD') : '-',
           daysUntilActivation: daysUntilActivation,
-          billingStatus: billingStatus,
+          billingStatus: getBillingStatusFromAllocation(allocation),
           billingPercentage: billingPercentage ? `${billingPercentage.toFixed(0)}%` : '0%',
           projectAllocation: allocationPercentage ? `${allocationPercentage.toFixed(0)}%` : '0%',
           duration: duration,
-          status: 'Scheduled',
+          status: getDisplayAllocationStatus(allocation, 'Scheduled'),
           changeType: allocation.change_type || 'new',
           project_id: allocation.project_id,
           allocationType: 'future'
@@ -246,6 +266,58 @@ const EmployeeReport = () => {
       setResourceAllocationsData([]);
     } finally {
       setLoadingResourceAllocations(false);
+    }
+
+    // Fetch allocation history (GET /api/v1/allocations/history/{resourceId})
+    try {
+      setLoadingAllocationHistory(true);
+      const historyResponse = await allocationsService.getHistory(record.id);
+      let historyList = [];
+      if (historyResponse) {
+        if (historyResponse.history && Array.isArray(historyResponse.history)) {
+          historyList = historyResponse.history;
+        } else if (historyResponse.data && historyResponse.data.history && Array.isArray(historyResponse.data.history)) {
+          historyList = historyResponse.data.history;
+        } else if (Array.isArray(historyResponse.data)) {
+          historyList = historyResponse.data;
+        } else if (Array.isArray(historyResponse)) {
+          historyList = historyResponse;
+        }
+      }
+      const transformedHistory = historyList
+        .filter((item) => item.project_name != null || item.allocated_date != null || item.allocation_percentage != null)
+        .map((allocation, index) => {
+          let duration = 0;
+          if (allocation.allocated_date) {
+            const startDate = dayjs(allocation.allocated_date);
+            const endDate = allocation.deallocated_date ? dayjs(allocation.deallocated_date) : dayjs();
+            duration = endDate.diff(startDate, 'day');
+          }
+          const allocationPercentage = typeof allocation.allocation_percentage === 'string'
+            ? parseFloat(allocation.allocation_percentage)
+            : (allocation.allocation_percentage ?? 0);
+          const billingPercentage = typeof allocation.billing_percentage === 'string'
+            ? parseFloat(allocation.billing_percentage)
+            : (allocation.billing_percentage ?? 0);
+          return {
+            key: allocation.id || `history-${index}`,
+            id: allocation.id,
+            project: allocation.project_name || 'N/A',
+            allocatedDate: allocation.allocated_date ? dayjs(allocation.allocated_date).format('YYYY-MM-DD') : '-',
+            deallocatedDate: allocation.deallocated_date ? dayjs(allocation.deallocated_date).format('YYYY-MM-DD') : '-',
+            billingStatus: getBillingStatusFromAllocation(allocation),
+            billingPercentage: billingPercentage ? `${billingPercentage.toFixed(0)}%` : '0%',
+            projectAllocation: allocationPercentage ? `${allocationPercentage.toFixed(0)}%` : '0%',
+            duration,
+            status: 'Ended',
+          };
+        });
+      setAllocationHistoryData(transformedHistory);
+    } catch (historyError) {
+      logger.error('Failed to fetch allocation history:', historyError);
+      setAllocationHistoryData([]);
+    } finally {
+      setLoadingAllocationHistory(false);
     }
   };
 
@@ -483,6 +555,7 @@ const EmployeeReport = () => {
         onClose={() => {
           setIsResourceAllocationsModalVisible(false);
           setResourceAllocationsData([]);
+          setAllocationHistoryData([]);
           setSelectedResourceId(null);
           setSelectedResourceName('');
           setSelectedResourceTotalAllocation(0);
@@ -642,6 +715,129 @@ const EmployeeReport = () => {
             loading={loadingResourceAllocations}
             locale={{
               emptyText: 'No current allocations'
+            }}
+          />
+        </div>
+
+        {/* Allocation History - GET /api/v1/allocations/history/{resourceId} */}
+        <div style={{ marginBottom: 24 }}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            marginBottom: 12,
+            padding: '8px 12px',
+            backgroundColor: '#f9f9f9',
+            borderLeft: '4px solid #8c8c8c',
+            borderRadius: 4
+          }}>
+            <HistoryOutlined style={{ color: '#8c8c8c', fontSize: 18, marginRight: 8 }} />
+            <span style={{ fontSize: 16, fontWeight: 600, color: '#262626' }}>
+              Allocation History
+            </span>
+            <span style={{
+              marginLeft: 8,
+              padding: '2px 8px',
+              backgroundColor: '#8c8c8c',
+              color: 'white',
+              borderRadius: 10,
+              fontSize: 12,
+              fontWeight: 500
+            }}>
+              {allocationHistoryData.length}
+            </span>
+          </div>
+          <CustomTable
+            columns={[
+              {
+                title: 'Project',
+                dataIndex: 'project',
+                key: 'project',
+                width: 200,
+                ellipsis: true,
+              },
+              {
+                title: 'Allocated Date',
+                dataIndex: 'allocatedDate',
+                key: 'allocatedDate',
+                width: 140,
+              },
+              {
+                title: 'Deallocated Date',
+                dataIndex: 'deallocatedDate',
+                key: 'deallocatedDate',
+                width: 150,
+              },
+              {
+                title: 'Billing Status',
+                dataIndex: 'billingStatus',
+                key: 'billingStatus',
+                width: 120,
+                render: (text) => (
+                  <span style={{
+                    padding: '2px 8px',
+                    borderRadius: 4,
+                    fontSize: 12,
+                    fontWeight: 500,
+                    backgroundColor: text === 'Billing' ? '#e6f7ff' :
+                      text === 'Bench' ? '#fff7e6' :
+                        text === 'Presale' ? '#f9f0ff' : '#f0f0f0',
+                    color: text === 'Billing' ? '#1890ff' :
+                      text === 'Bench' ? '#fa8c16' :
+                        text === 'Presale' ? '#722ed1' : '#595959'
+                  }}>
+                    {text}
+                  </span>
+                ),
+              },
+              {
+                title: 'Billing %',
+                dataIndex: 'billingPercentage',
+                key: 'billingPercentage',
+                width: 100,
+                align: 'center',
+              },
+              {
+                title: 'Allocation %',
+                dataIndex: 'projectAllocation',
+                key: 'projectAllocation',
+                width: 110,
+                align: 'center',
+              },
+              {
+                title: 'Duration',
+                dataIndex: 'duration',
+                key: 'duration',
+                width: 90,
+                align: 'center',
+                render: (days) => `${days} days`,
+              },
+              {
+                title: 'Status',
+                dataIndex: 'status',
+                key: 'status',
+                width: 90,
+                align: 'center',
+                render: (text) => (
+                  <span style={{
+                    padding: '2px 8px',
+                    borderRadius: 4,
+                    fontSize: 12,
+                    fontWeight: 500,
+                    backgroundColor: '#f0f0f0',
+                    color: '#595959'
+                  }}>
+                    {text}
+                  </span>
+                ),
+              },
+            ]}
+            dataSource={allocationHistoryData}
+            pagination={false}
+            scroll={{ x: 1100 }}
+            size="small"
+            loading={loadingAllocationHistory}
+            locale={{
+              emptyText: 'No allocation history'
             }}
           />
         </div>
