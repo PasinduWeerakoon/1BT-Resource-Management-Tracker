@@ -8,7 +8,7 @@
 
 import * as db from '/opt/nodejs/database/index.js';
 import logger from '/opt/nodejs/logger/index.js';
-import { success, error, notFound } from '/opt/nodejs/utils/response.js';
+import { success, error, notFound, badRequest } from '/opt/nodejs/utils/response.js';
 
 /**
  * Get utilization summary for a resource
@@ -70,14 +70,29 @@ export const getResourceUtilization = async (event) => {
 };
 
 /**
- * Get allocation history
+ * Get allocation change history for a resource (employee)
+ * GET /api/v1/allocations/history/{resourceId}
+ *
+ * Note: allocation_history rows track changes over time; column is changed_at (not created_at).
  */
 export const getHistory = async (event) => {
     const log = logger.child({ handler: 'allocations.getHistory' });
-    const { id } = event.pathParameters;
+    const resourceId = event.pathParameters?.resourceId ?? event.pathParameters?.id;
 
     try {
-        log.info('Getting allocation history', { id });
+        log.info('Getting allocation history for resource', { resourceId });
+
+        if (!resourceId) {
+            return badRequest('resourceId is required');
+        }
+
+        const exists = await db.query(
+            'SELECT id FROM employees WHERE id = $1',
+            [resourceId]
+        );
+        if (exists.rows.length === 0) {
+            return notFound('Resource not found');
+        }
 
         const query = `
             SELECT 
@@ -85,20 +100,20 @@ export const getHistory = async (event) => {
                 u.name as changed_by_name
             FROM allocation_history ah
             LEFT JOIN users u ON ah.changed_by = u.id
-            WHERE ah.allocation_id = $1
-            ORDER BY ah.created_at DESC
+            WHERE ah.employee_id = $1
+            ORDER BY ah.changed_at DESC NULLS LAST, ah.effective_date DESC NULLS LAST, ah.id DESC
         `;
 
-        const result = await db.query(query, [id]);
+        const result = await db.query(query, [resourceId]);
 
         return success({
-            allocation_id: id,
+            resource_id: String(resourceId),
             history: result.rows,
             total: result.rows.length
         });
 
     } catch (err) {
-        log.error('Failed to get allocation history', { id, error: err.message });
+        log.error('Failed to get allocation history', { resourceId, error: err.message });
         return error('Failed to get allocation history', err);
     }
 };
