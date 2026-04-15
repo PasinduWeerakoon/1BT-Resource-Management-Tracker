@@ -375,7 +375,7 @@ const ClientCostReport = () => {
 
   return (
     <div className="client-cost-report-page">
-      <ReportHeader title="COST REPORT" />
+      <ReportHeader title="FINANCE REPORT" />
 
       <Card className="filters-card">
         <Row gutter={[12, 12]}>

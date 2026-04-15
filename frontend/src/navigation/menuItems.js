@@ -79,7 +79,7 @@ export const getMenuItems = (role) => {
     {
       key: '/client-cost-report',
       icon: <DollarOutlined />,
-      label: 'Client Cost Report',
+      label: 'Finance Reports',
     },
     {
       key: '/presale-report',
