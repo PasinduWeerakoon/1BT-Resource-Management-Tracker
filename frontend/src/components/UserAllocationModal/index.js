@@ -355,14 +355,13 @@ const UserAllocationModal = ({
                                                     name={[`allocations`, allocation.key, 'projectAllocation']}
                                                     rules={[
                                                         { required: true, message: 'Project allocation is required' },
-                                                        { type: 'number', min: 0, max: 100, message: 'Must be between 0 and 100' },
+                                                        { type: 'number', min: 0, message: 'Must be 0 or greater' },
                                                     ]}
                                                 >
                                                     <InputNumber
                                                         style={{ width: '100%' }}
                                                         placeholder="Enter project allocation"
                                                         min={0}
-                                                        max={100}
                                                         onChange={(value) => onFieldChange(allocation.key, 'projectAllocation', value)}
                                                         formatter={value => `${value}%`}
                                                         parser={value => value.replace('%', '')}

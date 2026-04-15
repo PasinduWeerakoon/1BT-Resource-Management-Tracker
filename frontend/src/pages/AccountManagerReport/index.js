@@ -243,7 +243,6 @@ const AccountManagerReport = () => {
         isSubmitting={allocationMgmt.isSubmittingAllocation}
         resourcesList={data.resourcesList}
         projectsForFilter={data.projectsForFilter}
-        resourceBillingStatuses={data.resourceBillingStatuses}
       />
 
       <DeleteAllocationModal

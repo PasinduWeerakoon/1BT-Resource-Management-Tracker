@@ -193,6 +193,7 @@ export const ENDPOINTS = {
     EMPLOYEE: `${BASE_URL}/reports/employee`,
     INTERN: `${BASE_URL}/reports/intern`,
     MONTHLY_ALLOCATION: `${BASE_URL}/reports/monthly-allocation`,
+    CLIENT_COST_SNAPSHOT: `${BASE_URL}/reports/client-cost-snapshot`,
     EXCEPTION: `${BASE_URL}/reports/exception`,
     NON_BILLING: `${BASE_URL}/reports/non-billing`,
     PRE_SALE: `${BASE_URL}/reports/pre-sale`,

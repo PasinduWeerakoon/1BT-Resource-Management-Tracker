@@ -16,7 +16,7 @@ export {
 } from './dashboard.mjs';
 
 // Allocation Reports
-export { getMonthlyAllocationReport } from './allocation.mjs';
+export { getMonthlyAllocationReport, getClientCostSnapshot } from './allocation.mjs';
 
 // Resource Reports
 export {

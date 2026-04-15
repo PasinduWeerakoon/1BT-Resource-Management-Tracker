@@ -79,6 +79,24 @@ export const reportsService = {
   },
 
   /**
+   * Get client cost snapshot report
+   * Returns employees with current allocation lines and billing fields
+   * @param {Object} params - Query parameters
+   * @param {number} params.page - Page number (optional)
+   * @param {number} params.limit - Items per page (optional)
+   * @param {string} params.billing_filter - all|billing|non_billing (optional)
+   * @param {string} params.project_ids - Comma-separated project IDs (optional)
+   * @param {string} params.q - Employee search text (optional)
+   * @returns {Promise<{success: boolean, data: {employees: Array, pagination: Object}}>}
+   */
+  getClientCostSnapshot: async (params = {}) => {
+    const response = await apiClient.get(ENDPOINTS.REPORTS.CLIENT_COST_SNAPSHOT, {
+      params,
+    });
+    return response.data || response;
+  },
+
+  /**
    * Get exception allocation report
    * Resources with allocation > 100% or anomalies
    * @param {Object} params - Query parameters (none required)

@@ -6,7 +6,7 @@
 
 import React, { useMemo, useCallback } from 'react';
 import { Space, Button, Tooltip, Badge, Switch } from 'antd';
-import { EditOutlined, EyeOutlined, SettingOutlined } from '@ant-design/icons';
+import { EditOutlined, EyeOutlined, SettingOutlined, DeleteOutlined } from '@ant-design/icons';
 import CustomTable from '@components/Table';
 import dayjs from 'dayjs';
 
@@ -18,6 +18,7 @@ const ResourceTable = ({
   onEdit,
   onViewProfile,
   onQuickActions,
+  onDelete,
   onToggleAccountManager,
   updatingAccountManager,
   columns: customColumns,
@@ -137,12 +138,23 @@ const ResourceTable = ({
                   className="action-icon-btn"
                 />
               </Tooltip>
+              {onDelete && (
+                <Tooltip title="Delete">
+                  <Button
+                    type="text"
+                    danger
+                    icon={<DeleteOutlined />}
+                    onClick={() => onDelete(record)}
+                    className="action-icon-btn"
+                  />
+                </Tooltip>
+              )}
             </>
           )}
         </Space>
       ),
     },
-  ], [onEdit, onViewProfile, onQuickActions, onToggleAccountManager, updatingAccountManager, isAdmin]);
+  ], [onEdit, onViewProfile, onQuickActions, onDelete, onToggleAccountManager, updatingAccountManager, isAdmin]);
 
   // Memoize columns
   const columns = useMemo(() => customColumns || defaultColumns, [customColumns, defaultColumns]);

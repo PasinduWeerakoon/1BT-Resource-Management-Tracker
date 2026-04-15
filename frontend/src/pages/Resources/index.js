@@ -82,6 +82,7 @@ const Resources = () => {
     handleEditEmployee,
     handleCancel,
     handleEmployeeSubmit,
+    handleDeleteEmployee,
     handleToggleAccountManager,
     handleUpdateTier,
     handleUpdateTechStack,
@@ -224,6 +225,7 @@ const Resources = () => {
           onEdit={handleEditEmployee}
           onViewProfile={handleViewProfile}
           onQuickActions={handleQuickActions}
+          onDelete={handleDeleteEmployee}
           onToggleAccountManager={handleToggleAccountManager}
           updatingAccountManager={updatingAccountManager}
           isAdmin={isAdmin}

@@ -147,6 +147,15 @@ functions:
           method: GET
           authorizer: ${self:custom.authorizer}
 
+  clientCostSnapshot:
+    handler: src/handlers/reports/index.getClientCostSnapshot
+    description: Get client cost snapshot by employee allocations
+    events:
+      - httpApi:
+          path: /api/v1/reports/client-cost-snapshot
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
   exceptionReport:
     handler: src/handlers/reports/index.getExceptionReport
     description: Get exception allocation report
