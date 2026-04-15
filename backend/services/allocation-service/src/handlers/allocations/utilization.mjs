@@ -80,9 +80,9 @@ export const getHistory = async (event) => {
         log.info('Getting allocation history', { id });
 
         const query = `
-            SELECT 
+            SELECT
                 ah.*,
-                u.name as changed_by_name
+                u.username as changed_by_name
             FROM allocation_history ah
             LEFT JOIN users u ON ah.changed_by = u.id
             WHERE ah.allocation_id = $1
