@@ -25,6 +25,7 @@ const TrainingReport = lazy(() => import('@pages/TrainingReport'));
 const ExternalConsultantsReport = lazy(() => import('@pages/ExternalConsultantsReport'));
 const EmployeeReport = lazy(() => import('@pages/EmployeeReport'));
 const MonthlyAllocationReport = lazy(() => import('@pages/MonthlyAllocationReport'));
+const ClientCostReport = lazy(() => import('@pages/ClientCostReport'));
 const PreSaleReport = lazy(() => import('@pages/PreSaleReport'));
 const Settings = lazy(() => import('@pages/Settings'));
 const Configurations = lazy(() => import('@pages/Configurations'));
@@ -100,6 +101,11 @@ export const routes = [
   {
     path: '/monthly-allocation-report',
     component: MonthlyAllocationReport,
+    isPrivate: true,
+  },
+  {
+    path: '/client-cost-report',
+    component: ClientCostReport,
     isPrivate: true,
   },
   {

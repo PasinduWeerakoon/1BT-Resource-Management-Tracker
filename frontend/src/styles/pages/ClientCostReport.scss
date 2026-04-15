@@ -1,0 +1,56 @@
+.client-cost-report-page {
+  padding: 24px;
+  background: #fff;
+  min-height: 100%;
+
+  .filters-card {
+    margin-bottom: 16px;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  }
+
+  .formula-row {
+    margin-top: 12px;
+  }
+
+  .filters-actions {
+    display: flex;
+    justify-content: flex-end;
+    align-items: flex-end;
+  }
+
+  .formula-alert {
+    margin-bottom: 12px;
+  }
+
+  .validation-alert {
+    margin-bottom: 12px;
+  }
+
+  .summary-row {
+    margin-bottom: 12px;
+  }
+
+  .table-card {
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+
+    .ant-card-head-title {
+      font-weight: 600;
+    }
+  }
+
+  .ant-table-wrapper .ant-table-thead > tr > th {
+    background: #fafafa;
+    font-weight: 600;
+  }
+
+  @media (max-width: 768px) {
+    padding: 16px;
+
+    .filters-actions {
+      justify-content: flex-start;
+      margin-top: 8px;
+    }
+  }
+}

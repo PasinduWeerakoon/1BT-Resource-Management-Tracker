@@ -605,6 +605,7 @@ def generate_summary_report(event, context):
                   AND e.status = 'Active'
                   AND e.deleted_at IS NULL
                   AND p.is_bench_project = false
+                  AND p.account_type = 'Internal'
                   AND e.track_id IN ({billable_tracks})
                   AND e.employee_type_id != 3
                   AND e.is_external = false
@@ -707,9 +708,9 @@ def generate_summary_report(event, context):
         logger.info(f"Allocation row: {allocation_row}")
         
         # Query Bench Analysis (Name, Tier, Focused Area, Allocation, Track)
-        # Note: Bench includes ALL employees (all tracks, including interns, external, etc.)
-        # Note: tier_id and track_id are stored on employees as INTEGER config IDs (not DB table references)
-        # Also includes track information for track-wise summary calculation
+        # Align with dashboard header note: exclude Interns (employee_type_id=3), Synergy (tier_id=7),
+        # Shared Services / Support track (track_id=6), and external consultants — same rules as billable KPIs.
+        # tier_id and track_id are INTEGER config IDs (see configs / DASHBOARD_QUERIES).
         bench_analysis_query = """
             SELECT 
                 e.name,
@@ -726,6 +727,10 @@ def generate_summary_report(event, context):
               AND e.deleted_at IS NULL
               AND p.is_bench_project = true
               AND e.track_id IN (1, 2, 3, 4, 5, 8, 10, 11)
+              AND e.track_id != 6
+              AND e.employee_type_id != 3
+              AND e.tier_id IS DISTINCT FROM 7
+              AND e.is_external = false
             GROUP BY e.id, e.name, e.tier_id, e.track_id
             ORDER BY SUM(a.allocation_percentage) DESC, e.name ASC
         """
@@ -738,7 +743,7 @@ def generate_summary_report(event, context):
             logger.info(f"Sample bench row: {bench_analysis[0]}")
         
         # Query Internal Non-Billing Project Allocations (Name, Tier, Project, Allocation, Track)
-        # Based on DASHBOARD_QUERIES.md Query #12
+        # Based on DASHBOARD_QUERIES.md Query #12 — exclude Account Type External (projects.account_type)
         internal_non_billing_query = """
             SELECT 
                 e.name,
@@ -755,6 +760,7 @@ def generate_summary_report(event, context):
               AND e.status = 'Active'
               AND e.deleted_at IS NULL
               AND p.is_bench_project = false
+              AND p.account_type = 'Internal'
               AND e.track_id IN (1, 2, 3, 4, 5, 8, 11)
               AND e.employee_type_id != 3
               AND e.is_external = false

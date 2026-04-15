@@ -6,12 +6,11 @@ import {
   FileTextOutlined,
   ExceptionOutlined,
   PieChartOutlined,
-  HistoryOutlined,
   BookOutlined,
   GlobalOutlined,
   CalendarOutlined,
   ShoppingOutlined,
-  TeamOutlined,
+  DollarOutlined,
 } from '@ant-design/icons';
 
 export const getMenuItems = (role) => {
@@ -76,6 +75,11 @@ export const getMenuItems = (role) => {
       key: '/monthly-allocation-report',
       icon: <CalendarOutlined />,
       label: 'Monthly Allocation Report',
+    },
+    {
+      key: '/client-cost-report',
+      icon: <DollarOutlined />,
+      label: 'Client Cost Report',
     },
     {
       key: '/presale-report',
