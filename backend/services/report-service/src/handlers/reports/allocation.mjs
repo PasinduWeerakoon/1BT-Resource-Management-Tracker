@@ -181,6 +181,7 @@ export const getClientCostSnapshot = async (event) => {
         const billingFilter = String(queryParams.billing_filter || 'all').toLowerCase();
         const projectIds = parseIntegerList(queryParams.project_ids || queryParams.project_id);
         const resourceIds = parseIntegerList(queryParams.resource_ids);
+        const trackIds = parseIntegerList(queryParams.track_ids || queryParams.track_id);
         const searchTerm = String(queryParams.q || queryParams.search || '').trim();
 
         const employeeParams = [];
@@ -200,6 +201,11 @@ export const getClientCostSnapshot = async (event) => {
         if (resourceIds.length > 0) {
             employeeParams.push(resourceIds);
             employeeWhere.push(`e.id = ANY($${employeeParams.length}::int[])`);
+        }
+
+        if (trackIds.length > 0) {
+            employeeParams.push(trackIds);
+            employeeWhere.push(`e.track_id = ANY($${employeeParams.length}::int[])`);
         }
 
         const allocationParams = [...employeeParams];
@@ -308,6 +314,7 @@ export const getClientCostSnapshot = async (event) => {
             total,
             billingFilter,
             projectCount: projectIds.length,
+            trackCount: trackIds.length,
             searchApplied: Boolean(searchTerm),
         });
 
@@ -323,6 +330,7 @@ export const getClientCostSnapshot = async (event) => {
                 billing_filter: billingFilter,
                 project_ids: projectIds,
                 resource_ids: resourceIds,
+                track_ids: trackIds,
                 q: searchTerm || null,
             },
             generatedAt: new Date().toISOString(),

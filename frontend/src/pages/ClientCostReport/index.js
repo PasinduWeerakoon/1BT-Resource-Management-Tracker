@@ -1,16 +1,17 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSelector } from 'react-redux';
 import {
   Alert,
   Button,
   Card,
   Col,
+  Collapse,
   Input,
   InputNumber,
   Row,
   Select,
   Segmented,
   Space,
-  Statistic,
   Tag,
   Typography,
 } from 'antd';
@@ -18,8 +19,9 @@ import dayjs from 'dayjs';
 import CustomTable from '@components/Table';
 import { ReportHeader } from '@components/ReportLayout';
 import { projectsService, reportsService } from '@api';
+import { selectTracks } from '@redux/slices/configSlice';
 import logger from '@utils/logger';
-import { showErrorToast, showSuccessToast } from '@utils/toast.utils';
+import { showErrorToast } from '@utils/toast.utils';
 import '@styles/pages/ClientCostReport.scss';
 
 const { Text } = Typography;
@@ -73,26 +75,60 @@ const parseProjectsFromResponse = (response) => {
 const formatMoney = (value) => Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
 
 const ClientCostReport = () => {
-  const now = dayjs();
+  const tracksList = useSelector(selectTracks);
   const [loading, setLoading] = useState(false);
   const [employees, setEmployees] = useState([]);
   const [pagination, setPagination] = useState({ page: 1, limit: 25, total: 0, totalPages: 1 });
   const [salaryByEmployee, setSalaryByEmployee] = useState({});
   const [daysByAllocation, setDaysByAllocation] = useState({});
-  const [projectOptions, setProjectOptions] = useState([]);
+  const [projectsCatalog, setProjectsCatalog] = useState([]);
   const [formulaMode, setFormulaMode] = useState('billing_only');
+  const [dRefFormulaOpenKeys, setDRefFormulaOpenKeys] = useState([]);
   const [filters, setFilters] = useState({
     q: '',
     billing_filter: 'all',
     project_ids: [],
-    month: now.month() + 1,
-    year: now.year(),
+    track_ids: [],
   });
 
+  // D_ref: weekdays in the current calendar month (updates when the month changes).
+  const monthKey = dayjs().format('YYYY-MM');
   const workingDays = useMemo(
-    () => getWorkingDaysInMonth(filters.year, filters.month),
-    [filters.year, filters.month]
+    () => getWorkingDaysInMonth(dayjs().year(), dayjs().month() + 1),
+    [monthKey]
   );
+
+  const trackOptions = useMemo(
+    () =>
+      (tracksList || []).map((t) => ({
+        value: t.id,
+        label: t.name || t.label || `Track ${t.id}`,
+      })),
+    [tracksList]
+  );
+
+  const projectOptions = useMemo(() => {
+    const map = new Map();
+    projectsCatalog.forEach((p) => {
+      const id = p.id;
+      if (id == null) return;
+      map.set(id, {
+        value: id,
+        label: p.project_name || p.name || `Project ${id}`,
+      });
+    });
+    employees.forEach((emp) => {
+      (emp.allocations || []).forEach((a) => {
+        if (a.project_id != null && !map.has(a.project_id)) {
+          map.set(a.project_id, {
+            value: a.project_id,
+            label: a.project_name || `Project ${a.project_id}`,
+          });
+        }
+      });
+    });
+    return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label));
+  }, [projectsCatalog, employees]);
 
   const getEmployeeDailyRate = useCallback((employeeId) => {
     const salary = Number(salaryByEmployee[employeeId] || 0);
@@ -124,30 +160,40 @@ const ClientCostReport = () => {
     return { totalDays, totalCost };
   }, [daysByAllocation, getRowCost]);
 
-  const fetchProjects = useCallback(async () => {
-    try {
-      const response = await projectsService.getAll({ page: 1, limit: 300 });
-      const projects = parseProjectsFromResponse(response);
-      const options = projects.map((project) => ({
-        value: project.id,
-        label: project.project_name || project.name || `Project ${project.id}`,
-      }));
-      setProjectOptions(options);
-    } catch (err) {
-      logger.error('Failed to load project options', err);
-    }
+  useEffect(() => {
+    let cancelled = false;
+    const loadProjects = async () => {
+      try {
+        const response = await projectsService.getAll({ page: 1, limit: 1000 });
+        const projects = parseProjectsFromResponse(response);
+        if (!cancelled) {
+          setProjectsCatalog(projects);
+        }
+      } catch (err) {
+        logger.error('Failed to load project list for filters', err);
+      }
+    };
+    loadProjects();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  const fetchData = useCallback(async (nextPage = pagination.page, nextLimit = pagination.limit) => {
+  // Do not depend on pagination.page here: when the page changes, this callback must keep the
+  // same identity so the "filter changed" effect does not re-run and reset to page 1.
+  const fetchData = useCallback(async (nextPage, nextLimit) => {
+    const page = nextPage ?? 1;
+    const limit = nextLimit ?? pagination.limit;
     try {
       setLoading(true);
       const params = {
-        page: nextPage,
-        limit: nextLimit,
+        page,
+        limit,
         billing_filter: filters.billing_filter,
       };
       if (filters.q) params.q = filters.q;
       if (filters.project_ids.length > 0) params.project_ids = filters.project_ids.join(',');
+      if (filters.track_ids.length > 0) params.track_ids = filters.track_ids.join(',');
 
       const response = await reportsService.getClientCostSnapshot(params);
       setEmployees(parseEmployeesFromResponse(response));
@@ -160,22 +206,14 @@ const ClientCostReport = () => {
     } finally {
       setLoading(false);
     }
-  }, [filters, pagination.limit, pagination.page]);
+  }, [filters.billing_filter, filters.project_ids, filters.q, filters.track_ids, pagination.limit]);
 
-  useEffect(() => {
-    fetchProjects();
-  }, [fetchProjects]);
-
+  // When filters change, reset to page 1. Omit pagination.limit from deps so changing page size
+  // via the table only runs fetch from onChange (avoids double request).
   useEffect(() => {
     fetchData(1, pagination.limit);
-  }, [filters.q, filters.billing_filter, filters.project_ids, fetchData, pagination.limit]);
-
-  const summary = useMemo(() => {
-    const totalEmployees = employees.length;
-    const totalProjects = employees.reduce((sum, employee) => sum + (employee.allocations || []).length, 0);
-    const totalCost = employees.reduce((sum, employee) => sum + getEmployeeTotals(employee).totalCost, 0);
-    return { totalEmployees, totalProjects, totalCost };
-  }, [employees, getEmployeeTotals]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-fetch when filters change
+  }, [filters.q, filters.billing_filter, filters.project_ids, filters.track_ids]);
 
   const invalidEmployeeRows = useMemo(
     () => employees.filter((employee) => getEmployeeTotals(employee).totalDays > workingDays),
@@ -197,72 +235,6 @@ const ClientCostReport = () => {
       [employeeId]: normalized,
     }));
   }, []);
-
-  const buildCsvRows = useCallback(() => {
-    const rows = [
-      [
-        'Employee ID',
-        'Employee Name',
-        'Project ID',
-        'Project Name',
-        'Client Name',
-        'Monthly Salary',
-        'Working Days (D_ref)',
-        'Entered Days',
-        'Allocation %',
-        'Billing %',
-        'Formula Mode',
-        'Line Cost',
-      ],
-    ];
-
-    employees.forEach((employee) => {
-      const salary = Number(salaryByEmployee[employee.employee_id] || 0);
-      (employee.allocations || []).forEach((allocation) => {
-        const enteredDays = Number(daysByAllocation[allocation.allocation_id] || 0);
-        const lineCost = getRowCost(employee.employee_id, allocation);
-        rows.push([
-          employee.employee_id,
-          employee.name || '',
-          allocation.project_id,
-          allocation.project_name || '',
-          allocation.client_name || '',
-          salary,
-          workingDays,
-          enteredDays,
-          Number(allocation.allocation_percentage || 0),
-          Number(allocation.billing_percentage || 0),
-          formulaMode,
-          lineCost.toFixed(2),
-        ]);
-      });
-    });
-
-    return rows;
-  }, [daysByAllocation, employees, formulaMode, getRowCost, salaryByEmployee, workingDays]);
-
-  const handleExportCsv = useCallback(() => {
-    const rows = buildCsvRows();
-    if (rows.length <= 1) {
-      showErrorToast('No allocation rows available for export');
-      return;
-    }
-
-    const csv = rows
-      .map((row) => row.map((cell) => `"${String(cell ?? '').replaceAll('"', '""')}"`).join(','))
-      .join('\n');
-
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = globalThis.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `client_cost_report_${filters.year}_${filters.month}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    globalThis.URL.revokeObjectURL(url);
-    showSuccessToast('Client cost CSV exported');
-  }, [buildCsvRows, filters.month, filters.year]);
 
   const employeeColumns = useMemo(() => [
     {
@@ -370,7 +342,7 @@ const ClientCostReport = () => {
         render: (_, record) => (
           <InputNumber
             min={0}
-            max={31}
+            max={workingDays}
             step={0.5}
             style={{ width: '100%' }}
             placeholder="0"
@@ -407,7 +379,7 @@ const ClientCostReport = () => {
 
       <Card className="filters-card">
         <Row gutter={[12, 12]}>
-          <Col xs={24} md={7}>
+          <Col xs={24} md={6}>
             <Input
               allowClear
               placeholder="Search employee name / email / EPF"
@@ -415,7 +387,7 @@ const ClientCostReport = () => {
               onChange={(event) => setFilters((prev) => ({ ...prev, q: event.target.value }))}
             />
           </Col>
-          <Col xs={24} md={5}>
+          <Col xs={24} md={4}>
             <Select
               style={{ width: '100%' }}
               options={BILLING_FILTER_OPTIONS}
@@ -427,6 +399,8 @@ const ClientCostReport = () => {
             <Select
               mode="multiple"
               allowClear
+              showSearch
+              optionFilterProp="label"
               style={{ width: '100%' }}
               placeholder="Filter by project"
               options={projectOptions}
@@ -435,22 +409,18 @@ const ClientCostReport = () => {
               maxTagCount={2}
             />
           </Col>
-          <Col xs={12} md={2}>
-            <InputNumber
-              min={1}
-              max={12}
+          <Col xs={24} md={7}>
+            <Select
+              mode="multiple"
+              allowClear
+              showSearch
+              optionFilterProp="label"
               style={{ width: '100%' }}
-              value={filters.month}
-              onChange={(value) => setFilters((prev) => ({ ...prev, month: value || prev.month }))}
-            />
-          </Col>
-          <Col xs={12} md={3}>
-            <InputNumber
-              min={2000}
-              max={2100}
-              style={{ width: '100%' }}
-              value={filters.year}
-              onChange={(value) => setFilters((prev) => ({ ...prev, year: value || prev.year }))}
+              placeholder="Filter by track (from config)"
+              options={trackOptions}
+              value={filters.track_ids}
+              onChange={(value) => setFilters((prev) => ({ ...prev, track_ids: value || [] }))}
+              maxTagCount={2}
             />
           </Col>
         </Row>
@@ -468,7 +438,6 @@ const ClientCostReport = () => {
           <Col xs={24} md={10} className="filters-actions">
             <Space>
               <Button onClick={() => fetchData(1, pagination.limit)}>Refresh</Button>
-              <Button onClick={handleExportCsv}>Export CSV</Button>
               <Button
                 onClick={() => {
                   setSalaryByEmployee({});
@@ -482,16 +451,43 @@ const ClientCostReport = () => {
         </Row>
       </Card>
 
-      <Alert
-        className="formula-alert"
-        type="info"
-        showIcon
-        message={`Working days (D_ref): ${workingDays}`}
-        description={
-          formulaMode === 'billing_allocation'
-            ? 'Formula: (Monthly Salary / D_ref) x Days x (Billing % / 100) x (Allocation % / 100). Salary is frontend-only and not persisted.'
-            : 'Formula: (Monthly Salary / D_ref) x Days x (Billing % / 100). Salary is frontend-only and not persisted.'
-        }
+      <Collapse
+        bordered={false}
+        className="d-ref-formula-collapse"
+        activeKey={dRefFormulaOpenKeys}
+        onChange={setDRefFormulaOpenKeys}
+        expandIconPosition="end"
+        size="small"
+        items={[
+          {
+            key: 'dref-formula',
+            label: (
+              <Space size={8} wrap className="d-ref-formula-collapse__label">
+                <Text className="d-ref-formula-collapse__kicker">D_ref</Text>
+                <Tag className="d-ref-formula-collapse__value">{workingDays}</Tag>
+                <Text type="secondary" className="d-ref-formula-collapse__month">
+                  {dayjs().format('MMMM YYYY')}
+                </Text>
+                <Text type="secondary" className="d-ref-formula-collapse__hint">
+                  weekdays · tap to expand
+                </Text>
+              </Space>
+            ),
+            children: (
+              <div className="d-ref-formula-collapse__body">
+                <Text type="secondary" className="d-ref-formula-collapse__line">
+                  <Text strong>D_ref</Text> is the weekday count (Mon–Fri) in the current calendar month.
+                  Salary is entered in the browser only and is not saved to the server.
+                </Text>
+                <Text code className="d-ref-formula-collapse__formula">
+                  {formulaMode === 'billing_allocation'
+                    ? '(Salary / D_ref) × Days × (Billing% / 100) × (Allocation% / 100)'
+                    : '(Salary / D_ref) × Days × (Billing% / 100)'}
+                </Text>
+              </div>
+            ),
+          },
+        ]}
       />
 
       {invalidEmployeeRows.length > 0 && (
@@ -500,27 +496,9 @@ const ClientCostReport = () => {
           type="warning"
           showIcon
           message={`Validation warning: ${invalidEmployeeRows.length} employee(s) exceed D_ref`}
-          description="Total entered days under an employee are greater than working days for the selected month."
+          description="Total entered days under an employee are greater than working days (D_ref) for the current calendar month."
         />
       )}
-
-      <Row gutter={[12, 12]} className="summary-row">
-        <Col xs={24} md={8}>
-          <Card size="small">
-            <Statistic title="Loaded Employees" value={summary.totalEmployees} />
-          </Card>
-        </Col>
-        <Col xs={24} md={8}>
-          <Card size="small">
-            <Statistic title="Allocation Rows" value={summary.totalProjects} />
-          </Card>
-        </Col>
-        <Col xs={24} md={8}>
-          <Card size="small">
-            <Statistic title="Total Cost" value={summary.totalCost} precision={2} />
-          </Card>
-        </Col>
-      </Row>
 
       <Card
         className="table-card"
