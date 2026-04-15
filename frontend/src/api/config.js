@@ -10,7 +10,7 @@ import { API_TIMEOUT } from '@constants/api';
 const API_URLS = {
   dev: 'https://s743ays8pa.execute-api.ap-southeast-1.amazonaws.com/dev/api/v1',
   qa: 'https://z7di2kfr2l.execute-api.ap-southeast-1.amazonaws.com/qa/api/v1',
-  prod: 'https://s743ays8pa.execute-api.ap-southeast-1.amazonaws.com/prod/api/v1', // Update when prod URL is available
+  prod: 'https://nrjbmjeg59.execute-api.ap-southeast-1.amazonaws.com/prod/api/v1',
 };
 
 // Safely get environment variables (process.env is injected by webpack DefinePlugin)
