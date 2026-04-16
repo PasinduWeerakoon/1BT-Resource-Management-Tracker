@@ -270,7 +270,7 @@ export const projectSchemas = {
         ...paginationSchema,
         search: Joi.string().allow('').optional(),
         client_id: Joi.number().integer().min(1).optional(),
-        status: Joi.string().valid('Active', 'Completed', 'On Hold', 'Cancelled').optional(),
+        status: Joi.string().valid('Active', 'Inactive', 'Completed', 'On Hold').optional(),
         project_type_id: Joi.number().integer().min(1).optional(),
         billing_status_id: Joi.number().integer().min(1).optional(),
     }),
@@ -283,7 +283,7 @@ export const projectSchemas = {
         client_id: Joi.number().integer().min(1).optional(), // References clients table
         project_start_date: Joi.date().iso().optional(),
         project_end_date: Joi.date().iso().optional(),
-        status: Joi.string().valid('Active', 'Completed', 'On Hold', 'Cancelled').default('Active'),
+        status: Joi.string().valid('Active', 'Inactive', 'Completed', 'On Hold').default('Active'),
         billing_status_id: Joi.number().integer().min(1).optional(), // References billing_statuses table
         team_size: Joi.number().integer().min(1).default(1),
         account_manager_id: Joi.number().integer().min(1).optional(), // References employees table
@@ -300,7 +300,7 @@ export const projectSchemas = {
         client_id: Joi.number().integer().min(1).allow(null).optional(),
         project_start_date: Joi.date().iso().allow(null).optional(),
         project_end_date: Joi.date().iso().allow(null).optional(),
-        status: Joi.string().valid('Active', 'Completed', 'On Hold', 'Cancelled').optional(),
+        status: Joi.string().valid('Active', 'Inactive', 'Completed', 'On Hold').optional(),
         billing_status_id: Joi.number().integer().min(1).allow(null).optional(),
         team_size: Joi.number().integer().min(1).optional(),
         account_manager_id: Joi.number().integer().min(1).allow(null).optional(),

@@ -14,7 +14,7 @@ export const projectsService = {
    * @param {number} params.limit - Items per page
    * @param {string} params.search - Search term
    * @param {string} params.client_id - Filter by client ID
-   * @param {string} params.status - Filter by status (ACTIVE|ON_HOLD|COMPLETED|CANCELLED)
+   * @param {string} params.status - Filter by status (ACTIVE|INACTIVE|ON_HOLD|COMPLETED)
    * @param {string} params.project_type - Filter by project type (INTERNAL|EXTERNAL|BenchProject)
    * @param {boolean} params.is_billable - Filter by billable status
    * @returns {Promise<{success: boolean, data: {items: Array, total: number, page: number, limit: number}}>}
@@ -47,7 +47,7 @@ export const projectsService = {
    * @param {string} projectData.client_id - Client ID (optional for INTERNAL projects)
    * @param {string} projectData.project_type - Project type (INTERNAL|EXTERNAL|BenchProject)
    * @param {boolean} projectData.is_billable - Is billable
-   * @param {string} projectData.status - Status (ACTIVE|ON_HOLD|COMPLETED|CANCELLED)
+   * @param {string} projectData.status - Status (ACTIVE|INACTIVE|ON_HOLD|COMPLETED)
    * @param {string} projectData.start_date - Start date (YYYY-MM-DD)
    * @param {string} projectData.end_date - End date (YYYY-MM-DD)
    * @param {string} projectData.description - Project description
@@ -64,7 +64,7 @@ export const projectsService = {
    * @param {Object} projectData - Updated project data
    * @param {string} projectData.project_name - Project name
    * @param {string} projectData.client_id - Client ID
-   * @param {string} projectData.status - Status (ACTIVE|ON_HOLD|COMPLETED|CANCELLED)
+   * @param {string} projectData.status - Status (ACTIVE|INACTIVE|ON_HOLD|COMPLETED)
    * @param {string} projectData.description - Project description
    * @param {number} projectData.version - Version for optimistic locking
    * @returns {Promise<{success: boolean, data: {id: string, version: number, ...}}>}

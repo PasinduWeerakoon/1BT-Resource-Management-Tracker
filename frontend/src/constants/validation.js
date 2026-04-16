@@ -107,7 +107,7 @@ export const NAME = {
  */
 export const STATUS_VALUES = {
   RESOURCE: ['Active', 'Inactive', 'Serving Notice Period', 'On Leave'],
-  PROJECT: ['Active', 'Completed', 'On Hold', 'Cancelled', 'ACTIVE', 'COMPLETED', 'ON_HOLD', 'CANCELLED'],
+  PROJECT: ['Active', 'Inactive', 'Completed', 'On Hold', 'ACTIVE', 'INACTIVE', 'COMPLETED', 'ON_HOLD'],
   BILLING: ['Billing', 'Non-Billing', 'Bench', 'Training', 'Presale'],
 };
 
