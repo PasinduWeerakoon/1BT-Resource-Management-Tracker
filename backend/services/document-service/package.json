@@ -3,17 +3,20 @@
     "version": "1.0.0",
     "description": "Document generation microservice - Python for Excel/PDF generation",
     "scripts": {
-        "deploy": "serverless deploy",
-        "deploy:dev": "serverless deploy --stage dev",
-        "deploy:qa": "serverless deploy --stage qa",
-        "deploy:uat": "serverless deploy --stage uat",
-        "deploy:prod": "serverless deploy --stage prod",
+        "docker:check": "docker version",
+        "deploy": "npm run docker:check && serverless deploy",
+        "deploy:dev": "npm run docker:check && serverless deploy --stage dev",
+        "deploy:qa": "npm run docker:check && serverless deploy --stage qa",
+        "deploy:uat": "npm run docker:check && serverless deploy --stage uat",
+        "deploy:prod": "npm run docker:check && serverless deploy --stage prod --aws-profile rm",
         "remove": "serverless remove",
         "logs": "serverless logs -f",
-        "invoke": "serverless invoke -f"
+        "invoke": "serverless invoke -f",
+        "requirements:clean": "serverless requirements clean"
     },
     "devDependencies": {
         "serverless": "^3.38.0",
+        "serverless-offline": "^13.9.0",
         "serverless-python-requirements": "^6.0.0"
     }
 }

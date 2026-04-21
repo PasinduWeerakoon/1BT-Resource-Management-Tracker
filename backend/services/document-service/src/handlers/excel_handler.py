@@ -1029,7 +1029,7 @@ def generate_monthly_allocation_report(event, context):
 
         logger.info(f"Generating monthly allocation Excel for {month_name} {target_year} (track_id={track_id})")
 
-        # Build track filter (using %s for psycopg2 parameterized queries)
+        # Build track filter (using %s for pg8000 parameterized queries)
         # IMPORTANT: Parameter order must match the order of %s placeholders
         # in the SQL (dates for current query, optional track, then dates for
         # history query, optional track).

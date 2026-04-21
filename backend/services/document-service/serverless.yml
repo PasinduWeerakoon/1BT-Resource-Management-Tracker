@@ -3,8 +3,13 @@ service: onebt-document-service
 provider:
   name: aws
   runtime: python3.12
+  # Must match pip wheels: SAM image below builds for this arch (use arm64 + :latest-arm64 if on Graviton).
+  architecture: x86_64
   stage: ${opt:stage, 'dev'}
   region: ${opt:region, 'ap-southeast-1'}
+  # Named profile from ~/.aws/credentials. Override per deploy with: --aws-profile <name> (not --profile).
+  # Or: AWS_PROFILE=<name> npx serverless deploy ...
+  profile: ${env:AWS_PROFILE, 'default'}
   memorySize: 512 # Document generation needs more memory
   timeout: 60 # PDFs can take time to generate
   tags:
@@ -56,8 +61,20 @@ plugins:
 
 custom:
   pythonRequirements:
-    dockerizePip: false # Set to 'non-linux' if packages have native binaries
-    slim: true
+    # --- Local deploy from Mac or Windows ---
+    # psycopg2-binary includes native code; it MUST be installed inside Linux matching Lambda.
+    # serverless-python-requirements runs pip inside Docker using the SAM image below.
+    #
+    # Prerequisites (every machine that runs `serverless deploy`):
+    #   - Docker Desktop (or Docker Engine) running before deploy.
+    #   - First pull may need: aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
+    #   - Windows: use Docker Desktop + WSL2 backend if bind-mount / pip in Docker fails; avoid very long paths under the repo.
+    #   - Mac (Apple Silicon): Docker runs the x86_64 image via emulation — slower but produces correct Lambda x86_64 wheels.
+    #
+    # Do not set dockerizePip: false on Mac/Windows — you will get Runtime.ImportModuleError for psycopg2._psycopg on Lambda.
+    dockerizePip: true
+    dockerImage: public.ecr.aws/sam/build-python3.12:latest-x86_64
+    slim: false
     strip: false
     noDeploy:
       - pytest
