@@ -1,7 +1,7 @@
 {
     "name": "onebt-document-service",
     "version": "1.0.0",
-    "description": "Document generation microservice - Python for Excel/PDF generation",
+    "description": "Document generation microservice - Python for Excel/PDF generation ",
     "scripts": {
         "docker:check": "docker version",
         "deploy": "npm run docker:check && serverless deploy",
