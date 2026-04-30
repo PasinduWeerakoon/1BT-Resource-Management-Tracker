@@ -338,20 +338,25 @@ export const allocationSchemas = {
                 'number.min': 'Allocation percentage must be at least 0%'
             }),
         start_date: Joi.date().iso().required(),
-        end_date: Joi.date().iso().allow(null)
-            .when('allocation_percentage', {
-                is: 0,
-                then: Joi.date().iso().required().messages({
-                    'any.required': 'End date is required when allocation percentage is 0%'
-                }),
-                otherwise: Joi.date().iso().allow(null).optional()
-            }),
+        // end_date is always optional — a 0% allocation with billing > 0 is a valid billing-only record
+        end_date: Joi.date().iso().allow(null).optional(),
         billing_percentage: Joi.number().min(0).max(100).default(100),
         billing_status_id: Joi.number().integer().min(1).required()
             .messages({ 'any.required': 'billing_status_id is required when creating an allocation' }),
         notes: Joi.string().max(500).allow('').optional(),
         effective_date: Joi.date().iso().allow(null).optional(),
         forceOverallocation: Joi.boolean().optional(),
+    }).custom((value, helpers) => {
+        // allocation_percentage and billing_percentage cannot both be 0%
+        const alloc = value.allocation_percentage;
+        // billing_percentage default (100) is applied by Joi before custom() runs
+        const billing = value.billing_percentage;
+        if (alloc === 0 && billing === 0) {
+            return helpers.message(
+                'Allocation percentage and Billing percentage cannot both be 0%. At least one must be greater than 0%.'
+            );
+        }
+        return value;
     }),
 
     update: Joi.object({
@@ -361,14 +366,7 @@ export const allocationSchemas = {
                 'number.min': 'Allocation percentage must be at least 0%'
             }),
         start_date: Joi.date().iso().optional(),
-        end_date: Joi.date().iso().allow(null)
-            .when('allocation_percentage', {
-                is: 0,
-                then: Joi.date().iso().required().messages({
-                    'any.required': 'End date is required when allocation percentage is 0%'
-                }),
-                otherwise: Joi.date().iso().allow(null).optional()
-            }),
+        end_date: Joi.date().iso().allow(null).optional(),
         billing_percentage: Joi.number().min(0).max(100).optional(),
         billing_status_id: Joi.number().integer().min(1).optional(),
         is_active: Joi.boolean().optional(),
@@ -376,6 +374,7 @@ export const allocationSchemas = {
         effective_date: Joi.date().iso().allow(null).optional(),
         forceOverallocation: Joi.boolean().optional(),
         version: Joi.number().integer().min(1).optional(),
+        // Note: cross-field both=0 check is enforced in the handler where existing values are available
     }),
 };
 

@@ -103,9 +103,21 @@ const AllocationFormModal = ({
             <Form.Item
               label="Allocation Percentage"
               name="allocation_percentage"
+              dependencies={['billing_percentage']}
               rules={[
                 { required: true, message: 'Allocation percentage is required' },
                 { type: 'number', min: 0, message: 'Must be 0 or greater' },
+                ({ getFieldValue }) => ({
+                  validator(_, value) {
+                    const billing = getFieldValue('billing_percentage');
+                    if (value === 0 && (billing === 0 || billing === null || billing === undefined)) {
+                      return Promise.reject(
+                        new Error('Allocation and Billing percentage cannot both be 0%. At least one must be greater than 0%.')
+                      );
+                    }
+                    return Promise.resolve();
+                  },
+                }),
               ]}
             >
               <InputNumber
@@ -145,9 +157,21 @@ const AllocationFormModal = ({
                 </span>
               }
               name="billing_percentage"
+              dependencies={['allocation_percentage']}
               rules={[
                 { required: true, message: 'Billing percentage is required' },
                 { type: 'number', min: 0, max: 100, message: 'Must be between 0 and 100' },
+                ({ getFieldValue }) => ({
+                  validator(_, value) {
+                    const alloc = getFieldValue('allocation_percentage');
+                    if (value === 0 && (alloc === 0 || alloc === null || alloc === undefined)) {
+                      return Promise.reject(
+                        new Error('Allocation and Billing percentage cannot both be 0%.')
+                      );
+                    }
+                    return Promise.resolve();
+                  },
+                }),
               ]}
             >
               <InputNumber
@@ -180,32 +204,23 @@ const AllocationFormModal = ({
             <Form.Item
               label="Deallocation Date"
               name="end_date"
-              dependencies={['start_date', 'allocation_percentage']}
+              dependencies={['start_date']}
               rules={[
                 ({ getFieldValue }) => ({
                   validator(_, value) {
                     const startDate = getFieldValue('start_date');
-                    const allocationPercentage = getFieldValue('allocation_percentage');
-                    
-                    // If allocation percentage is 0, end_date is required
-                    if (allocationPercentage === 0 && !value) {
-                      return Promise.reject(new Error('Deallocation date is required when allocation is 0'));
-                    }
-                    
-                    // If end_date is provided, validate it's after start_date
                     if (value && startDate && value < startDate) {
                       return Promise.reject(new Error('Deallocation date must be after effective date'));
                     }
-                    
                     return Promise.resolve();
                   },
                 }),
               ]}
             >
-              <DatePicker 
-                style={{ width: '100%' }} 
-                placeholder={form.getFieldValue('allocation_percentage') === 0 ? 'Select deallocation date (required)' : 'Select deallocation date (optional)'} 
-                format="YYYY-MM-DD" 
+              <DatePicker
+                style={{ width: '100%' }}
+                placeholder="Select deallocation date (optional)"
+                format="YYYY-MM-DD"
               />
             </Form.Item>
           </Col>
