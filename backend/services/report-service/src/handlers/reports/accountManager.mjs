@@ -99,6 +99,7 @@ export const getAccountManagerReport = async (event) => {
             allocation_status,
             client_id,
             billing_status,
+            tech_stack_id,
             year,
             month,
             employee_status,
@@ -115,6 +116,8 @@ export const getAccountManagerReport = async (event) => {
 
         // Build WHERE clauses for different queries
         let projectWhereClause = 'WHERE p.deleted_at IS NULL';
+        // Exclude inactive projects from the projects array by default
+        let projectsListWhereClause = `${projectWhereClause} AND p.status != 'Inactive'`;
         let allocationWhereClause = 'WHERE a.deleted_at IS NULL';
         const projectParams = [];
         const allocationParams = [];
@@ -124,13 +127,23 @@ export const getAccountManagerReport = async (event) => {
         // Account Manager filter
         if (account_manager_id && account_manager_id !== 'all') {
             projectWhereClause += ` AND p.account_manager_id = $${projectParamIndex}`;
+            projectsListWhereClause += ` AND p.account_manager_id = $${projectParamIndex}`;
             projectParams.push(account_manager_id);
+            projectParamIndex++;
+        }
+
+        // Single project (top filter)
+        if (project_id && project_id !== 'all' && project_id !== 'All') {
+            projectWhereClause += ` AND p.id = $${projectParamIndex}`;
+            projectsListWhereClause += ` AND p.id = $${projectParamIndex}`;
+            projectParams.push(project_id);
             projectParamIndex++;
         }
 
         // Project Status filter
         if (project_status && project_status !== 'All') {
             projectWhereClause += ` AND p.status = $${projectParamIndex}`;
+            projectsListWhereClause += ` AND p.status = $${projectParamIndex}`;
             projectParams.push(project_status);
             projectParamIndex++;
         }
@@ -138,14 +151,30 @@ export const getAccountManagerReport = async (event) => {
         // Client filter
         if (client_id && client_id !== 'all') {
             projectWhereClause += ` AND p.client_id = $${projectParamIndex}`;
+            projectsListWhereClause += ` AND p.client_id = $${projectParamIndex}`;
             projectParams.push(client_id);
             projectParamIndex++;
         }
 
-        // Billing Status filter for projects
+        // Billing Status filter for projects (billing_status_id / FK on projects)
         if (billing_status && billing_status !== 'All') {
-            projectWhereClause += ` AND p.billing_status = $${projectParamIndex}`;
+            projectWhereClause += ` AND p.billing_status_id = $${projectParamIndex}`;
+            projectsListWhereClause += ` AND p.billing_status_id = $${projectParamIndex}`;
             projectParams.push(billing_status);
+            projectParamIndex++;
+        }
+
+        // Tech stack: projects with an active allocation to a resource in that stack
+        if (tech_stack_id && tech_stack_id !== 'All') {
+            const techStackExists = ` AND EXISTS (
+                SELECT 1 FROM allocations a_ts
+                JOIN employees r_ts ON a_ts.employee_id = r_ts.id AND r_ts.deleted_at IS NULL
+                WHERE a_ts.project_id = p.id AND a_ts.is_active = true
+                AND r_ts.tech_stack_id = $${projectParamIndex}
+            )`;
+            projectWhereClause += techStackExists;
+            projectsListWhereClause += techStackExists;
+            projectParams.push(tech_stack_id);
             projectParamIndex++;
         }
 
@@ -244,7 +273,7 @@ export const getAccountManagerReport = async (event) => {
                 LEFT JOIN employees am ON p.account_manager_id = am.id
                 LEFT JOIN project_types pt ON p.project_type_id = pt.id
                 LEFT JOIN billing_statuses bs ON p.billing_status_id = bs.id
-                ${projectWhereClause}
+                ${projectsListWhereClause}
                 ORDER BY p.project_name
                 LIMIT $${projectParamIndex} OFFSET $${projectParamIndex + 1}
             `, [...projectParams, parseInt(limit), offset]),
@@ -253,7 +282,7 @@ export const getAccountManagerReport = async (event) => {
             db.query(`
                 SELECT COUNT(*) as total
                 FROM projects p
-                ${projectWhereClause}
+                ${projectsListWhereClause}
             `, projectParams),
 
             // Allocations list with pagination
