@@ -412,6 +412,7 @@ const Dashboard = () => {
   const [downloading, setDownloading] = useState(false);
   const [downloadingProjects, setDownloadingProjects] = useState(false);
   const [downloadingCriticalShadows, setDownloadingCriticalShadows] = useState(false);
+  const [downloadingAllEmployees, setDownloadingAllEmployees] = useState(false);
 
   const handleDownloadExcel = useCallback(async () => {
     try {
@@ -452,6 +453,19 @@ const Dashboard = () => {
     }
   }, []);
 
+  const handleDownloadAllEmployeesExcel = useCallback(async () => {
+    try {
+      setDownloadingAllEmployees(true);
+      await documentsService.downloadAllEmployeesExcel();
+      showSuccessToast('All employees report downloaded successfully');
+    } catch (error) {
+      logger.error('Failed to download all employees Excel', error);
+      showErrorToast('Failed to download all employees report');
+    } finally {
+      setDownloadingAllEmployees(false);
+    }
+  }, []);
+
   const downloadButtons = (
     <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
       <Button
@@ -478,6 +492,14 @@ const Dashboard = () => {
         danger
       >
         Download Critical Shadows
+      </Button>
+      <Button
+        type="default"
+        icon={<DownloadOutlined />}
+        onClick={handleDownloadAllEmployeesExcel}
+        loading={downloadingAllEmployees}
+      >
+        Download All Employees
       </Button>
     </div>
   );

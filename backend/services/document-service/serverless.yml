@@ -141,6 +141,15 @@ functions:
           method: GET
           authorizer: ${self:custom.authorizer}
 
+  generateAllEmployeesExcel:
+    handler: src/handlers/documents.generate_all_employees_excel
+    description: Generate all employees roster Excel
+    events:
+      - httpApi:
+          path: /api/v1/documents/excel/all-employees
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
   generateMonthlyAllocationExcel:
     handler: src/handlers/documents.generate_monthly_allocation_excel
     description: Generate monthly allocation report Excel

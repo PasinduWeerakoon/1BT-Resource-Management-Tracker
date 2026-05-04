@@ -115,6 +115,22 @@ export const documentsService = {
   },
 
   /**
+   * Download all employees roster as Excel
+   * @returns {Promise<Blob>} Excel file blob
+   */
+  downloadAllEmployeesExcel: async () => {
+    const response = await fileDownloadClient.get(ENDPOINTS.DOCUMENTS.EXCEL_ALL_EMPLOYEES, {
+      responseType: 'blob',
+    });
+
+    const blob = response.data;
+    const today = new Date().toISOString().split('T')[0];
+    downloadFileFromBlob(blob, response, `all_employees_${today}.xlsx`);
+
+    return blob;
+  },
+
+  /**
    * Download monthly allocation report as Excel
    * Queries both allocations and allocation_history_archive tables
    * @param {Object} params - Query parameters
