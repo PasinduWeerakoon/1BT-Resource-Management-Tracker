@@ -11,6 +11,11 @@ provider:
     Service: resource
     Project: 1BT-Resource-Management
 
+  # Keep CloudFormation template smaller (avoids 51KB inline / change-set issues on large services).
+  versionFunctions: false
+  deploymentBucket:
+    name: serverless-framework-deployments-ap-southeast-1-c03bcf0e-ef8a
+
   # VPC Configuration - Required for RDS access
   vpc:
     securityGroupIds:
@@ -47,7 +52,7 @@ provider:
     id: !ImportValue onebt-${self:provider.stage}-HttpApiId
 
   layers:
-        - arn:aws:lambda:ap-southeast-1:550586832874:layer:onebt-shared-libs-dev:85
+    - ${self:custom.sharedLibsLayerArn}
 
 plugins:
   - serverless-offline
@@ -62,6 +67,7 @@ package:
     - "src/**"
 
 custom:
+  sharedLibsLayerArn: ${ssm:/onebt/shared/layer-arn/${self:provider.stage}}
   authorizer:
     type: jwt
     id: !ImportValue onebt-${self:provider.stage}-CognitoAuthorizerId

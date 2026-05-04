@@ -2,7 +2,7 @@ service: onebt-configuration-service
 
 provider:
   name: aws
-  runtime: nodejs22.x
+  runtime: nodejs20.x
   stage: ${opt:stage, 'dev'}
   region: ${opt:region, 'ap-southeast-1'}
   memorySize: 256
@@ -10,6 +10,10 @@ provider:
   tags:
     Service: configuration
     Project: 1BT-Resource-Management
+
+  versionFunctions: false
+  deploymentBucket:
+    name: serverless-framework-deployments-ap-southeast-1-c03bcf0e-ef8a
 
   # VPC Configuration - Required for RDS access
   vpc:
@@ -43,7 +47,7 @@ provider:
     id: !ImportValue onebt-${self:provider.stage}-HttpApiId
 
   layers:
-    - arn:aws:lambda:ap-southeast-1:550586832874:layer:onebt-shared-libs-dev:85
+    - ${self:custom.sharedLibsLayerArn}
 
 plugins:
   - serverless-offline
@@ -58,6 +62,7 @@ package:
     - "src/**"
 
 custom:
+  sharedLibsLayerArn: ${ssm:/onebt/shared/layer-arn/${self:provider.stage}}
   authorizer:
     type: jwt
     id: !ImportValue onebt-${self:provider.stage}-CognitoAuthorizerId

@@ -97,9 +97,10 @@ export const getHistory = async (event) => {
         const query = `
             SELECT 
                 ah.*,
-                u.name as changed_by_name
+                COALESCE(emp.name, u.username, u.email) AS changed_by_name
             FROM allocation_history ah
             LEFT JOIN users u ON ah.changed_by = u.id
+            LEFT JOIN employees emp ON u.employee_id = emp.id
             WHERE ah.employee_id = $1
             ORDER BY ah.changed_at DESC NULLS LAST, ah.effective_date DESC NULLS LAST, ah.id DESC
         `;

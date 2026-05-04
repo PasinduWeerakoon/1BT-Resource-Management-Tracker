@@ -138,6 +138,8 @@ if [ "$SERVICES_ONLY" = false ]; then
     print_color gray "═══════════════════════════════════════════════════════\n"
     
     cd "$SHARED_LAYER_DIR"
+    print_color cyan "📦 Installing layer npm dependencies (shared/layers/nodejs)..."
+    (cd "$SHARED_LAYER_DIR/layers/nodejs" && npm install --omit=dev)
     print_color cyan "📦 Deploying shared layer..."
     
     if npx serverless deploy --stage "$STAGE"; then

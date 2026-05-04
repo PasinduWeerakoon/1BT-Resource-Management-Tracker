@@ -1,4 +1,5 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# Compatible with macOS system Bash 3.2 (no associative arrays).
 
 #######################################
 # 1BT Resource Management - Deployment Script
@@ -41,31 +42,38 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # Service definitions (order matters for deployment)
-declare -a SERVICE_ORDER=("infrastructure" "shared" "auth" "resource" "configuration" "project" "allocation" "report" "document")
+SERVICE_ORDER=(infrastructure shared auth resource configuration project allocation report document)
 
-declare -A SERVICE_PATHS=(
-    ["infrastructure"]="infrastructure"
-    ["shared"]="shared"
-    ["auth"]="services/auth-service"
-    ["resource"]="services/resource-service"
-    ["configuration"]="services/configuration-service"
-    ["project"]="services/project-service"
-    ["allocation"]="services/allocation-service"
-    ["report"]="services/report-service"
-    ["document"]="services/document-service"
-)
+# Bash 3.2-safe lookups (macOS /bin/bash does not support declare -A).
+service_path_for() {
+    case "$1" in
+        infrastructure)  echo "infrastructure" ;;
+        shared)            echo "shared" ;;
+        auth)              echo "services/auth-service" ;;
+        resource)          echo "services/resource-service" ;;
+        configuration)     echo "services/configuration-service" ;;
+        project)           echo "services/project-service" ;;
+        allocation)        echo "services/allocation-service" ;;
+        report)            echo "services/report-service" ;;
+        document)          echo "services/document-service" ;;
+        *)                 echo "" ;;
+    esac
+}
 
-declare -A SERVICE_DESCRIPTIONS=(
-    ["infrastructure"]="VPC, RDS, Cognito, API Gateway"
-    ["shared"]="Shared Lambda Layer"
-    ["auth"]="Authentication Service"
-    ["resource"]="Resource Management Service"
-    ["configuration"]="Configuration & Master Data Service"
-    ["project"]="Project & Client Service"
-    ["allocation"]="Allocation Service"
-    ["report"]="Reporting Service"
-    ["document"]="Document Generation Service (Python)"
-)
+service_description_for() {
+    case "$1" in
+        infrastructure)  echo "VPC, RDS, Cognito, API Gateway" ;;
+        shared)            echo "Shared Lambda Layer" ;;
+        auth)              echo "Authentication Service" ;;
+        resource)          echo "Resource Management Service" ;;
+        configuration)     echo "Configuration & Master Data Service" ;;
+        project)           echo "Project & Client Service" ;;
+        allocation)        echo "Allocation Service" ;;
+        report)            echo "Reporting Service" ;;
+        document)          echo "Document Generation Service (Python)" ;;
+        *)                 echo "" ;;
+    esac
+}
 
 # Logging functions
 log_success() { echo -e "${GREEN}[OK]${NC} $1"; }
@@ -150,7 +158,7 @@ if [[ ! "$ACTION" =~ ^(deploy|remove|status)$ ]]; then
     exit 1
 fi
 
-if [[ -n "$SERVICE" && -z "${SERVICE_PATHS[$SERVICE]}" ]]; then
+if [[ -n "$SERVICE" && -z "$(service_path_for "$SERVICE")" ]]; then
     log_error "Invalid service: $SERVICE"
     log_info "Valid services: ${SERVICE_ORDER[*]}"
     exit 1
@@ -194,15 +202,36 @@ check_prerequisites() {
     log_success "AWS User/Role: $user_arn"
 }
 
+# Install npm dependencies for the shared Lambda layer (path: shared/layers).
+# Without this, the layer zip omits node_modules and Lambdas fail with ERR_MODULE_NOT_FOUND
+# (e.g. drizzle-orm from /opt/nodejs/database/drizzle.js).
+prepare_shared_layer() {
+    local layer_nodejs="$SCRIPT_DIR/shared/layers/nodejs"
+    if [[ ! -f "$layer_nodejs/package.json" ]]; then
+        log_error "Layer package.json not found: $layer_nodejs/package.json"
+        return 1
+    fi
+    log_info "Installing shared layer dependencies in shared/layers/nodejs (npm install --omit=dev)..."
+    (cd "$layer_nodejs" && npm install --omit=dev)
+}
+
 # Deploy a single service
 deploy_service() {
     local service_name=$1
-    local service_path="${SERVICE_PATHS[$service_name]}"
+    local service_path
+    service_path=$(service_path_for "$service_name")
     local full_path="$SCRIPT_DIR/$service_path"
     
     if [[ ! -d "$full_path" ]]; then
         log_error "Service path not found: $full_path"
         return 1
+    fi
+    
+    if [[ "$service_name" == "shared" ]]; then
+        if ! prepare_shared_layer; then
+            log_error "Shared layer dependency install failed"
+            return 1
+        fi
     fi
     
     log_info "Deploying $service_name from $service_path using profile $AWS_PROFILE..."
@@ -226,7 +255,8 @@ deploy_service() {
 # Remove a single service
 remove_service() {
     local service_name=$1
-    local service_path="${SERVICE_PATHS[$service_name]}"
+    local service_path
+    service_path=$(service_path_for "$service_name")
     local full_path="$SCRIPT_DIR/$service_path"
     
     if [[ ! -d "$full_path" ]]; then
@@ -254,7 +284,8 @@ remove_service() {
 # Get service status
 get_service_status() {
     local service_name=$1
-    local service_path="${SERVICE_PATHS[$service_name]}"
+    local service_path
+    service_path=$(service_path_for "$service_name")
     local full_path="$SCRIPT_DIR/$service_path"
     
     if [[ ! -d "$full_path" ]]; then
@@ -310,7 +341,7 @@ main() {
             
             local failed=""
             for svc in "${services[@]}"; do
-                log_step "Deploying: $svc - ${SERVICE_DESCRIPTIONS[$svc]}"
+                log_step "Deploying: $svc - $(service_description_for "$svc")"
                 
                 if ! deploy_service "$svc"; then
                     failed="$svc"
@@ -371,7 +402,7 @@ main() {
             
             for svc in "${services[@]}"; do
                 echo ""
-                log_info "Checking: $svc - ${SERVICE_DESCRIPTIONS[$svc]}"
+                log_info "Checking: $svc - $(service_description_for "$svc")"
                 get_service_status "$svc"
             done
             ;;
