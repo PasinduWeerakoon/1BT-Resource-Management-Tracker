@@ -72,6 +72,21 @@ const parseResponseData = (response) => {
   return [];
 };
 
+/** Query string for GET /reports/account-manager (matches report-service handler). */
+const buildAccountManagerReportQueryParams = (filters, projectStatusesList, reportPage, reportLimit) => {
+  const queryParams = { page: reportPage, limit: reportLimit };
+  if (filters.accountManager !== 'All') queryParams.account_manager_id = filters.accountManager;
+  if (filters.projectName !== 'All') queryParams.project_id = filters.projectName;
+  if (filters.projectStatus !== 'All') {
+    const statusRow = projectStatusesList.find((s) => String(s.id) === String(filters.projectStatus));
+    if (statusRow?.name) queryParams.project_status = statusRow.name;
+  }
+  if (filters.clientName !== 'All') queryParams.client_id = filters.clientName;
+  if (filters.billingStatus !== 'All') queryParams.billing_status = filters.billingStatus;
+  if (filters.techStack !== 'All') queryParams.tech_stack_id = filters.techStack;
+  return queryParams;
+};
+
 const useAccountManagerData = () => {
   // ─── Redux Config ───
   const projectTypesList = useSelector(selectProjectTypes);
@@ -139,6 +154,11 @@ const useAccountManagerData = () => {
   const fetchResourcesRef = useRef(false);
   const fetchReportRef = useRef(false);
   const fetchAllocationsRef = useRef(false);
+  /** Latest allocation table pagination (pageSize for fetches without stale closures). */
+  const allocationPaginationRef = useRef(allocationPagination);
+  allocationPaginationRef.current = allocationPagination;
+  /** After a successful report fetch, matches filters used for that response (see fetchAccountManagerReport). */
+  const prevAccountManagerFilterKeyRef = useRef('');
 
   // ─── Fetch clients ───
   useEffect(() => {
@@ -264,9 +284,14 @@ const useAccountManagerData = () => {
 
   // ─── Fetch project allocations (BY ALLOCATION table) ───
   const fetchProjectAllocations = useCallback(async (projectId, page = 1, limit = 10) => {
-    const effectiveProjectId = projectId
-      ?? selectedProjectId
-      ?? (filters.projectName !== 'All' ? filters.projectName : null);
+    const fromFilter = filters.projectName === 'All' ? null : filters.projectName;
+    const effectiveProjectId = projectId ?? selectedProjectId ?? fromFilter;
+
+    if (!effectiveProjectId) {
+      setAllocationData([]);
+      setAllocationPagination((prev) => ({ ...prev, current: page, pageSize: limit, total: 0 }));
+      return;
+    }
 
     if (fetchAllocationsRef.current) return;
 
@@ -274,13 +299,9 @@ const useAccountManagerData = () => {
       fetchAllocationsRef.current = true;
       setLoadingAllocations(true);
 
+      // allocations list API only honors project_id (and resource_id / is_active); other filters apply via report + row selection.
       const params = { page, limit };
       if (effectiveProjectId) params.project_id = effectiveProjectId;
-      if (filters.accountManager !== 'All') params.account_manager_id = filters.accountManager;
-      if (filters.projectStatus !== 'All') params.project_status_id = filters.projectStatus;
-      if (filters.clientName !== 'All') params.client_id = filters.clientName;
-      if (filters.billingStatus !== 'All') params.billing_status_id = filters.billingStatus;
-      if (filters.techStack !== 'All') params.tech_stack_id = filters.techStack;
 
       const response = await allocationsService.getAll(params);
 
@@ -322,33 +343,36 @@ const useAccountManagerData = () => {
   }, [selectedProjectId, filters]);
 
   // ─── Fetch main report ───
+  // Project overview + charts use top filters + projectPagination only (not row selection).
+  // BY ALLOCATION is loaded separately via fetchProjectAllocations(selected project).
   const fetchAccountManagerReport = useCallback(async () => {
     if (fetchReportRef.current) return;
+
+    const filterKey = [
+      filters.accountManager,
+      filters.projectName,
+      filters.projectStatus,
+      filters.clientName,
+      filters.billingStatus,
+      filters.techStack,
+    ].join('|');
+    const accountManagerFiltersChanged =
+      prevAccountManagerFilterKeyRef.current !== filterKey && prevAccountManagerFilterKeyRef.current !== '';
+
+    const reportPage = accountManagerFiltersChanged ? 1 : projectPagination.current;
+    const reportLimit = projectPagination.pageSize;
 
     try {
       fetchReportRef.current = true;
       setLoadingReport(true);
       setLoadingProjects(true);
 
-      const queryParams = {};
-      if (filters.accountManager !== 'All') queryParams.account_manager_id = filters.accountManager;
-      if (selectedProjectId) {
-        queryParams.project_id = selectedProjectId;
-      } else if (filters.projectName !== 'All') {
-        queryParams.project_id = filters.projectName;
-      }
-      if (filters.projectStatus !== 'All') queryParams.project_status_id = filters.projectStatus;
-      if (filters.clientName !== 'All') queryParams.client_id = filters.clientName;
-      if (filters.billingStatus !== 'All') queryParams.billing_status_id = filters.billingStatus;
-      if (filters.techStack !== 'All') queryParams.tech_stack_id = filters.techStack;
-
-      if (selectedProjectId) {
-        queryParams.page = allocationPagination.current;
-        queryParams.limit = allocationPagination.pageSize;
-      } else {
-        queryParams.page = projectPagination.current;
-        queryParams.limit = projectPagination.pageSize;
-      }
+      const queryParams = buildAccountManagerReportQueryParams(
+        filters,
+        projectStatusesList,
+        reportPage,
+        reportLimit
+      );
 
       const response = await reportsService.getAccountManager(queryParams);
 
@@ -367,14 +391,34 @@ const useAccountManagerData = () => {
           const allocationsData = data.allocations?.data || [];
           setProjectData(transformProjectData(data.projects.data, allocationsData));
           setProjectPagination({
-            current: data.projects.pagination?.page || projectPagination.current,
-            pageSize: data.projects.pagination?.limit || projectPagination.pageSize,
+            current: data.projects.pagination?.page || reportPage,
+            pageSize: data.projects.pagination?.limit || reportLimit,
             total: data.projects.pagination?.total || 0,
           });
+        } else {
+          setProjectData([]);
+          setProjectPagination((prev) => ({
+            ...prev,
+            current: reportPage,
+            pageSize: reportLimit,
+            total: 0,
+          }));
         }
 
+        prevAccountManagerFilterKeyRef.current = filterKey;
+
+        const firstProjectId = data.projects?.data?.[0]?.id ?? null;
+        const allocPageSize = allocationPaginationRef.current.pageSize;
+
         setAllocationPagination((prev) => ({ ...prev, current: 1 }));
-        fetchProjectAllocations(undefined, 1, allocationPagination.pageSize);
+        if (firstProjectId) {
+          setSelectedProjectId(firstProjectId);
+          fetchProjectAllocations(firstProjectId, 1, allocPageSize);
+        } else {
+          setSelectedProjectId(null);
+          setAllocationData([]);
+          setAllocationPagination((prev) => ({ ...prev, current: 1, total: 0 }));
+        }
       }
     } catch (error) {
       logger.error('Failed to fetch account manager report:', error);
@@ -384,7 +428,7 @@ const useAccountManagerData = () => {
       setLoadingProjects(false);
       fetchReportRef.current = false;
     }
-  }, [filters, selectedProjectId, projectPagination.current, projectPagination.pageSize, allocationPagination, fetchProjectAllocations]);
+  }, [filters, projectPagination.current, projectPagination.pageSize, projectStatusesList, fetchProjectAllocations]);
 
   // ─── Trigger report fetch on filter / pagination changes ───
   useEffect(() => {
@@ -401,7 +445,7 @@ const useAccountManagerData = () => {
     projectPagination.pageSize,
   ]);
 
-  // ─── Clear allocations when project is deselected ───
+  // ─── Clear allocations when project is deselected (e.g. empty overview) ───
   useEffect(() => {
     if (!selectedProjectId) {
       setAllocationData([]);
@@ -411,8 +455,10 @@ const useAccountManagerData = () => {
 
   // ─── Derived values ───
   const selectedAccountManagerName = useMemo(() => {
-    return filters.accountManager || null;
-  }, [filters.accountManager]);
+    if (filters.accountManager === 'All') return null;
+    const am = accountManagersList.find((a) => String(a.id) === String(filters.accountManager));
+    return am?.name || null;
+  }, [filters.accountManager, accountManagersList]);
 
   const displayProjectName = useMemo(() => {
     if (selectedProjectId) {

@@ -1384,3 +1384,143 @@ def generate_projects_report(event, context):
         return error(f"Failed to generate projects report: {str(e)}")
     finally:
         close_connection()
+
+
+def _safe_int_id(value):
+    """Coerce DB numeric types to int for config lookups."""
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def generate_all_employees_report(event, context):
+    """
+    Generate all employees roster Excel (non-deleted rows).
+    GET /documents/excel/all-employees
+    """
+    try:
+        sql = """
+            SELECT
+                e.id,
+                e.epf_no,
+                e.emp_no,
+                e.global_employee_id,
+                e.name,
+                e.email,
+                e.phone_number,
+                e.track_id,
+                e.tech_stack_id,
+                e.tier_id,
+                d.name AS designation,
+                et.name AS employee_type,
+                e.status::text AS status,
+                e.joined_date,
+                e.total_allocation,
+                e.total_resource_billing,
+                e.is_external,
+                e.is_account_manager,
+                e.created_at,
+                e.updated_at
+            FROM employees e
+            LEFT JOIN designations d ON e.designation_id = d.id
+            LEFT JOIN employee_types et ON e.employee_type_id = et.id
+            WHERE e.deleted_at IS NULL
+            ORDER BY e.name ASC
+        """
+
+        data = query(sql) or []
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "All Employees"
+
+        headers = [
+            "ID",
+            "EPF No",
+            "Employee No",
+            "Global Employee ID",
+            "Name",
+            "Email",
+            "Phone",
+            "Track",
+            "Tech Stack",
+            "Tier",
+            "Designation",
+            "Employee Type",
+            "Status",
+            "Joined Date",
+            "Total Allocation %",
+            "Total Resource Billing %",
+            "External",
+            "Account Manager",
+            "Created At",
+            "Updated At",
+        ]
+
+        ncols = len(headers)
+        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=ncols)
+        title_cell = ws.cell(row=1, column=1, value="All Employees Report")
+        title_cell.font = Font(bold=True, size=16)
+        title_cell.alignment = Alignment(horizontal="center")
+
+        ws.cell(row=2, column=1, value=f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        ws.cell(row=2, column=12, value=f"Total Employees: {len(data)}")
+
+        for col, header in enumerate(headers, 1):
+            cell = ws.cell(row=4, column=col, value=header)
+            apply_header_style(cell)
+
+        for row_idx, row in enumerate(data, 5):
+            tid = _safe_int_id(row.get("track_id"))
+            tsid = _safe_int_id(row.get("tech_stack_id"))
+            trid = _safe_int_id(row.get("tier_id"))
+
+            cells = [
+                row.get("id"),
+                row.get("epf_no") or "",
+                row.get("emp_no") or "",
+                row.get("global_employee_id") or "",
+                row.get("name") or "",
+                row.get("email") or "",
+                row.get("phone_number") or "",
+                get_track_name(tid),
+                get_tech_stack_name(tsid),
+                get_tier_name(trid),
+                row.get("designation") or "",
+                row.get("employee_type") or "",
+                row.get("status") or "",
+                str(row.get("joined_date", ""))[:10] if row.get("joined_date") else "",
+                float(row.get("total_allocation") or 0),
+                float(row.get("total_resource_billing") or 0),
+                "Yes" if row.get("is_external") else "No",
+                "Yes" if row.get("is_account_manager") else "No",
+                str(row.get("created_at", ""))[:19] if row.get("created_at") else "",
+                str(row.get("updated_at", ""))[:19] if row.get("updated_at") else "",
+            ]
+
+            for col_idx, value in enumerate(cells, 1):
+                cell = ws.cell(row=row_idx, column=col_idx, value=value)
+                apply_cell_style(cell)
+
+        auto_column_width(ws)
+
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+
+        filename = f"all_employees_{datetime.now().strftime('%Y%m%d')}.xlsx"
+
+        return file_response(
+            output.getvalue(),
+            filename,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to generate all employees report: {str(e)}", exc_info=True)
+        return error(f"Failed to generate all employees report: {str(e)}")
+    finally:
+        close_connection()

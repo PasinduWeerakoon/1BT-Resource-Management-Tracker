@@ -422,6 +422,19 @@ export const create = async (event) => {
                 return badRequest(billingValidation.error);
             }
         }
+
+        // Guard: allocation% and billing% cannot both be 0% (defence-in-depth; Joi schema also checks this)
+        if (!isBenchAllocation && validated.allocation_percentage === 0 && validated.billing_percentage === 0) {
+            log.warn('Rejected create - both allocation and billing are 0%', {
+                resourceId: validated.resource_id,
+                projectId: validated.project_id
+            });
+            return badRequest(
+                'Allocation percentage and Billing percentage cannot both be 0%. At least one must be greater than 0%.',
+                { allocationPercentage: 0, billingPercentage: 0 }
+            );
+        }
+
         if (!isBenchAllocation) {
             capacityCheck = await checkProjectCapacity(validated.project_id);
         }
@@ -866,31 +879,38 @@ export const update = async (event) => {
         }
 
 
-        // Enhancement: handle 0% allocation
-        // If allocation is 0, billing must be 0, and we deallocate them (require end date)
-        if (validated.allocation_percentage === 0 && !isBenchAllocation) {
-            // Force billing to 0
-            validated.billing_percentage = 0;
+        // Guard: allocation% and billing% cannot both be 0% (checked against effective values,
+        // i.e. the combination of the incoming update and the existing stored values)
+        if (!isBenchAllocation) {
+            const effectiveAllocation = validated.allocation_percentage !== undefined
+                ? validated.allocation_percentage
+                : Number(existing.allocation_percentage);
 
-            // Check if end_date (deallocated_date) is provided or already exists
-            const hasEndDate = validated.end_date || existing.deallocated_date;
+            // billing_percentage may have been forced to 0 above by the Non-Billing status check
+            const effectiveBilling = validated.billing_percentage !== undefined
+                ? validated.billing_percentage
+                : Number(existing.billing_percentage);
 
-            if (!hasEndDate) {
-                return badRequest('End Name (Deallocation Date) is required when setting allocation to 0%.', {
-                    requiredField: 'end_date'
+            if (effectiveAllocation === 0 && effectiveBilling === 0) {
+                log.warn('Rejected update - both allocation and billing cannot be 0%', {
+                    id,
+                    effectiveAllocation,
+                    effectiveBilling
+                });
+                return badRequest(
+                    'Allocation percentage and Billing percentage cannot both be 0%. At least one must be greater than 0%.',
+                    { allocationPercentage: effectiveAllocation, billingPercentage: effectiveBilling }
+                );
+            }
+
+            // allocation=0 with billing>0 is a valid billing-only record — keep is_active=true
+            // (no forced deactivation, no forced billing=0, no end_date requirement)
+            if (effectiveAllocation === 0 && effectiveBilling > 0) {
+                log.info('Allocation set to 0% with active billing (billing-only record)', {
+                    id,
+                    billingPercentage: effectiveBilling
                 });
             }
-
-            // Effectively deactivate the allocation
-            // We'll set is_active to false in the update params below if it's not explicitly passed
-            if (validated.is_active === undefined) {
-                validated.is_active = false;
-            }
-
-            log.info('Setting allocation to 0% - forced billing to 0, checked end date, setting inactive', {
-                id,
-                endDate: validated.end_date || existing.deallocated_date
-            });
         }
 
         // Enhancement 3.8: Check project capacity (warning only, if project changed or for info)
