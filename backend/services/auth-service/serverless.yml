@@ -1,15 +1,26 @@
 service: onebt-auth-service
 
+custom:
+  # Resolved at deploy time from SSM (written by onebt-shared-<stage> stack).
+  # Avoids CFN ImportValue, which blocks shared layer updates while consumers exist.
+  sharedLibsLayerArn: ${ssm:/onebt/shared/layer-arn/${self:provider.stage}}
+
 provider:
   name: aws
-  runtime: nodejs22.x
+  runtime: nodejs20.x
   stage: ${opt:stage, 'dev'}
   region: ${opt:region, 'ap-southeast-1'}
+  # Keep CF template under 51KB (many functions + version resources exceed API inline limit).
+  versionFunctions: false
   memorySize: 256
   timeout: 30
   tags:
     Service: auth
     Project: 1BT-Resource-Management
+
+  # Use existing regional bucket so the stack does not embed ServerlessDeploymentBucket in the template.
+  deploymentBucket:
+    name: serverless-framework-deployments-ap-southeast-1-c03bcf0e-ef8a
 
   environment:
     NODE_ENV: ${self:provider.stage}
@@ -57,7 +68,7 @@ provider:
     id: !ImportValue onebt-${self:provider.stage}-HttpApiId
 
   layers:
-    - arn:aws:lambda:ap-southeast-1:550586832874:layer:onebt-shared-libs-dev:85
+    - ${self:custom.sharedLibsLayerArn}
 
 plugins:
   - serverless-offline
@@ -69,6 +80,8 @@ package:
     - "!.gitignore"
     - "!*.md"
     - "!tests/**"
+    - "package.json"
+    - "node_modules/drizzle-orm/**"
     - "src/**"
 
 functions:

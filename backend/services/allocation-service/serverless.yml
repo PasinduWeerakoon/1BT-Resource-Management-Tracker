@@ -46,8 +46,9 @@ provider:
   httpApi:
     id: !ImportValue onebt-${self:provider.stage}-HttpApiId
 
+  # Layer ARN via CloudFormation export from onebt-shared-<stage> (avoids stale version numbers).
   layers:
-    - arn:aws:lambda:ap-southeast-1:550586832874:layer:onebt-shared-libs-dev:85
+    - ${self:custom.sharedLibsLayerArn}
 
 plugins:
   - serverless-offline
@@ -63,6 +64,7 @@ package:
     - "package.json"
 
 custom:
+  sharedLibsLayerArn: ${ssm:/onebt/shared/layer-arn/${self:provider.stage}}
   authorizer:
     type: jwt
     id: !ImportValue onebt-${self:provider.stage}-CognitoAuthorizerId

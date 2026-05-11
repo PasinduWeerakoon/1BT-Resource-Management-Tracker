@@ -110,6 +110,29 @@ function Test-Prerequisites {
     }
 }
 
+# Ensure shared Lambda layer zip includes node_modules (drizzle-orm, pg, etc.)
+function Install-SharedLayerDependencies {
+    $layerJs = Join-Path $ScriptDir "shared/layers/nodejs"
+    if (-not (Test-Path (Join-Path $layerJs "package.json"))) {
+        Write-Err "Layer package.json not found: $layerJs"
+        return $false
+    }
+    Write-Info "Installing shared layer dependencies in shared/layers/nodejs (npm install --omit=dev)..."
+    Push-Location $layerJs
+    try {
+        npm install --omit=dev
+        if ($LASTEXITCODE -ne 0) { throw "npm install failed" }
+        return $true
+    }
+    catch {
+        Write-Err "Shared layer dependency install failed: $_"
+        return $false
+    }
+    finally {
+        Pop-Location
+    }
+}
+
 # Deploy a single service
 function Deploy-Service {
     param([string]$ServiceName)
@@ -120,6 +143,10 @@ function Deploy-Service {
     if (-not (Test-Path $fullPath)) {
         Write-Err "Service path not found: $fullPath"
         return $false
+    }
+
+    if ($ServiceName -eq "shared") {
+        if (-not (Install-SharedLayerDependencies)) { return $false }
     }
 
     Write-Info "Deploying $ServiceName from $($svc.Path)..."

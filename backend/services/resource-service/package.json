@@ -14,7 +14,8 @@
         "invoke": "serverless invoke -f"
     },
     "devDependencies": {
-        "serverless": "^3.38.0"
+        "serverless": "^3.38.0",
+        "serverless-offline": "^13.9.0"
     },
     "engines": {
         "node": ">=20.0.0"

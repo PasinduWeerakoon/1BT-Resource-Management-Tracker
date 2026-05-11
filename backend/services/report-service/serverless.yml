@@ -2,14 +2,20 @@ service: onebt-report-service
 
 provider:
   name: aws
-  runtime: nodejs22.x
+  runtime: nodejs20.x
   stage: ${opt:stage, 'dev'}
   region: ${opt:region, 'ap-southeast-1'}
+  # Publishing a Lambda version per function balloons the CF template past the 51KB limit for large stacks.
+  versionFunctions: false
   memorySize: 512 # Reports need more memory for data processing
   timeout: 60 # Reports can take longer
   tags:
     Service: report
     Project: 1BT-Resource-Management
+
+  # Use existing regional deployments bucket so CF template omits ServerlessDeploymentBucket resources (keeps template under 51KB inline limit edge cases).
+  deploymentBucket:
+    name: serverless-framework-deployments-ap-southeast-1-c03bcf0e-ef8a
 
   # VPC Configuration - Required for RDS access
   vpc:
@@ -42,8 +48,9 @@ provider:
   httpApi:
     id: !ImportValue onebt-${self:provider.stage}-HttpApiId
 
+  # Layer ARN from onebt-shared-<stage> stack export (avoids stale :version ARNs per stage).
   layers:
-    - arn:aws:lambda:ap-southeast-1:550586832874:layer:onebt-shared-libs-dev:85
+    - ${self:custom.sharedLibsLayerArn}
 
 plugins:
   - serverless-offline
@@ -59,6 +66,7 @@ package:
     - "package.json"
 
 custom:
+  sharedLibsLayerArn: ${ssm:/onebt/shared/layer-arn/${self:provider.stage}}
   authorizer:
     type: jwt
     id: !ImportValue onebt-${self:provider.stage}-CognitoAuthorizerId
