@@ -4,10 +4,17 @@
  */
 
 import React from 'react';
-import { Card, Button } from 'antd';
+import { Card, Button, Select } from 'antd';
 import { PlusOutlined, UpOutlined, DownOutlined } from '@ant-design/icons';
 import CustomTable from '@components/Table';
 import PropTypes from 'prop-types';
+
+const { Option } = Select;
+
+const ALLOCATION_STATUS_OPTIONS = [
+  { value: 'Active', label: 'Active' },
+  { value: 'Inactive', label: 'Inactive' },
+];
 
 const AllocationsTable = ({
   allocationData,
@@ -20,6 +27,8 @@ const AllocationsTable = ({
   onRowClick,
   onPaginationChange,
   displayProjectName,
+  allocationStatusFilter = 'Active',
+  onAllocationStatusFilterChange,
   isAdmin = false,
 }) => {
   return (
@@ -36,6 +45,23 @@ const AllocationsTable = ({
             )}
           </span>
           <div className="project-overview-actions">
+            {expanded && (
+              <div className="allocation-status-filter">
+                <label htmlFor="allocation-status-select">Status</label>
+                <Select
+                  id="allocation-status-select"
+                  value={allocationStatusFilter}
+                  onChange={onAllocationStatusFilterChange}
+                  style={{ width: 120 }}
+                >
+                  {ALLOCATION_STATUS_OPTIONS.map((opt) => (
+                    <Option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </Option>
+                  ))}
+                </Select>
+              </div>
+            )}
             {expanded && isAdmin && (
               <Button
                 type="primary"
@@ -90,6 +116,8 @@ AllocationsTable.propTypes = {
   onRowClick: PropTypes.func.isRequired,
   onPaginationChange: PropTypes.func.isRequired,
   displayProjectName: PropTypes.string,
+  allocationStatusFilter: PropTypes.string,
+  onAllocationStatusFilterChange: PropTypes.func.isRequired,
   isAdmin: PropTypes.bool,
 };
 

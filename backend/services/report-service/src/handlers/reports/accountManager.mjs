@@ -116,8 +116,8 @@ export const getAccountManagerReport = async (event) => {
 
         // Build WHERE clauses for different queries
         let projectWhereClause = 'WHERE p.deleted_at IS NULL';
-        // Exclude inactive projects from the projects array by default
-        let projectsListWhereClause = `${projectWhereClause} AND p.status != 'Inactive'`;
+        // Exclude inactive and on-hold projects from the projects list by default
+        let projectsListWhereClause = `${projectWhereClause} AND p.status NOT IN ('Inactive', 'On Hold')`;
         let allocationWhereClause = 'WHERE a.deleted_at IS NULL';
         const projectParams = [];
         const allocationParams = [];

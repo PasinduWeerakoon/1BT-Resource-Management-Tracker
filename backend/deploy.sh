@@ -82,6 +82,16 @@ log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 log_step() { echo -e "\n${MAGENTA}=== $1 ===${NC}"; }
 
+# Prefer global Serverless CLI so deploy does not sit on a silent npx download (first
+# `npx serverless` can take many minutes with no terminal output).
+sls() {
+    if command -v serverless &> /dev/null; then
+        command serverless "$@"
+    else
+        npx serverless "$@"
+    fi
+}
+
 # Help function
 show_help() {
     cat << EOF
@@ -183,11 +193,15 @@ check_prerequisites() {
     log_success "Node.js: $(node --version)"
     
     # Check Serverless Framework
-    if ! npx serverless --version &> /dev/null; then
-        log_error "Serverless Framework not found. Run: npm install -g serverless"
+    if ! command -v serverless &> /dev/null; then
+        log_warn "No global 'serverless' found — using npx (first run can download for 5–15+ min with little output)."
+        log_warn "Install once to avoid that: npm install -g serverless@3"
+    fi
+    if ! sls --version &> /dev/null; then
+        log_error "Serverless Framework not found. Run: npm install -g serverless@3"
         exit 1
     fi
-    log_success "Serverless: $(npx serverless --version 2>&1 | head -1)"
+    log_success "Serverless: $(sls --version 2>&1 | head -1)"
     
     # Check AWS credentials
     if ! aws sts get-caller-identity --profile "$AWS_PROFILE" &> /dev/null; then
@@ -240,8 +254,30 @@ deploy_service() {
     
     # Export AWS profile for serverless framework
     export AWS_PROFILE="$AWS_PROFILE"
+
+    # Serverless plugins (e.g. serverless-python-requirements) live in devDependencies — install
+    # if node_modules is missing or a declared plugin package is absent (avoids opaque deploy errors).
+    if [[ -f "package.json" ]]; then
+        local need_npm=0
+        if [[ ! -d "node_modules" ]]; then
+            need_npm=1
+        else
+            while IFS= read -r plug; do
+                [[ -z "$plug" ]] && continue
+                local safe="${plug//[^a-zA-Z0-9_-]/_}"
+                if [[ ! -d "node_modules/$plug" ]]; then
+                    need_npm=1
+                    break
+                fi
+            done < <(grep -E '^[[:space:]]*-[[:space:]]+serverless-' serverless.yml 2>/dev/null | sed 's/.*-[[:space:]]*//' | tr -d '\r' || true)
+        fi
+        if [[ "$need_npm" -eq 1 ]]; then
+            log_info "Running npm install in $service_path (Serverless plugins / dependencies)..."
+            npm install
+        fi
+    fi
     
-    if npx serverless deploy --stage "$STAGE" --region "$REGION" --aws-profile "$AWS_PROFILE" --verbose; then
+    if sls deploy --stage "$STAGE" --region "$REGION" --aws-profile "$AWS_PROFILE" --verbose; then
         log_success "$service_name deployed successfully"
         cd "$SCRIPT_DIR"
         return 0
@@ -271,7 +307,7 @@ remove_service() {
     # Export AWS profile for serverless framework
     export AWS_PROFILE="$AWS_PROFILE"
     
-    if npx serverless remove --stage "$STAGE" --region "$REGION" --aws-profile "$AWS_PROFILE" 2>&1; then
+    if sls remove --stage "$STAGE" --region "$REGION" --aws-profile "$AWS_PROFILE" 2>&1; then
         log_success "$service_name removed"
     else
         log_warn "Error removing $service_name (may not exist)"
@@ -298,7 +334,7 @@ get_service_status() {
     # Export AWS profile for serverless framework
     export AWS_PROFILE="$AWS_PROFILE"
     
-    if npx serverless info --stage "$STAGE" --region "$REGION" --aws-profile "$AWS_PROFILE" 2>&1; then
+    if sls info --stage "$STAGE" --region "$REGION" --aws-profile "$AWS_PROFILE" 2>&1; then
         log_success "$service_name - Deployed"
     else
         log_warn "$service_name - Not deployed"

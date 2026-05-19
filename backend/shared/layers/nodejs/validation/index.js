@@ -69,6 +69,13 @@ export const validateRequest = (schemaType, operation, data) => {
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+/** Accept string, null, or '' — clients PUT often sends null to clear optional DB columns */
+const clientNullableString = (maxLen) =>
+    Joi.alternatives().try(Joi.string().max(maxLen), Joi.valid(null), Joi.valid('')).optional();
+
+const clientNullableEmail = () =>
+    Joi.alternatives().try(Joi.string().pattern(emailPattern), Joi.valid(null), Joi.valid('')).optional();
+
 // Pagination schema
 const paginationSchema = {
     page: Joi.number().integer().min(1).default(1),
@@ -242,24 +249,24 @@ export const clientSchemas = {
     list: Joi.object({
         ...paginationSchema,
         search: Joi.string().allow('').optional(),
-        is_active: Joi.string().valid('true', 'false').optional(),
+        is_active: Joi.string().valid('true', 'false', 'all').optional(),
     }),
 
     create: Joi.object({
         client_name: Joi.string().max(100).required(),
-        contact_person: Joi.string().max(100).optional(),
-        contact_email: Joi.string().pattern(emailPattern).optional(),
-        contact_phone: Joi.string().max(50).optional(),
-        address: Joi.string().max(500).optional(),
+        contact_person: clientNullableString(100),
+        contact_email: clientNullableEmail(),
+        contact_phone: clientNullableString(50),
+        address: clientNullableString(500),
         is_active: Joi.boolean().default(true),
     }),
 
     update: Joi.object({
         client_name: Joi.string().max(100).optional(),
-        contact_person: Joi.string().max(100).optional(),
-        contact_email: Joi.string().pattern(emailPattern).optional(),
-        contact_phone: Joi.string().max(50).optional(),
-        address: Joi.string().max(500).optional(),
+        contact_person: clientNullableString(100),
+        contact_email: clientNullableEmail(),
+        contact_phone: clientNullableString(50),
+        address: clientNullableString(500),
         is_active: Joi.boolean().optional(),
     }),
 };
