@@ -1399,9 +1399,15 @@ def _safe_int_id(value):
 def generate_all_employees_report(event, context):
     """
     Generate all employees roster Excel (non-deleted rows).
+    Includes each user's billing type(s) and project details aggregated from
+    their current active allocations.
     GET /documents/excel/all-employees
     """
     try:
+        # NOTE: billing_types is aggregated from active allocations' billing_statuses
+        # (distinct names). project_details is a "; " separated list of
+        # "Project Name (CODE) - <alloc>% alloc / <bill>% bill [<billing status>]"
+        # for each active allocation, ordered by project name.
         sql = """
             SELECT
                 e.id,
@@ -1422,6 +1428,46 @@ def generate_all_employees_report(event, context):
                 e.total_resource_billing,
                 e.is_external,
                 e.is_account_manager,
+                COALESCE(
+                    (
+                        SELECT STRING_AGG(DISTINCT bs.name, ', ' ORDER BY bs.name)
+                        FROM allocations a
+                        LEFT JOIN billing_statuses bs ON a.billing_status_id = bs.id
+                        WHERE a.employee_id = e.id
+                          AND a.is_active = true
+                          AND a.deleted_at IS NULL
+                          AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
+                          AND bs.name IS NOT NULL
+                    ),
+                    ''
+                ) AS billing_types,
+                COALESCE(
+                    (
+                        SELECT STRING_AGG(
+                            CASE
+                                WHEN p.project_code IS NOT NULL AND p.project_code <> ''
+                                    THEN p.project_name || ' (' || p.project_code || ') - '
+                                         || a.allocation_percentage || '% alloc / '
+                                         || a.billing_percentage || '% bill'
+                                         || COALESCE(' [' || bs.name || ']', '')
+                                ELSE p.project_name || ' - '
+                                     || a.allocation_percentage || '% alloc / '
+                                     || a.billing_percentage || '% bill'
+                                     || COALESCE(' [' || bs.name || ']', '')
+                            END,
+                            '; '
+                            ORDER BY p.project_name
+                        )
+                        FROM allocations a
+                        JOIN projects p ON a.project_id = p.id
+                        LEFT JOIN billing_statuses bs ON a.billing_status_id = bs.id
+                        WHERE a.employee_id = e.id
+                          AND a.is_active = true
+                          AND a.deleted_at IS NULL
+                          AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
+                    ),
+                    ''
+                ) AS project_details,
                 e.created_at,
                 e.updated_at
             FROM employees e
@@ -1454,6 +1500,8 @@ def generate_all_employees_report(event, context):
             "Joined Date",
             "Total Allocation %",
             "Total Resource Billing %",
+            "Billing Type",
+            "Project Details",
             "External",
             "Account Manager",
             "Created At",
@@ -1495,6 +1543,8 @@ def generate_all_employees_report(event, context):
                 str(row.get("joined_date", ""))[:10] if row.get("joined_date") else "",
                 float(row.get("total_allocation") or 0),
                 float(row.get("total_resource_billing") or 0),
+                row.get("billing_types") or "",
+                row.get("project_details") or "",
                 "Yes" if row.get("is_external") else "No",
                 "Yes" if row.get("is_account_manager") else "No",
                 str(row.get("created_at", ""))[:19] if row.get("created_at") else "",
@@ -1505,7 +1555,29 @@ def generate_all_employees_report(event, context):
                 cell = ws.cell(row=row_idx, column=col_idx, value=value)
                 apply_cell_style(cell)
 
+                # Wrap text in the Project Details column (col 18) and
+                # the Billing Type column (col 17) so long lists are
+                # readable when the workbook is opened.
+                if col_idx in (17, 18):
+                    cell.alignment = Alignment(
+                        vertical='center',
+                        wrap_text=True,
+                    )
+
         auto_column_width(ws)
+
+        # Project Details can be quite long; give it a wider fixed width
+        # so it doesn't get clipped by auto_column_width's 50-char cap.
+        billing_type_col_letter = get_column_letter(17)
+        project_details_col_letter = get_column_letter(18)
+        ws.column_dimensions[billing_type_col_letter].width = max(
+            ws.column_dimensions[billing_type_col_letter].width or 0,
+            25,
+        )
+        ws.column_dimensions[project_details_col_letter].width = max(
+            ws.column_dimensions[project_details_col_letter].width or 0,
+            60,
+        )
 
         output = io.BytesIO()
         wb.save(output)
