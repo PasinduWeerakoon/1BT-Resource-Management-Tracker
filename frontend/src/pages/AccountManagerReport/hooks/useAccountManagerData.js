@@ -87,6 +87,13 @@ const buildAccountManagerReportQueryParams = (filters, projectStatusesList, repo
   return queryParams;
 };
 
+/** Map BY ALLOCATION status filter to allocations API query param (string for reliable query serialization). */
+const allocationStatusToApiParam = (statusFilter) => {
+  if (statusFilter === 'Active') return 'true';
+  if (statusFilter === 'Inactive') return 'false';
+  return 'true';
+};
+
 const useAccountManagerData = () => {
   // ─── Redux Config ───
   const projectTypesList = useSelector(selectProjectTypes);
@@ -146,6 +153,8 @@ const useAccountManagerData = () => {
   const [allocationData, setAllocationData] = useState([]);
   const [loadingAllocations, setLoadingAllocations] = useState(false);
   const [allocationPagination, setAllocationPagination] = useState({ current: 1, pageSize: 10, total: 0 });
+  /** BY ALLOCATION table: Active (default), Inactive, or All */
+  const [allocationStatusFilter, setAllocationStatusFilter] = useState('Active');
 
   // ─── Dedup refs ───
   const fetchClientsRef = useRef(false);
@@ -157,6 +166,8 @@ const useAccountManagerData = () => {
   /** Latest allocation table pagination (pageSize for fetches without stale closures). */
   const allocationPaginationRef = useRef(allocationPagination);
   allocationPaginationRef.current = allocationPagination;
+  const allocationStatusFilterRef = useRef(allocationStatusFilter);
+  allocationStatusFilterRef.current = allocationStatusFilter;
   /** After a successful report fetch, matches filters used for that response (see fetchAccountManagerReport). */
   const prevAccountManagerFilterKeyRef = useRef('');
 
@@ -283,7 +294,7 @@ const useAccountManagerData = () => {
   }, []);
 
   // ─── Fetch project allocations (BY ALLOCATION table) ───
-  const fetchProjectAllocations = useCallback(async (projectId, page = 1, limit = 10) => {
+  const fetchProjectAllocations = useCallback(async (projectId, page = 1, limit = 10, statusFilterOverride) => {
     const fromFilter = filters.projectName === 'All' ? null : filters.projectName;
     const effectiveProjectId = projectId ?? selectedProjectId ?? fromFilter;
 
@@ -299,9 +310,12 @@ const useAccountManagerData = () => {
       fetchAllocationsRef.current = true;
       setLoadingAllocations(true);
 
-      // allocations list API only honors project_id (and resource_id / is_active); other filters apply via report + row selection.
+      // allocations list API: project_id, resource_id, is_active
       const params = { page, limit };
       if (effectiveProjectId) params.project_id = effectiveProjectId;
+
+      const statusFilter = statusFilterOverride ?? allocationStatusFilterRef.current;
+      params.is_active = allocationStatusToApiParam(statusFilter);
 
       const response = await allocationsService.getAll(params);
 
@@ -492,6 +506,32 @@ const useAccountManagerData = () => {
     fetchProjectAllocations(project.id, 1, allocationPagination.pageSize);
   }, [selectedProjectId, allocationPagination.pageSize, fetchProjectAllocations]);
 
+  const handleAllocationStatusFilterChange = useCallback((value) => {
+    setAllocationStatusFilter(value);
+    setAllocationPagination((prev) => ({ ...prev, current: 1 }));
+
+    const fromFilter = filters.projectName === 'All' ? null : filters.projectName;
+    const effectiveProjectId = selectedProjectId ?? fromFilter;
+    if (effectiveProjectId) {
+      // Pass value directly — ref/state are still stale in this tick after setState
+      fetchProjectAllocations(
+        effectiveProjectId,
+        1,
+        allocationPaginationRef.current.pageSize,
+        value
+      );
+    }
+  }, [selectedProjectId, filters.projectName, fetchProjectAllocations]);
+
+  const refreshProjectAllocations = useCallback(() => {
+    const fromFilter = filters.projectName === 'All' ? null : filters.projectName;
+    const effectiveProjectId = selectedProjectId ?? fromFilter;
+    if (!effectiveProjectId) return;
+
+    const { current, pageSize } = allocationPaginationRef.current;
+    fetchProjectAllocations(effectiveProjectId, current, pageSize);
+  }, [selectedProjectId, filters.projectName, fetchProjectAllocations]);
+
   return {
     // Redux config
     projectTypesList,
@@ -541,6 +581,9 @@ const useAccountManagerData = () => {
     allocationPagination,
     setAllocationPagination,
     fetchProjectAllocations,
+    allocationStatusFilter,
+    handleAllocationStatusFilterChange,
+    refreshProjectAllocations,
 
     // Derived
     selectedAccountManagerName,

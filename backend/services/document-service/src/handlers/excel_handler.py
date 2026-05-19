@@ -1399,9 +1399,12 @@ def _safe_int_id(value):
 def generate_all_employees_report(event, context):
     """
     Generate all employees roster Excel (non-deleted rows).
+    One row per active project allocation; project name and allocation % are
+    separate columns. Employees with multiple projects appear on multiple rows.
     GET /documents/excel/all-employees
     """
     try:
+        # Per-project rows via LEFT JOIN so multi-project employees span multiple rows.
         sql = """
             SELECT
                 e.id,
@@ -1422,16 +1425,36 @@ def generate_all_employees_report(event, context):
                 e.total_resource_billing,
                 e.is_external,
                 e.is_account_manager,
+                CASE
+                    WHEN p.project_code IS NOT NULL AND p.project_code <> ''
+                        THEN p.project_name || ' (' || p.project_code || ')'
+                    ELSE p.project_name
+                END AS project_name,
+                a.allocation_percentage,
+                a.billing_percentage,
+                COALESCE(
+                    bs_a.name,
+                    bs_p.name,
+                    CASE WHEN p.is_bench_project = true THEN 'Bench' ELSE 'Non-Billing' END
+                ) AS project_billing_status,
                 e.created_at,
                 e.updated_at
             FROM employees e
             LEFT JOIN designations d ON e.designation_id = d.id
             LEFT JOIN employee_types et ON e.employee_type_id = et.id
+            LEFT JOIN allocations a ON a.employee_id = e.id
+                AND a.is_active = true
+                AND a.deleted_at IS NULL
+                AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
+            LEFT JOIN projects p ON a.project_id = p.id
+            LEFT JOIN billing_statuses bs_a ON a.billing_status_id = bs_a.id
+            LEFT JOIN billing_statuses bs_p ON p.billing_status_id = bs_p.id
             WHERE e.deleted_at IS NULL
-            ORDER BY e.name ASC
+            ORDER BY e.name ASC, p.project_name ASC NULLS LAST
         """
 
         data = query(sql) or []
+        unique_employee_count = len({row.get("id") for row in data})
 
         wb = Workbook()
         ws = wb.active
@@ -1454,6 +1477,10 @@ def generate_all_employees_report(event, context):
             "Joined Date",
             "Total Allocation %",
             "Total Resource Billing %",
+            "Project",
+            "Allocation %",
+            "Billing %",
+            "Project billing status",
             "External",
             "Account Manager",
             "Created At",
@@ -1467,7 +1494,11 @@ def generate_all_employees_report(event, context):
         title_cell.alignment = Alignment(horizontal="center")
 
         ws.cell(row=2, column=1, value=f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        ws.cell(row=2, column=12, value=f"Total Employees: {len(data)}")
+        ws.cell(
+            row=2,
+            column=12,
+            value=f"Employees: {unique_employee_count} | Rows: {len(data)}",
+        )
 
         for col, header in enumerate(headers, 1):
             cell = ws.cell(row=4, column=col, value=header)
@@ -1495,6 +1526,10 @@ def generate_all_employees_report(event, context):
                 str(row.get("joined_date", ""))[:10] if row.get("joined_date") else "",
                 float(row.get("total_allocation") or 0),
                 float(row.get("total_resource_billing") or 0),
+                row.get("project_name") or "",
+                float(row.get("allocation_percentage") or 0) if row.get("project_name") else "",
+                float(row.get("billing_percentage") or 0) if row.get("project_name") else "",
+                row.get("project_billing_status") or "",
                 "Yes" if row.get("is_external") else "No",
                 "Yes" if row.get("is_account_manager") else "No",
                 str(row.get("created_at", ""))[:19] if row.get("created_at") else "",
@@ -1506,6 +1541,12 @@ def generate_all_employees_report(event, context):
                 apply_cell_style(cell)
 
         auto_column_width(ws)
+
+        project_col_letter = get_column_letter(17)
+        ws.column_dimensions[project_col_letter].width = max(
+            ws.column_dimensions[project_col_letter].width or 0,
+            35,
+        )
 
         output = io.BytesIO()
         wb.save(output)

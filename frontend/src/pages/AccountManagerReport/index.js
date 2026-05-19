@@ -63,10 +63,15 @@ const AccountManagerReport = () => {
   });
 
   // ─── Allocation management hook ───
+  const handleAllocationCrudSuccess = useCallback(() => {
+    data.fetchAccountManagerReport();
+    data.refreshProjectAllocations();
+  }, [data.fetchAccountManagerReport, data.refreshProjectAllocations]);
+
   const allocationMgmt = useAllocationManagement({
     resourcesList: data.resourcesList,
     projectsForFilter: data.projectsForFilter,
-    onSuccess: data.fetchAccountManagerReport,
+    onSuccess: handleAllocationCrudSuccess,
   });
 
   // ─── Resource allocations hook ───
@@ -179,6 +184,8 @@ const AccountManagerReport = () => {
         onRowClick={resourceAlloc.handleRowClick}
         onPaginationChange={handleAllocationPaginationChange}
         displayProjectName={data.displayProjectName}
+        allocationStatusFilter={data.allocationStatusFilter}
+        onAllocationStatusFilterChange={data.handleAllocationStatusFilterChange}
         isAdmin={isAdmin}
       />
 

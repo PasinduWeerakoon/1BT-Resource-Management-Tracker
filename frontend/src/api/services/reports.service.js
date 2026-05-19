@@ -3,8 +3,26 @@
  * API calls for various reports
  */
 
+import axios from 'axios';
 import apiClient from '../client';
+import { API_CONFIG } from '../config';
 import { ENDPOINTS } from '../endpoints';
+import { getStoredAuth } from '@utils/auth.utils';
+import { API_TIMEOUT } from '@constants/api';
+
+/** Axios instance without response interceptor — preserves { data, summary } for exception report */
+const reportsExceptionClient = axios.create({
+  baseURL: API_CONFIG.BASE_URL,
+  timeout: API_TIMEOUT.DEFAULT,
+  headers: { 'Content-Type': 'application/json' },
+});
+reportsExceptionClient.interceptors.request.use((config) => {
+  const auth = getStoredAuth();
+  if (auth?.accessToken) {
+    config.headers.Authorization = `Bearer ${auth.accessToken}`;
+  }
+  return config;
+});
 
 export const reportsService = {
   /**
@@ -103,10 +121,17 @@ export const reportsService = {
    * @returns {Promise<{success: boolean, data: Array<{id: string, name: string, total_allocation: number, is_over_allocated: boolean}>, total: number, generatedAt: string}>}
    */
   getException: async (params = {}) => {
-    const response = await apiClient.get(ENDPOINTS.REPORTS.EXCEPTION, {
-      params,
-    });
-    return response.data || response;
+    const res = await reportsExceptionClient.get(ENDPOINTS.REPORTS.EXCEPTION, { params });
+    const body = res.data;
+    if (body?.success && body.data && typeof body.data === 'object' && !Array.isArray(body.data)) {
+      const inner = body.data;
+      return {
+        data: Array.isArray(inner.data) ? inner.data : [],
+        summary: inner.summary,
+        generatedAt: inner.generatedAt,
+      };
+    }
+    return body;
   },
 
   /**
