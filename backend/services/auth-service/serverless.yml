@@ -27,7 +27,9 @@ provider:
     COGNITO_USER_POOL_ID: !ImportValue onebt-${self:provider.stage}-CognitoUserPoolId
     COGNITO_CLIENT_ID: !ImportValue onebt-${self:provider.stage}-CognitoClientId
     AUDIT_QUEUE_URL: !ImportValue onebt-${self:provider.stage}-AuditQueueUrl
-    DB_HOST: !ImportValue onebt-${self:provider.stage}-RdsEndpoint
+    # DB endpoint via SSM: CloudFormation forbids changing an in-use export,
+    # so repointing the DB is done by updating /onebt/<stage>/db-host.
+    DB_HOST: ${ssm:/onebt/${self:provider.stage}/db-host}
     DB_PORT: !ImportValue onebt-${self:provider.stage}-RdsPort
     DB_NAME: !ImportValue onebt-${self:provider.stage}-DbName
     DB_SECRET_ARN: !ImportValue onebt-${self:provider.stage}-RdsSecretArn
