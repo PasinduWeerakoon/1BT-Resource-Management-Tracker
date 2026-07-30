@@ -1,35 +1,16 @@
 # ==============================================
 # UAT Environment Parameters
 # ==============================================
-# Cost Estimate: ~$56/month (RDS + NAT Gateway)
+# Cognito + API Gateway only.
+#
+# Networking and the database are no longer created by this stack - Lambdas run
+# in the account's default VPC against an RDS instance managed outside
+# CloudFormation. These SSM parameters must exist before deploying any service
+# to this stage:
+#   /onebt/uat/lambda-security-group-id, /onebt/uat/lambda-subnet-ids
+#   /onebt/uat/db-host, /onebt/uat/db-port, /onebt/uat/db-name,
+#   /onebt/uat/db-secret-arn
 # ==============================================
-
-# Network Configuration
-vpc:
-  cidr: "10.2.0.0/16"
-  publicSubnet1Cidr: "10.2.1.0/24"
-  publicSubnet2Cidr: "10.2.2.0/24"
-  privateSubnet1Cidr: "10.2.10.0/24"
-  privateSubnet2Cidr: "10.2.11.0/24"
-  databaseSubnet1Cidr: "10.2.20.0/24"
-  databaseSubnet2Cidr: "10.2.21.0/24"
-
-# NAT Gateway (enabled for UAT)
-natGateway:
-  enabled: true # ~$32/month
-  multiAz: false # Single NAT to save cost
-
-# RDS Database Configuration
-database:
-  instanceClass: db.t3.small # ~$24/month
-  allocatedStorage: 30 # GB
-  maxAllocatedStorage: 100 # GB (auto-scaling limit)
-  backupRetentionDays: 7
-  multiAz: false
-  deletionProtection: true # Protect UAT data
-  deletionPolicy: Retain # Retain for UAT
-  performanceInsights: false
-  monitoringInterval: 0 # 0 = disabled
 
 # Cognito Configuration
 cognito:
@@ -48,8 +29,3 @@ apiGateway:
   throttlingBurstLimit: 1000
   throttlingRateLimit: 500
   corsMaxAge: 86400
-
-# Feature Flags
-features:
-  vpcEndpoints: false # Disable VPC endpoints to save cost
-  autoShutdown: false # Keep UAT running for testing

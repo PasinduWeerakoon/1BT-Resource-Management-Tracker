@@ -1,35 +1,15 @@
 # ==============================================
 # PROD Environment Parameters
 # ==============================================
-# Cost Estimate: ~$160/month (RDS Multi-AZ + NAT Multi-AZ + VPC Endpoints)
+# Cognito + API Gateway only.
+#
+# Networking and the database are no longer created by this stack - Lambdas run
+# in the account's default VPC against an RDS instance managed outside
+# CloudFormation. Those values are published as SSM parameters:
+#   /onebt/prod/lambda-security-group-id, /onebt/prod/lambda-subnet-ids
+#   /onebt/prod/db-host, /onebt/prod/db-port, /onebt/prod/db-name,
+#   /onebt/prod/db-secret-arn
 # ==============================================
-
-# Network Configuration
-vpc:
-  cidr: "10.3.0.0/16"
-  publicSubnet1Cidr: "10.3.1.0/24"
-  publicSubnet2Cidr: "10.3.2.0/24"
-  privateSubnet1Cidr: "10.3.10.0/24"
-  privateSubnet2Cidr: "10.3.11.0/24"
-  databaseSubnet1Cidr: "10.3.20.0/24"
-  databaseSubnet2Cidr: "10.3.21.0/24"
-
-# NAT Gateway (Multi-AZ for high availability)
-natGateway:
-  enabled: true # ~$32/month per NAT
-  multiAz: true # ~$64/month total for 2 NATs
-
-# RDS Database Configuration
-database:
-  instanceClass: db.t3.medium # ~$48/month (x2 for Multi-AZ = ~$96)
-  allocatedStorage: 50 # GB
-  maxAllocatedStorage: 200 # GB (auto-scaling limit)
-  backupRetentionDays: 30
-  multiAz: true # High availability
-  deletionProtection: true # CRITICAL: Protect production data
-  deletionPolicy: Retain # CRITICAL: Never delete prod database
-  performanceInsights: true # Enable for monitoring
-  monitoringInterval: 60 # Enhanced monitoring every 60 seconds
 
 # Cognito Configuration
 cognito:
@@ -48,8 +28,3 @@ apiGateway:
   throttlingBurstLimit: 2000
   throttlingRateLimit: 1000
   corsMaxAge: 86400
-
-# Feature Flags
-features:
-  vpcEndpoints: true # Enable VPC endpoints (~$7/month each)
-  autoShutdown: false # NEVER auto-shutdown production

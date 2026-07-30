@@ -30,9 +30,9 @@ provider:
     # DB endpoint via SSM: CloudFormation forbids changing an in-use export,
     # so repointing the DB is done by updating /onebt/<stage>/db-host.
     DB_HOST: ${ssm:/onebt/${self:provider.stage}/db-host}
-    DB_PORT: !ImportValue onebt-${self:provider.stage}-RdsPort
-    DB_NAME: !ImportValue onebt-${self:provider.stage}-DbName
-    DB_SECRET_ARN: !ImportValue onebt-${self:provider.stage}-RdsSecretArn
+    DB_PORT: ${ssm:/onebt/${self:provider.stage}/db-port}
+    DB_NAME: ${ssm:/onebt/${self:provider.stage}/db-name}
+    DB_SECRET_ARN: ${ssm:/onebt/${self:provider.stage}/db-secret-arn}
 
   iam:
     role:
@@ -61,7 +61,7 @@ provider:
         - Effect: Allow
           Action:
             - secretsmanager:GetSecretValue
-          Resource: !ImportValue onebt-${self:provider.stage}-RdsSecretArn
+          Resource: ${ssm:/onebt/${self:provider.stage}/db-secret-arn}
 
   # VPC config is set per-function for functions that need database access
   # Functions without database access should NOT be in VPC to allow direct Cognito access
@@ -166,10 +166,8 @@ functions:
     description: Create database user record linked to employee (Admin only)
     vpc:
       securityGroupIds:
-        - !ImportValue onebt-${self:provider.stage}-LambdaSecurityGroupId
-      subnetIds: !Split
-        - ","
-        - !ImportValue onebt-${self:provider.stage}-PrivateSubnetIds
+        - ${ssm:/onebt/${self:provider.stage}/lambda-security-group-id}
+      subnetIds: ${ssm:/onebt/${self:provider.stage}/lambda-subnet-ids}
     events:
       - httpApi:
           path: /api/v1/auth/link-user
@@ -199,10 +197,8 @@ functions:
     description: Activate user after password set
     vpc:
       securityGroupIds:
-        - !ImportValue onebt-${self:provider.stage}-LambdaSecurityGroupId
-      subnetIds: !Split
-        - ","
-        - !ImportValue onebt-${self:provider.stage}-PrivateSubnetIds
+        - ${ssm:/onebt/${self:provider.stage}/lambda-security-group-id}
+      subnetIds: ${ssm:/onebt/${self:provider.stage}/lambda-subnet-ids}
     events:
       - httpApi:
           path: /api/v1/auth/activate-user
@@ -244,10 +240,8 @@ functions:
     description: Get all users from database with employee info (Admin only)
     vpc:
       securityGroupIds:
-        - !ImportValue onebt-${self:provider.stage}-LambdaSecurityGroupId
-      subnetIds: !Split
-        - ","
-        - !ImportValue onebt-${self:provider.stage}-PrivateSubnetIds
+        - ${ssm:/onebt/${self:provider.stage}/lambda-security-group-id}
+      subnetIds: ${ssm:/onebt/${self:provider.stage}/lambda-subnet-ids}
     events:
       - httpApi:
           path: /api/v1/auth/users
@@ -264,10 +258,8 @@ functions:
     description: Get employees eligible for user invitation (Admin only)
     vpc:
       securityGroupIds:
-        - !ImportValue onebt-${self:provider.stage}-LambdaSecurityGroupId
-      subnetIds: !Split
-        - ","
-        - !ImportValue onebt-${self:provider.stage}-PrivateSubnetIds
+        - ${ssm:/onebt/${self:provider.stage}/lambda-security-group-id}
+      subnetIds: ${ssm:/onebt/${self:provider.stage}/lambda-subnet-ids}
     events:
       - httpApi:
           path: /api/v1/auth/invitable-employees
@@ -298,10 +290,8 @@ functions:
     description: Update user role in database (Admin only, VPC)
     vpc:
       securityGroupIds:
-        - !ImportValue onebt-${self:provider.stage}-LambdaSecurityGroupId
-      subnetIds: !Split
-        - ","
-        - !ImportValue onebt-${self:provider.stage}-PrivateSubnetIds
+        - ${ssm:/onebt/${self:provider.stage}/lambda-security-group-id}
+      subnetIds: ${ssm:/onebt/${self:provider.stage}/lambda-subnet-ids}
     events:
       - httpApi:
           path: /api/v1/auth/update-role-db
@@ -332,10 +322,8 @@ functions:
     description: Revoke user access - update status in database (Admin only, VPC)
     vpc:
       securityGroupIds:
-        - !ImportValue onebt-${self:provider.stage}-LambdaSecurityGroupId
-      subnetIds: !Split
-        - ","
-        - !ImportValue onebt-${self:provider.stage}-PrivateSubnetIds
+        - ${ssm:/onebt/${self:provider.stage}/lambda-security-group-id}
+      subnetIds: ${ssm:/onebt/${self:provider.stage}/lambda-subnet-ids}
     events:
       - httpApi:
           path: /api/v1/auth/revoke-access-db

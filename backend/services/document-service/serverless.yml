@@ -16,22 +16,22 @@ provider:
     Service: document
     Project: 1BT-Resource-Management
 
-  # VPC Configuration - Required for RDS access
+  # VPC Configuration - default VPC (see /onebt/<stage>/lambda-*).
+  # Moved off the onebt-infrastructure VPC exports so the app runs
+  # alongside the RDS instance in the default VPC.
   vpc:
     securityGroupIds:
-      - !ImportValue onebt-${self:provider.stage}-LambdaSecurityGroupId
-    subnetIds: !Split
-      - ","
-      - !ImportValue onebt-${self:provider.stage}-PrivateSubnetIds
+      - ${ssm:/onebt/${self:provider.stage}/lambda-security-group-id}
+    subnetIds: ${ssm:/onebt/${self:provider.stage}/lambda-subnet-ids}
 
   environment:
     STAGE: ${self:provider.stage}
     # DB endpoint via SSM: CloudFormation forbids changing an in-use export,
     # so repointing the DB is done by updating /onebt/<stage>/db-host.
     DB_HOST: ${ssm:/onebt/${self:provider.stage}/db-host}
-    DB_PORT: !ImportValue onebt-${self:provider.stage}-RdsPort
-    DB_NAME: !ImportValue onebt-${self:provider.stage}-DbName
-    DB_SECRET_ARN: !ImportValue onebt-${self:provider.stage}-RdsSecretArn
+    DB_PORT: ${ssm:/onebt/${self:provider.stage}/db-port}
+    DB_NAME: ${ssm:/onebt/${self:provider.stage}/db-name}
+    DB_SECRET_ARN: ${ssm:/onebt/${self:provider.stage}/db-secret-arn}
     S3_BUCKET: !Ref DocumentsBucket
     AUDIT_QUEUE_URL: !ImportValue onebt-${self:provider.stage}-AuditQueueUrl
 
@@ -41,7 +41,7 @@ provider:
         - Effect: Allow
           Action:
             - secretsmanager:GetSecretValue
-          Resource: !ImportValue onebt-${self:provider.stage}-RdsSecretArn
+          Resource: ${ssm:/onebt/${self:provider.stage}/db-secret-arn}
         - Effect: Allow
           Action:
             - s3:PutObject
@@ -63,18 +63,21 @@ plugins:
 
 custom:
   pythonRequirements:
-    # --- Local deploy from Mac or Windows ---
-    # psycopg2-binary includes native code; it MUST be installed inside Linux matching Lambda.
-    # serverless-python-requirements runs pip inside Docker using the SAM image below.
+    # "non-linux": pip runs natively on Linux x86_64 (which already matches the
+    # Lambda runtime) and inside the SAM image below on Mac/Windows.
     #
-    # Prerequisites (every machine that runs `serverless deploy`):
+    # The DB driver is pg8000 - pure Python, no libpq and no native .so - so a
+    # native pip install on a Linux x86_64 host produces a valid Lambda package.
+    #
+    # Deploying from Mac or Windows therefore still needs Docker:
     #   - Docker Desktop (or Docker Engine) running before deploy.
     #   - First pull may need: aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
     #   - Windows: use Docker Desktop + WSL2 backend if bind-mount / pip in Docker fails; avoid very long paths under the repo.
     #   - Mac (Apple Silicon): Docker runs the x86_64 image via emulation — slower but produces correct Lambda x86_64 wheels.
-    #
-    # Do not set dockerizePip: false on Mac/Windows — you will get Runtime.ImportModuleError for psycopg2._psycopg on Lambda.
-    dockerizePip: true
+    dockerizePip: non-linux
+    # Override when the interpreter that owns pip is not on PATH as python3.12
+    # (e.g. a venv). Defaults to the plugin's normal runtime-derived binary.
+    pythonBin: ${env:SLS_PYTHON_BIN, 'python3.12'}
     dockerImage: public.ecr.aws/sam/build-python3.12:latest-x86_64
     slim: false
     strip: false

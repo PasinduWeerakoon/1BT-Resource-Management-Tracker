@@ -1,35 +1,16 @@
 # ==============================================
 # QA Environment Parameters
 # ==============================================
-# Cost Estimate: ~$12/month (RDS only, no NAT)
+# Cognito + API Gateway only.
+#
+# Networking and the database are no longer created by this stack - Lambdas run
+# in the account's default VPC against an RDS instance managed outside
+# CloudFormation. These SSM parameters must exist before deploying any service
+# to this stage:
+#   /onebt/qa/lambda-security-group-id, /onebt/qa/lambda-subnet-ids
+#   /onebt/qa/db-host, /onebt/qa/db-port, /onebt/qa/db-name,
+#   /onebt/qa/db-secret-arn
 # ==============================================
-
-# Network Configuration
-vpc:
-  cidr: "10.1.0.0/16"
-  publicSubnet1Cidr: "10.1.1.0/24"
-  publicSubnet2Cidr: "10.1.2.0/24"
-  privateSubnet1Cidr: "10.1.10.0/24"
-  privateSubnet2Cidr: "10.1.11.0/24"
-  databaseSubnet1Cidr: "10.1.20.0/24"
-  databaseSubnet2Cidr: "10.1.21.0/24"
-
-# NAT Gateway (disabled to save ~$32/month)
-natGateway:
-  enabled: false
-  multiAz: false
-
-# RDS Database Configuration
-database:
-  instanceClass: db.t3.micro # ~$12/month
-  allocatedStorage: 20 # GB
-  maxAllocatedStorage: 50 # GB (auto-scaling limit)
-  backupRetentionDays: 3
-  multiAz: false
-  deletionProtection: false
-  deletionPolicy: Delete # Delete for QA
-  performanceInsights: false
-  monitoringInterval: 0 # 0 = disabled
 
 # Cognito Configuration
 cognito:
@@ -48,14 +29,3 @@ apiGateway:
   throttlingBurstLimit: 500
   throttlingRateLimit: 250
   corsMaxAge: 86400
-
-# Bastion Host Configuration
-bastion:
-  enabled: true
-  instanceType: t3.micro
-  keyPairName: onebt-bastion-qa # Create this key pair in AWS Console first
-
-# Feature Flags
-features:
-  vpcEndpoints: true # Enable VPC endpoints for Secrets Manager access
-  autoShutdown: true # Enable auto-shutdown for QA resources

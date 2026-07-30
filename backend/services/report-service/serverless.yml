@@ -17,22 +17,22 @@ provider:
   deploymentBucket:
     name: serverless-framework-deployments-ap-southeast-1-c03bcf0e-ef8a
 
-  # VPC Configuration - Required for RDS access
+  # VPC Configuration - default VPC (see /onebt/<stage>/lambda-*).
+  # Moved off the onebt-infrastructure VPC exports so the app runs
+  # alongside the RDS instance in the default VPC.
   vpc:
     securityGroupIds:
-      - !ImportValue onebt-${self:provider.stage}-LambdaSecurityGroupId
-    subnetIds: !Split
-      - ","
-      - !ImportValue onebt-${self:provider.stage}-PrivateSubnetIds
+      - ${ssm:/onebt/${self:provider.stage}/lambda-security-group-id}
+    subnetIds: ${ssm:/onebt/${self:provider.stage}/lambda-subnet-ids}
 
   environment:
     NODE_ENV: ${self:provider.stage}
     # DB endpoint via SSM: CloudFormation forbids changing an in-use export,
     # so repointing the DB is done by updating /onebt/<stage>/db-host.
     DB_HOST: ${ssm:/onebt/${self:provider.stage}/db-host}
-    DB_PORT: !ImportValue onebt-${self:provider.stage}-RdsPort
-    DB_NAME: !ImportValue onebt-${self:provider.stage}-DbName
-    DB_SECRET_ARN: !ImportValue onebt-${self:provider.stage}-RdsSecretArn
+    DB_PORT: ${ssm:/onebt/${self:provider.stage}/db-port}
+    DB_NAME: ${ssm:/onebt/${self:provider.stage}/db-name}
+    DB_SECRET_ARN: ${ssm:/onebt/${self:provider.stage}/db-secret-arn}
     AUDIT_QUEUE_URL: !ImportValue onebt-${self:provider.stage}-AuditQueueUrl
 
   iam:
@@ -41,7 +41,7 @@ provider:
         - Effect: Allow
           Action:
             - secretsmanager:GetSecretValue
-          Resource: !ImportValue onebt-${self:provider.stage}-RdsSecretArn
+          Resource: ${ssm:/onebt/${self:provider.stage}/db-secret-arn}
         - Effect: Allow
           Action:
             - sqs:SendMessage

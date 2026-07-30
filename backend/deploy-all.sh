@@ -46,6 +46,7 @@ SERVICES=(
     "allocation-service"
     "report-service"
     "audit-service"
+    "document-service"
 )
 
 # Help function
@@ -174,7 +175,7 @@ if [[ ${#FAILED[@]} -gt 0 ]]; then
     log_error "Failed: ${#FAILED[@]}/${#SERVICES[@]}"
     for svc in "${FAILED[@]}"; do
         log_error "  - $svc"
-    fi
+    done
 fi
 
 log_info "Duration: ${MINUTES}m ${SECONDS}s"
