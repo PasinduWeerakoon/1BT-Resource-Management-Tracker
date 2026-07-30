@@ -20,6 +20,10 @@ custom:
   # Shorthand references to loaded parameters
   cognito: ${self:custom.params.cognito}
   apiGateway: ${self:custom.params.apiGateway}
+  dbSchedule: ${self:custom.params.dbSchedule}
+
+  # The database lives outside CloudFormation; the schedule needs its identifier.
+  dbInstanceId: ${ssm:/onebt/${self:provider.stage}/db-instance-id}
 
 resources:
   Description: |
@@ -36,10 +40,89 @@ resources:
       /onebt/<stage>/db-port                   (String)
       /onebt/<stage>/db-name                   (String)
       /onebt/<stage>/db-secret-arn             (String)
+      /onebt/<stage>/db-instance-id            (String)
     Repointing the database is therefore an SSM update + service redeploy, with
     no cross-stack export to unwind.
 
+    The nightly RDS stop/start schedule lives here because it is shared
+    infrastructure, even though the instance itself is not managed by this stack.
+
   Resources:
+    # ================================================================
+    # NIGHTLY DATABASE STOP / START
+    #
+    # The instance runs only during working hours. Times are declared in a real
+    # timezone rather than UTC so the intent survives review - EventBridge
+    # Scheduler resolves them, no manual +05:30 arithmetic.
+    #
+    # Scheduled jobs in report-service and allocation-service are timed to fall
+    # inside the uptime window; moving these hours means revisiting those crons.
+    #
+    # Note: RDS force-starts any instance left stopped for 7 days. The nightly
+    # stop re-applies, so that only surfaces if this schedule is disabled.
+    # ================================================================
+
+    DbScheduleRole:
+      Type: AWS::IAM::Role
+      Properties:
+        RoleName: onebt-db-schedule-${self:provider.stage}
+        AssumeRolePolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service: scheduler.amazonaws.com
+              Action: sts:AssumeRole
+              Condition:
+                StringEquals:
+                  aws:SourceAccount: !Ref AWS::AccountId
+        Policies:
+          - PolicyName: rds-stop-start
+            PolicyDocument:
+              Version: "2012-10-17"
+              Statement:
+                - Effect: Allow
+                  Action:
+                    - rds:StopDBInstance
+                    - rds:StartDBInstance
+                  Resource: !Sub arn:aws:rds:${AWS::Region}:${AWS::AccountId}:db:${self:custom.dbInstanceId}
+
+    DbStopSchedule:
+      Type: AWS::Scheduler::Schedule
+      Properties:
+        Name: onebt-db-stop-${self:provider.stage}
+        Description: Stop the application database outside working hours
+        State: ${self:custom.dbSchedule.state}
+        ScheduleExpression: cron(${self:custom.dbSchedule.stopCron})
+        ScheduleExpressionTimezone: ${self:custom.dbSchedule.timezone}
+        FlexibleTimeWindow:
+          Mode: "OFF"
+        Target:
+          Arn: arn:aws:scheduler:::aws-sdk:rds:stopDBInstance
+          RoleArn: !GetAtt DbScheduleRole.Arn
+          Input: !Sub '{"DbInstanceIdentifier":"${self:custom.dbInstanceId}"}'
+          RetryPolicy:
+            MaximumRetryAttempts: 3
+            MaximumEventAgeInSeconds: 3600
+
+    DbStartSchedule:
+      Type: AWS::Scheduler::Schedule
+      Properties:
+        Name: onebt-db-start-${self:provider.stage}
+        Description: Start the application database for working hours
+        State: ${self:custom.dbSchedule.state}
+        ScheduleExpression: cron(${self:custom.dbSchedule.startCron})
+        ScheduleExpressionTimezone: ${self:custom.dbSchedule.timezone}
+        FlexibleTimeWindow:
+          Mode: "OFF"
+        Target:
+          Arn: arn:aws:scheduler:::aws-sdk:rds:startDBInstance
+          RoleArn: !GetAtt DbScheduleRole.Arn
+          Input: !Sub '{"DbInstanceIdentifier":"${self:custom.dbInstanceId}"}'
+          RetryPolicy:
+            MaximumRetryAttempts: 3
+            MaximumEventAgeInSeconds: 3600
+
     # ================================================================
     # COGNITO USER POOL
     # ================================================================

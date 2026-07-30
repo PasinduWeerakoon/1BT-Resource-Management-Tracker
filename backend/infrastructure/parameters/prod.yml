@@ -28,3 +28,16 @@ apiGateway:
   throttlingBurstLimit: 2000
   throttlingRateLimit: 1000
   corsMaxAge: 86400
+
+# Nightly database stop/start.
+# The application is unavailable while the instance is stopped - these hours are
+# a deliberate cost trade, not a default. Set state: DISABLED to keep it running
+# around the clock (month-end, releases) without deleting the schedules.
+dbSchedule:
+  state: ENABLED
+  timezone: Asia/Colombo
+  stopCron: "0 22 ? * MON-FRI *" # 22:00 Colombo, weeknights
+  startCron: "0 8 ? * MON-FRI *" # 08:00 Colombo, weekday mornings
+  # Friday's stop is not followed by a start until Monday, so the instance stays
+  # down all weekend. That gap is ~58h - well inside the 7 days after which RDS
+  # force-starts a stopped instance.

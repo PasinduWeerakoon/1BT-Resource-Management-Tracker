@@ -29,3 +29,11 @@ apiGateway:
   throttlingBurstLimit: 500
   throttlingRateLimit: 250
   corsMaxAge: 86400
+
+# Nightly database stop/start.
+# Disabled here: only prod has a database and the SSM parameters this needs.
+dbSchedule:
+  state: DISABLED
+  timezone: Asia/Colombo
+  stopCron: "0 22 * * ? *" # 22:00 Colombo
+  startCron: "0 8 * * ? *" # 08:00 Colombo

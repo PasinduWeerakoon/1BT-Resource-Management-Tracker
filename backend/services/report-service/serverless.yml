@@ -227,11 +227,14 @@ functions:
     timeout: 120 # Allow more time for complex calculations
     memorySize: 1024 # More memory for aggregations
     events:
-      # Run at midnight UTC every day
+      # 05:00 UTC = 10:30 Colombo, weekdays only. The database runs 08:00-22:00
+      # Colombo Mon-Fri and is stopped all weekend, so midnight UTC and any
+      # Sat/Sun run would hit a stopped instance. These UTC hours map to the same
+      # weekday in Colombo (+05:30), so MON-FRI means the same in both.
       - schedule:
-          rate: cron(0 0 * * ? *)
+          rate: cron(0 5 ? * MON-FRI *)
           enabled: true
-          description: Daily dashboard stats calculation at midnight UTC
+          description: Daily dashboard stats calculation (10:30 Colombo, weekdays)
       # Also expose as HTTP endpoint for manual triggers
       - httpApi:
           path: /api/v1/dashboard/calculate-stats
@@ -243,8 +246,9 @@ functions:
     description: Cleanup dashboard stats older than 365 days
     timeout: 60
     events:
-      # Run weekly on Sunday at 2 AM UTC
+      # Moved off Sunday entirely - the database is stopped at weekends now.
+      # Monday 06:00 UTC = 11:30 Colombo, after the week's first start.
       - schedule:
-          rate: cron(0 2 ? * SUN *)
+          rate: cron(0 6 ? * MON *)
           enabled: true
-          description: Weekly cleanup of old dashboard stats
+          description: Weekly cleanup of old dashboard stats (Mon 11:30 Colombo)
