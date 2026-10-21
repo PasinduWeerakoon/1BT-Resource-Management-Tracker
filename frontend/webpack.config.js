@@ -150,8 +150,11 @@ module.exports = {
     new webpack.DefinePlugin({
       // NODE_ENV is automatically set by webpack based on --mode flag, so we don't define it here
       // 'process.env.NODE_ENV' is handled by webpack automatically
-      'process.env.REACT_APP_ENV': JSON.stringify(envVars.REACT_APP_ENV || process.env.REACT_APP_ENV || 'qa'),
-      'process.env.REACT_APP_API_BASE_URL': JSON.stringify(envVars.REACT_APP_API_BASE_URL || process.env.REACT_APP_API_BASE_URL || ''),
+      // Shell env (e.g. deploy.sh, npm run build:prod) takes precedence over .env so a local
+      // .env can never redirect a deployment build. When unset, src/api/config.js picks
+      // 'prod' for production builds and 'dev' otherwise.
+      'process.env.REACT_APP_ENV': JSON.stringify(process.env.REACT_APP_ENV || envVars.REACT_APP_ENV || ''),
+      'process.env.REACT_APP_API_BASE_URL': JSON.stringify(process.env.REACT_APP_API_BASE_URL || envVars.REACT_APP_API_BASE_URL || ''),
     }),
     new SuppressSassWarningsPlugin(),
     // Add BundleAnalyzerPlugin if --analyze flag is passed and plugin is available
