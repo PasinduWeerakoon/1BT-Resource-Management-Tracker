@@ -345,7 +345,7 @@ export const create = async (event) => {
                 totalAllocation: validationResult.newTotal,
                 severity: validationResult.overallocationSeverity
             });
-            return badRequest('CRITICAL overallocation detected. This allocation would result in ' + validationResult.newTotal + '% total allocation. ' +
+            return badRequest('CRITICAL overallocation detected. This allocation would result in ' + validationResult.newTotal + '% total allocation, above the 200% limit. ' +
                 'This requires manager approval. Include "forceOverallocation": true in the request to proceed.', {
                 totalAllocation: validationResult.newTotal,
                 severity: validationResult.overallocationSeverity,
@@ -353,14 +353,14 @@ export const create = async (event) => {
             });
         }
 
-        // Enhancement 3.2: Require notes for HIGH severity
+        // Enhancement 3.2: Require notes for CRITICAL (>200%) severity
         if (validationResult.requiresNotes && (!validated.notes || validated.notes.trim().length === 0)) {
-            log.warn('HIGH overallocation requires notes', {
+            log.warn('CRITICAL overallocation requires notes', {
                 resourceId: validated.resource_id,
                 totalAllocation: validationResult.newTotal,
                 severity: validationResult.overallocationSeverity
             });
-            return badRequest('HIGH overallocation detected. Notes are required to explain the business reason for ' + validationResult.newTotal + '% allocation.', {
+            return badRequest('Overallocation above 200% detected. Notes are required to explain the business reason for ' + validationResult.newTotal + '% allocation.', {
                 totalAllocation: validationResult.newTotal,
                 severity: validationResult.overallocationSeverity,
                 requiresNotes: true
@@ -800,7 +800,7 @@ export const update = async (event) => {
                     totalAllocation: validationResult.newTotal,
                     severity: validationResult.overallocationSeverity
                 });
-                return badRequest('CRITICAL overallocation detected. This update would result in ' + validationResult.newTotal + '% total allocation. ' +
+                return badRequest('CRITICAL overallocation detected. This update would result in ' + validationResult.newTotal + '% total allocation, above the 200% limit. ' +
                     'This requires manager approval. Include "forceOverallocation": true in the request to proceed.', {
                     totalAllocation: validationResult.newTotal,
                     severity: validationResult.overallocationSeverity,
@@ -808,15 +808,15 @@ export const update = async (event) => {
                 });
             }
 
-            // Enhancement 3.2: Require notes for HIGH severity
+            // Enhancement 3.2: Require notes for CRITICAL (>200%) severity
             if (validationResult.requiresNotes && (!validated.notes || validated.notes.trim().length === 0) && (!existing.notes || existing.notes.trim().length === 0)) {
-                log.warn('HIGH overallocation requires notes on update', {
+                log.warn('CRITICAL overallocation requires notes on update', {
                     allocationId: id,
                     resourceId: existing.employee_id,
                     totalAllocation: validationResult.newTotal,
                     severity: validationResult.overallocationSeverity
                 });
-                return badRequest('HIGH overallocation detected. Notes are required to explain the business reason for ' + validationResult.newTotal + '% allocation.', {
+                return badRequest('Overallocation above 200% detected. Notes are required to explain the business reason for ' + validationResult.newTotal + '% allocation.', {
                     totalAllocation: validationResult.newTotal,
                     severity: validationResult.overallocationSeverity,
                     requiresNotes: true
