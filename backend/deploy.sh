@@ -1,4 +1,5 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# Compatible with macOS system Bash 3.2 (no associative arrays).
 
 #######################################
 # 1BT Resource Management - Deployment Script
@@ -41,31 +42,38 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # Service definitions (order matters for deployment)
-declare -a SERVICE_ORDER=("infrastructure" "shared" "auth" "resource" "configuration" "project" "allocation" "report" "document")
+SERVICE_ORDER=(infrastructure shared auth resource configuration project allocation report document)
 
-declare -A SERVICE_PATHS=(
-    ["infrastructure"]="infrastructure"
-    ["shared"]="shared"
-    ["auth"]="services/auth-service"
-    ["resource"]="services/resource-service"
-    ["configuration"]="services/configuration-service"
-    ["project"]="services/project-service"
-    ["allocation"]="services/allocation-service"
-    ["report"]="services/report-service"
-    ["document"]="services/document-service"
-)
+# Bash 3.2-safe lookups (macOS /bin/bash does not support declare -A).
+service_path_for() {
+    case "$1" in
+        infrastructure)  echo "infrastructure" ;;
+        shared)            echo "shared" ;;
+        auth)              echo "services/auth-service" ;;
+        resource)          echo "services/resource-service" ;;
+        configuration)     echo "services/configuration-service" ;;
+        project)           echo "services/project-service" ;;
+        allocation)        echo "services/allocation-service" ;;
+        report)            echo "services/report-service" ;;
+        document)          echo "services/document-service" ;;
+        *)                 echo "" ;;
+    esac
+}
 
-declare -A SERVICE_DESCRIPTIONS=(
-    ["infrastructure"]="VPC, RDS, Cognito, API Gateway"
-    ["shared"]="Shared Lambda Layer"
-    ["auth"]="Authentication Service"
-    ["resource"]="Resource Management Service"
-    ["configuration"]="Configuration & Master Data Service"
-    ["project"]="Project & Client Service"
-    ["allocation"]="Allocation Service"
-    ["report"]="Reporting Service"
-    ["document"]="Document Generation Service (Python)"
-)
+service_description_for() {
+    case "$1" in
+        infrastructure)  echo "VPC, RDS, Cognito, API Gateway" ;;
+        shared)            echo "Shared Lambda Layer" ;;
+        auth)              echo "Authentication Service" ;;
+        resource)          echo "Resource Management Service" ;;
+        configuration)     echo "Configuration & Master Data Service" ;;
+        project)           echo "Project & Client Service" ;;
+        allocation)        echo "Allocation Service" ;;
+        report)            echo "Reporting Service" ;;
+        document)          echo "Document Generation Service (Python)" ;;
+        *)                 echo "" ;;
+    esac
+}
 
 # Logging functions
 log_success() { echo -e "${GREEN}[OK]${NC} $1"; }
@@ -73,6 +81,16 @@ log_info() { echo -e "${CYAN}[INFO]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 log_step() { echo -e "\n${MAGENTA}=== $1 ===${NC}"; }
+
+# Prefer global Serverless CLI so deploy does not sit on a silent npx download (first
+# `npx serverless` can take many minutes with no terminal output).
+sls() {
+    if command -v serverless &> /dev/null; then
+        command serverless "$@"
+    else
+        npx serverless "$@"
+    fi
+}
 
 # Help function
 show_help() {
@@ -150,7 +168,7 @@ if [[ ! "$ACTION" =~ ^(deploy|remove|status)$ ]]; then
     exit 1
 fi
 
-if [[ -n "$SERVICE" && -z "${SERVICE_PATHS[$SERVICE]}" ]]; then
+if [[ -n "$SERVICE" && -z "$(service_path_for "$SERVICE")" ]]; then
     log_error "Invalid service: $SERVICE"
     log_info "Valid services: ${SERVICE_ORDER[*]}"
     exit 1
@@ -175,11 +193,15 @@ check_prerequisites() {
     log_success "Node.js: $(node --version)"
     
     # Check Serverless Framework
-    if ! npx serverless --version &> /dev/null; then
-        log_error "Serverless Framework not found. Run: npm install -g serverless"
+    if ! command -v serverless &> /dev/null; then
+        log_warn "No global 'serverless' found — using npx (first run can download for 5–15+ min with little output)."
+        log_warn "Install once to avoid that: npm install -g serverless@3"
+    fi
+    if ! sls --version &> /dev/null; then
+        log_error "Serverless Framework not found. Run: npm install -g serverless@3"
         exit 1
     fi
-    log_success "Serverless: $(npx serverless --version 2>&1 | head -1)"
+    log_success "Serverless: $(sls --version 2>&1 | head -1)"
     
     # Check AWS credentials
     if ! aws sts get-caller-identity --profile "$AWS_PROFILE" &> /dev/null; then
@@ -194,15 +216,36 @@ check_prerequisites() {
     log_success "AWS User/Role: $user_arn"
 }
 
+# Install npm dependencies for the shared Lambda layer (path: shared/layers).
+# Without this, the layer zip omits node_modules and Lambdas fail with ERR_MODULE_NOT_FOUND
+# (e.g. drizzle-orm from /opt/nodejs/database/drizzle.js).
+prepare_shared_layer() {
+    local layer_nodejs="$SCRIPT_DIR/shared/layers/nodejs"
+    if [[ ! -f "$layer_nodejs/package.json" ]]; then
+        log_error "Layer package.json not found: $layer_nodejs/package.json"
+        return 1
+    fi
+    log_info "Installing shared layer dependencies in shared/layers/nodejs (npm install --omit=dev)..."
+    (cd "$layer_nodejs" && npm install --omit=dev)
+}
+
 # Deploy a single service
 deploy_service() {
     local service_name=$1
-    local service_path="${SERVICE_PATHS[$service_name]}"
+    local service_path
+    service_path=$(service_path_for "$service_name")
     local full_path="$SCRIPT_DIR/$service_path"
     
     if [[ ! -d "$full_path" ]]; then
         log_error "Service path not found: $full_path"
         return 1
+    fi
+    
+    if [[ "$service_name" == "shared" ]]; then
+        if ! prepare_shared_layer; then
+            log_error "Shared layer dependency install failed"
+            return 1
+        fi
     fi
     
     log_info "Deploying $service_name from $service_path using profile $AWS_PROFILE..."
@@ -211,8 +254,30 @@ deploy_service() {
     
     # Export AWS profile for serverless framework
     export AWS_PROFILE="$AWS_PROFILE"
+
+    # Serverless plugins (e.g. serverless-python-requirements) live in devDependencies — install
+    # if node_modules is missing or a declared plugin package is absent (avoids opaque deploy errors).
+    if [[ -f "package.json" ]]; then
+        local need_npm=0
+        if [[ ! -d "node_modules" ]]; then
+            need_npm=1
+        else
+            while IFS= read -r plug; do
+                [[ -z "$plug" ]] && continue
+                local safe="${plug//[^a-zA-Z0-9_-]/_}"
+                if [[ ! -d "node_modules/$plug" ]]; then
+                    need_npm=1
+                    break
+                fi
+            done < <(grep -E '^[[:space:]]*-[[:space:]]+serverless-' serverless.yml 2>/dev/null | sed 's/.*-[[:space:]]*//' | tr -d '\r' || true)
+        fi
+        if [[ "$need_npm" -eq 1 ]]; then
+            log_info "Running npm install in $service_path (Serverless plugins / dependencies)..."
+            npm install
+        fi
+    fi
     
-    if npx serverless deploy --stage "$STAGE" --region "$REGION" --aws-profile "$AWS_PROFILE" --verbose; then
+    if sls deploy --stage "$STAGE" --region "$REGION" --aws-profile "$AWS_PROFILE" --verbose; then
         log_success "$service_name deployed successfully"
         cd "$SCRIPT_DIR"
         return 0
@@ -226,7 +291,8 @@ deploy_service() {
 # Remove a single service
 remove_service() {
     local service_name=$1
-    local service_path="${SERVICE_PATHS[$service_name]}"
+    local service_path
+    service_path=$(service_path_for "$service_name")
     local full_path="$SCRIPT_DIR/$service_path"
     
     if [[ ! -d "$full_path" ]]; then
@@ -241,7 +307,7 @@ remove_service() {
     # Export AWS profile for serverless framework
     export AWS_PROFILE="$AWS_PROFILE"
     
-    if npx serverless remove --stage "$STAGE" --region "$REGION" --aws-profile "$AWS_PROFILE" 2>&1; then
+    if sls remove --stage "$STAGE" --region "$REGION" --aws-profile "$AWS_PROFILE" 2>&1; then
         log_success "$service_name removed"
     else
         log_warn "Error removing $service_name (may not exist)"
@@ -254,7 +320,8 @@ remove_service() {
 # Get service status
 get_service_status() {
     local service_name=$1
-    local service_path="${SERVICE_PATHS[$service_name]}"
+    local service_path
+    service_path=$(service_path_for "$service_name")
     local full_path="$SCRIPT_DIR/$service_path"
     
     if [[ ! -d "$full_path" ]]; then
@@ -267,7 +334,7 @@ get_service_status() {
     # Export AWS profile for serverless framework
     export AWS_PROFILE="$AWS_PROFILE"
     
-    if npx serverless info --stage "$STAGE" --region "$REGION" --aws-profile "$AWS_PROFILE" 2>&1; then
+    if sls info --stage "$STAGE" --region "$REGION" --aws-profile "$AWS_PROFILE" 2>&1; then
         log_success "$service_name - Deployed"
     else
         log_warn "$service_name - Not deployed"
@@ -310,7 +377,7 @@ main() {
             
             local failed=""
             for svc in "${services[@]}"; do
-                log_step "Deploying: $svc - ${SERVICE_DESCRIPTIONS[$svc]}"
+                log_step "Deploying: $svc - $(service_description_for "$svc")"
                 
                 if ! deploy_service "$svc"; then
                     failed="$svc"
@@ -371,7 +438,7 @@ main() {
             
             for svc in "${services[@]}"; do
                 echo ""
-                log_info "Checking: $svc - ${SERVICE_DESCRIPTIONS[$svc]}"
+                log_info "Checking: $svc - $(service_description_for "$svc")"
                 get_service_status "$svc"
             done
             ;;

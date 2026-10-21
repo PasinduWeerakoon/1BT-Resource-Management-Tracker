@@ -10,10 +10,6 @@ import TrainingCharts from './components/TrainingCharts';
 import TrainingTable from './components/TrainingTable';
 import useTrainingData from './hooks/useTrainingData';
 import {
-  transformDesignationTableData,
-  transformAllocationTableData,
-} from './utils/trainingTransformers';
-import {
   getDesignationColumns,
   getAllocationColumns,
 } from './utils/tableColumns';
@@ -39,27 +35,17 @@ const TrainingReport = () => {
     toggleFiltersExpanded,
   } = useReportFilters(defaultFilters);
 
-  // Use training data hook
+  // Use training data hook (table data is already transformed in the hook)
   const {
     loading,
     kpiData,
     trackData,
     techStackData,
     designationData,
-    designationTableData: rawDesignationTableData,
-    allocationTableData: rawAllocationTableData,
+    designationTableData,
+    allocationTableData,
     fetchTrainingReport,
   } = useTrainingData(filters);
-
-  // Transform table data
-  const designationTableData = useMemo(
-    () => transformDesignationTableData(rawDesignationTableData),
-    [rawDesignationTableData]
-  );
-  const allocationTableData = useMemo(
-    () => transformAllocationTableData(rawAllocationTableData),
-    [rawAllocationTableData]
-  );
 
   // Table columns
   const designationColumns = useMemo(() => getDesignationColumns(), []);

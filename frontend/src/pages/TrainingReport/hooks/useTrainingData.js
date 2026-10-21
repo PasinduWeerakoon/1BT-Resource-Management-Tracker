@@ -7,6 +7,10 @@ import { useState, useMemo } from 'react';
 import { reportsService } from '@api';
 import { showErrorToast } from '@utils/toast.utils';
 import logger from '@utils/logger';
+import {
+  transformDesignationTableData,
+  transformAllocationTableData,
+} from '../utils/trainingTransformers';
 
 /**
  * useTrainingData Hook
@@ -21,9 +25,9 @@ export const useTrainingData = (filters) => {
   const fetchTrainingReport = async () => {
     try {
       setLoading(true);
-      
+
       const queryParams = {};
-      
+
       // Add filters to query params
       if (filters.track && filters.track !== 'All') {
         queryParams.track = filters.track;
@@ -31,11 +35,13 @@ export const useTrainingData = (filters) => {
       if (filters.techStack && filters.techStack !== 'All') {
         queryParams.tech_stack = filters.techStack;
       }
-      
+
       const response = await reportsService.getTraining(queryParams);
-      
+
       if (response && response.success !== false) {
-        setReportData(response);
+        // API returns { success, data: { summary, charts, tables, generatedAt } }
+        const payload = response.data != null ? response.data : response;
+        setReportData(payload);
       } else {
         showErrorToast('Failed to load training report');
         setReportData(null);
@@ -85,13 +91,15 @@ export const useTrainingData = (filters) => {
     return reportData?.charts?.designationDistribution || [];
   }, [reportData]);
 
-  // Extract table data
+  // Extract and transform table data to match column dataIndex (flat rows, camelCase)
   const designationTableData = useMemo(() => {
-    return reportData?.tables?.byDesignation || [];
+    const raw = reportData?.tables?.byDesignation || [];
+    return transformDesignationTableData(raw);
   }, [reportData]);
 
   const allocationTableData = useMemo(() => {
-    return reportData?.tables?.byAllocation || [];
+    const raw = reportData?.tables?.byAllocation || [];
+    return transformAllocationTableData(raw);
   }, [reportData]);
 
   return {

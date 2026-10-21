@@ -2,5 +2,8 @@
     "name": "onebt-migration-service",
     "version": "1.0.0",
     "type": "module",
-    "description": "Database migration service for 1BT Resource Management"
+    "description": "Database migration service for 1BT Resource Management",
+    "devDependencies": {
+        "serverless-offline": "^13.9.0"
+    }
 }

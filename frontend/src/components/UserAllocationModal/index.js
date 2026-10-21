@@ -332,9 +332,21 @@ const UserAllocationModal = ({
                                                         </span>
                                                     }
                                                     name={[`allocations`, allocation.key, 'billingPercentage']}
+                                                    dependencies={[['allocations', allocation.key, 'projectAllocation']]}
                                                     rules={[
                                                         { required: true, message: 'Billing percentage is required' },
                                                         { type: 'number', min: 0, max: 100, message: 'Must be between 0 and 100' },
+                                                        ({ getFieldValue }) => ({
+                                                            validator(_, value) {
+                                                                const alloc = getFieldValue(['allocations', allocation.key, 'projectAllocation']);
+                                                                if (value === 0 && (alloc === 0 || alloc === null || alloc === undefined)) {
+                                                                    return Promise.reject(
+                                                                        new Error('Allocation and Billing % cannot both be 0%.')
+                                                                    );
+                                                                }
+                                                                return Promise.resolve();
+                                                            },
+                                                        }),
                                                     ]}
                                                 >
                                                     <InputNumber
@@ -353,16 +365,28 @@ const UserAllocationModal = ({
                                                 <Form.Item
                                                     label="Project Allocation"
                                                     name={[`allocations`, allocation.key, 'projectAllocation']}
+                                                    dependencies={[['allocations', allocation.key, 'billingPercentage']]}
                                                     rules={[
                                                         { required: true, message: 'Project allocation is required' },
-                                                        { type: 'number', min: 0, max: 100, message: 'Must be between 0 and 100' },
+                                                        { type: 'number', min: 0, max: 200, message: 'Must be between 0 and 200' },
+                                                        ({ getFieldValue }) => ({
+                                                            validator(_, value) {
+                                                                const billing = getFieldValue(['allocations', allocation.key, 'billingPercentage']);
+                                                                if (value === 0 && (billing === 0 || billing === null || billing === undefined)) {
+                                                                    return Promise.reject(
+                                                                        new Error('Allocation and Billing % cannot both be 0%.')
+                                                                    );
+                                                                }
+                                                                return Promise.resolve();
+                                                            },
+                                                        }),
                                                     ]}
                                                 >
                                                     <InputNumber
                                                         style={{ width: '100%' }}
                                                         placeholder="Enter project allocation"
                                                         min={0}
-                                                        max={100}
+                                                        max={200}
                                                         onChange={(value) => onFieldChange(allocation.key, 'projectAllocation', value)}
                                                         formatter={value => `${value}%`}
                                                         parser={value => value.replace('%', '')}

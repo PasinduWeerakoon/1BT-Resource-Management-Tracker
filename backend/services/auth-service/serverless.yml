@@ -1,25 +1,38 @@
 service: onebt-auth-service
 
+custom:
+  # Resolved at deploy time from SSM (written by onebt-shared-<stage> stack).
+  # Avoids CFN ImportValue, which blocks shared layer updates while consumers exist.
+  sharedLibsLayerArn: ${ssm:/onebt/shared/layer-arn/${self:provider.stage}}
+
 provider:
   name: aws
-  runtime: nodejs22.x
+  runtime: nodejs20.x
   stage: ${opt:stage, 'dev'}
   region: ${opt:region, 'ap-southeast-1'}
+  # Keep CF template under 51KB (many functions + version resources exceed API inline limit).
+  versionFunctions: false
   memorySize: 256
   timeout: 30
   tags:
     Service: auth
     Project: 1BT-Resource-Management
 
+  # Use existing regional bucket so the stack does not embed ServerlessDeploymentBucket in the template.
+  deploymentBucket:
+    name: serverless-framework-deployments-ap-southeast-1-c03bcf0e-ef8a
+
   environment:
     NODE_ENV: ${self:provider.stage}
     COGNITO_USER_POOL_ID: !ImportValue onebt-${self:provider.stage}-CognitoUserPoolId
     COGNITO_CLIENT_ID: !ImportValue onebt-${self:provider.stage}-CognitoClientId
     AUDIT_QUEUE_URL: !ImportValue onebt-${self:provider.stage}-AuditQueueUrl
-    DB_HOST: !ImportValue onebt-${self:provider.stage}-RdsEndpoint
-    DB_PORT: !ImportValue onebt-${self:provider.stage}-RdsPort
-    DB_NAME: !ImportValue onebt-${self:provider.stage}-DbName
-    DB_SECRET_ARN: !ImportValue onebt-${self:provider.stage}-RdsSecretArn
+    # DB endpoint via SSM: CloudFormation forbids changing an in-use export,
+    # so repointing the DB is done by updating /onebt/<stage>/db-host.
+    DB_HOST: ${ssm:/onebt/${self:provider.stage}/db-host}
+    DB_PORT: ${ssm:/onebt/${self:provider.stage}/db-port}
+    DB_NAME: ${ssm:/onebt/${self:provider.stage}/db-name}
+    DB_SECRET_ARN: ${ssm:/onebt/${self:provider.stage}/db-secret-arn}
 
   iam:
     role:
@@ -37,6 +50,9 @@ provider:
             - cognito-idp:ConfirmForgotPassword
             - cognito-idp:ListUsers
             - cognito-idp:AdminListGroupsForUser
+            - cognito-idp:AdminRemoveUserFromGroup
+            - cognito-idp:AdminDisableUser
+            - cognito-idp:AdminEnableUser
           Resource: !ImportValue onebt-${self:provider.stage}-CognitoUserPoolArn
         - Effect: Allow
           Action:
@@ -45,7 +61,7 @@ provider:
         - Effect: Allow
           Action:
             - secretsmanager:GetSecretValue
-          Resource: !ImportValue onebt-${self:provider.stage}-RdsSecretArn
+          Resource: ${ssm:/onebt/${self:provider.stage}/db-secret-arn}
 
   # VPC config is set per-function for functions that need database access
   # Functions without database access should NOT be in VPC to allow direct Cognito access
@@ -54,7 +70,7 @@ provider:
     id: !ImportValue onebt-${self:provider.stage}-HttpApiId
 
   layers:
-    - arn:aws:lambda:ap-southeast-1:550586832874:layer:onebt-shared-libs-dev:85
+    - ${self:custom.sharedLibsLayerArn}
 
 plugins:
   - serverless-offline
@@ -66,6 +82,8 @@ package:
     - "!.gitignore"
     - "!*.md"
     - "!tests/**"
+    - "package.json"
+    - "node_modules/drizzle-orm/**"
     - "src/**"
 
 functions:
@@ -148,10 +166,8 @@ functions:
     description: Create database user record linked to employee (Admin only)
     vpc:
       securityGroupIds:
-        - !ImportValue onebt-${self:provider.stage}-LambdaSecurityGroupId
-      subnetIds: !Split
-        - ","
-        - !ImportValue onebt-${self:provider.stage}-PrivateSubnetIds
+        - ${ssm:/onebt/${self:provider.stage}/lambda-security-group-id}
+      subnetIds: ${ssm:/onebt/${self:provider.stage}/lambda-subnet-ids}
     events:
       - httpApi:
           path: /api/v1/auth/link-user
@@ -181,10 +197,8 @@ functions:
     description: Activate user after password set
     vpc:
       securityGroupIds:
-        - !ImportValue onebt-${self:provider.stage}-LambdaSecurityGroupId
-      subnetIds: !Split
-        - ","
-        - !ImportValue onebt-${self:provider.stage}-PrivateSubnetIds
+        - ${ssm:/onebt/${self:provider.stage}/lambda-security-group-id}
+      subnetIds: ${ssm:/onebt/${self:provider.stage}/lambda-subnet-ids}
     events:
       - httpApi:
           path: /api/v1/auth/activate-user
@@ -226,10 +240,8 @@ functions:
     description: Get all users from database with employee info (Admin only)
     vpc:
       securityGroupIds:
-        - !ImportValue onebt-${self:provider.stage}-LambdaSecurityGroupId
-      subnetIds: !Split
-        - ","
-        - !ImportValue onebt-${self:provider.stage}-PrivateSubnetIds
+        - ${ssm:/onebt/${self:provider.stage}/lambda-security-group-id}
+      subnetIds: ${ssm:/onebt/${self:provider.stage}/lambda-subnet-ids}
     events:
       - httpApi:
           path: /api/v1/auth/users
@@ -246,10 +258,8 @@ functions:
     description: Get employees eligible for user invitation (Admin only)
     vpc:
       securityGroupIds:
-        - !ImportValue onebt-${self:provider.stage}-LambdaSecurityGroupId
-      subnetIds: !Split
-        - ","
-        - !ImportValue onebt-${self:provider.stage}-PrivateSubnetIds
+        - ${ssm:/onebt/${self:provider.stage}/lambda-security-group-id}
+      subnetIds: ${ssm:/onebt/${self:provider.stage}/lambda-subnet-ids}
     events:
       - httpApi:
           path: /api/v1/auth/invitable-employees
@@ -257,3 +267,68 @@ functions:
           authorizer:
             type: jwt
             id: !ImportValue onebt-${self:provider.stage}-CognitoAuthorizerId
+
+  # ============================================
+  # UPDATE USER ROLE - Protected endpoint (Admin only, NO VPC - calls Cognito)
+  # ============================================
+  updateUserRole:
+    handler: src/handlers/auth.updateUserRole
+    description: Update user role in Cognito groups (Admin only, non-VPC)
+    events:
+      - httpApi:
+          path: /api/v1/auth/update-role
+          method: PUT
+          authorizer:
+            type: jwt
+            id: !ImportValue onebt-${self:provider.stage}-CognitoAuthorizerId
+
+  # ============================================
+  # UPDATE USER ROLE DB - Internal endpoint (Admin only, VPC)
+  # ============================================
+  updateUserRoleDb:
+    handler: src/handlers/auth.updateUserRoleDb
+    description: Update user role in database (Admin only, VPC)
+    vpc:
+      securityGroupIds:
+        - ${ssm:/onebt/${self:provider.stage}/lambda-security-group-id}
+      subnetIds: ${ssm:/onebt/${self:provider.stage}/lambda-subnet-ids}
+    events:
+      - httpApi:
+          path: /api/v1/auth/update-role-db
+          method: POST
+          authorizer:
+            type: jwt
+            id: !ImportValue onebt-${self:provider.stage}-CognitoAuthorizerId
+
+  # ============================================
+  # REVOKE USER ACCESS - Protected endpoint (Admin only, NO VPC - calls Cognito)
+  # ============================================
+  revokeUserAccess:
+    handler: src/handlers/auth.revokeUserAccess
+    description: Revoke user access - disable in Cognito (Admin only, non-VPC)
+    events:
+      - httpApi:
+          path: /api/v1/auth/revoke-access
+          method: POST
+          authorizer:
+            type: jwt
+            id: !ImportValue onebt-${self:provider.stage}-CognitoAuthorizerId
+
+  # ============================================
+  # REVOKE USER ACCESS DB - Internal endpoint (Admin only, VPC)
+  # ============================================
+  revokeUserAccessDb:
+    handler: src/handlers/auth.revokeUserAccessDb
+    description: Revoke user access - update status in database (Admin only, VPC)
+    vpc:
+      securityGroupIds:
+        - ${ssm:/onebt/${self:provider.stage}/lambda-security-group-id}
+      subnetIds: ${ssm:/onebt/${self:provider.stage}/lambda-subnet-ids}
+    events:
+      - httpApi:
+          path: /api/v1/auth/revoke-access-db
+          method: POST
+          authorizer:
+            type: jwt
+            id: !ImportValue onebt-${self:provider.stage}-CognitoAuthorizerId
+

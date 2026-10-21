@@ -4,9 +4,11 @@
  */
 
 import React, { useEffect, useMemo } from 'react';
+import { useSelector } from 'react-redux';
 import { Row, Col, Select, DatePicker, InputNumber, Form, Switch, Input, Tooltip } from 'antd';
 import { InfoCircleOutlined } from '@ant-design/icons';
 import CustomModal from '@components/Modal';
+import { selectBillingStatuses } from '@redux/slices/configSlice';
 
 const { Option } = Select;
 const { useWatch } = Form;
@@ -20,24 +22,19 @@ const AllocationFormModal = ({
   isSubmitting,
   resourcesList,
   projectsForFilter,
-  resourceBillingStatuses,
 }) => {
-  // Filter billing statuses to only show "Billing" and "Non-Billing"
-  const filteredBillingStatuses = useMemo(() => {
-    return resourceBillingStatuses.filter(
-      status => status.name === 'Billing' || status.name === 'Non-Billing'
-    );
-  }, [resourceBillingStatuses]);
+  // Billing status options from Redux config (same as Configurations -> Billing Statuses)
+  const billingStatuses = useSelector(selectBillingStatuses) || [];
 
   // Watch the billing_status_id to determine if billing percentage should be disabled
   const billingStatusId = useWatch('billing_status_id', form);
-  
-  // Find the selected billing status name
+
+  // Find the selected billing status name (use name or label from config)
   const selectedBillingStatus = useMemo(() => {
     if (!billingStatusId) return null;
-    const status = resourceBillingStatuses.find(s => s.id === billingStatusId);
-    return status ? status.name : null;
-  }, [billingStatusId, resourceBillingStatuses]);
+    const status = billingStatuses.find((s) => s.id === billingStatusId);
+    return status ? (status.name || status.label) : null;
+  }, [billingStatusId, billingStatuses]);
   
   const isBillingDisabled = selectedBillingStatus === 'Non-Billing';
 
@@ -106,15 +103,28 @@ const AllocationFormModal = ({
             <Form.Item
               label="Allocation Percentage"
               name="allocation_percentage"
+              dependencies={['billing_percentage']}
               rules={[
                 { required: true, message: 'Allocation percentage is required' },
-                { type: 'number', min: 0, max: 100, message: 'Must be between 0 and 100' },
+                { type: 'number', min: 0, max: 200, message: 'Must be between 0 and 200' },
+                ({ getFieldValue }) => ({
+                  validator(_, value) {
+                    const billing = getFieldValue('billing_percentage');
+                    if (value === 0 && (billing === 0 || billing === null || billing === undefined)) {
+                      return Promise.reject(
+                        new Error('Allocation and Billing percentage cannot both be 0%. At least one must be greater than 0%.')
+                      );
+                    }
+                    return Promise.resolve();
+                  },
+                }),
               ]}
             >
               <InputNumber
                 style={{ width: '100%' }}
                 placeholder="Enter allocation percentage"
-                min={0} max={100}
+                min={0}
+                max={200}
                 formatter={(v) => `${v}%`}
                 parser={(v) => v.replace('%', '')}
               />
@@ -129,7 +139,7 @@ const AllocationFormModal = ({
                 allowClear
                 filterOption={(input, option) => (option?.children ?? '').toLowerCase().includes(input.toLowerCase())}
               >
-                {filteredBillingStatuses.map((s) => (
+                {billingStatuses.map((s) => (
                   <Option key={s.id} value={s.id}>{s.label || s.name}</Option>
                 ))}
               </Select>
@@ -148,9 +158,21 @@ const AllocationFormModal = ({
                 </span>
               }
               name="billing_percentage"
+              dependencies={['allocation_percentage']}
               rules={[
                 { required: true, message: 'Billing percentage is required' },
                 { type: 'number', min: 0, max: 100, message: 'Must be between 0 and 100' },
+                ({ getFieldValue }) => ({
+                  validator(_, value) {
+                    const alloc = getFieldValue('allocation_percentage');
+                    if (value === 0 && (alloc === 0 || alloc === null || alloc === undefined)) {
+                      return Promise.reject(
+                        new Error('Allocation and Billing percentage cannot both be 0%.')
+                      );
+                    }
+                    return Promise.resolve();
+                  },
+                }),
               ]}
             >
               <InputNumber
@@ -183,32 +205,23 @@ const AllocationFormModal = ({
             <Form.Item
               label="Deallocation Date"
               name="end_date"
-              dependencies={['start_date', 'allocation_percentage']}
+              dependencies={['start_date']}
               rules={[
                 ({ getFieldValue }) => ({
                   validator(_, value) {
                     const startDate = getFieldValue('start_date');
-                    const allocationPercentage = getFieldValue('allocation_percentage');
-                    
-                    // If allocation percentage is 0, end_date is required
-                    if (allocationPercentage === 0 && !value) {
-                      return Promise.reject(new Error('Deallocation date is required when allocation is 0'));
-                    }
-                    
-                    // If end_date is provided, validate it's after start_date
                     if (value && startDate && value < startDate) {
                       return Promise.reject(new Error('Deallocation date must be after effective date'));
                     }
-                    
                     return Promise.resolve();
                   },
                 }),
               ]}
             >
-              <DatePicker 
-                style={{ width: '100%' }} 
-                placeholder={form.getFieldValue('allocation_percentage') === 0 ? 'Select deallocation date (required)' : 'Select deallocation date (optional)'} 
-                format="YYYY-MM-DD" 
+              <DatePicker
+                style={{ width: '100%' }}
+                placeholder="Select deallocation date (optional)"
+                format="YYYY-MM-DD"
               />
             </Form.Item>
           </Col>

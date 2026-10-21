@@ -605,6 +605,7 @@ def generate_summary_report(event, context):
                   AND e.status = 'Active'
                   AND e.deleted_at IS NULL
                   AND p.is_bench_project = false
+                  AND p.account_type = 'Internal'
                   AND e.track_id IN ({billable_tracks})
                   AND e.employee_type_id != 3
                   AND e.is_external = false
@@ -707,9 +708,9 @@ def generate_summary_report(event, context):
         logger.info(f"Allocation row: {allocation_row}")
         
         # Query Bench Analysis (Name, Tier, Focused Area, Allocation, Track)
-        # Note: Bench includes ALL employees (all tracks, including interns, external, etc.)
-        # Note: tier_id and track_id are stored on employees as INTEGER config IDs (not DB table references)
-        # Also includes track information for track-wise summary calculation
+        # Align with dashboard header note: exclude Interns (employee_type_id=3), Synergy (tier_id=7),
+        # Shared Services / Support track (track_id=6), and external consultants — same rules as billable KPIs.
+        # tier_id and track_id are INTEGER config IDs (see configs / DASHBOARD_QUERIES).
         bench_analysis_query = """
             SELECT 
                 e.name,
@@ -726,6 +727,10 @@ def generate_summary_report(event, context):
               AND e.deleted_at IS NULL
               AND p.is_bench_project = true
               AND e.track_id IN (1, 2, 3, 4, 5, 8, 10, 11)
+              AND e.track_id != 6
+              AND e.employee_type_id != 3
+              AND e.tier_id IS DISTINCT FROM 7
+              AND e.is_external = false
             GROUP BY e.id, e.name, e.tier_id, e.track_id
             ORDER BY SUM(a.allocation_percentage) DESC, e.name ASC
         """
@@ -738,7 +743,7 @@ def generate_summary_report(event, context):
             logger.info(f"Sample bench row: {bench_analysis[0]}")
         
         # Query Internal Non-Billing Project Allocations (Name, Tier, Project, Allocation, Track)
-        # Based on DASHBOARD_QUERIES.md Query #12
+        # Based on DASHBOARD_QUERIES.md Query #12 — exclude Account Type External (projects.account_type)
         internal_non_billing_query = """
             SELECT 
                 e.name,
@@ -755,6 +760,7 @@ def generate_summary_report(event, context):
               AND e.status = 'Active'
               AND e.deleted_at IS NULL
               AND p.is_bench_project = false
+              AND p.account_type = 'Internal'
               AND e.track_id IN (1, 2, 3, 4, 5, 8, 11)
               AND e.employee_type_id != 3
               AND e.is_external = false
@@ -1023,7 +1029,7 @@ def generate_monthly_allocation_report(event, context):
 
         logger.info(f"Generating monthly allocation Excel for {month_name} {target_year} (track_id={track_id})")
 
-        # Build track filter (using %s for psycopg2 parameterized queries)
+        # Build track filter (using %s for pg8000 parameterized queries)
         # IMPORTANT: Parameter order must match the order of %s placeholders
         # in the SQL (dates for current query, optional track, then dates for
         # history query, optional track).
@@ -1376,5 +1382,186 @@ def generate_projects_report(event, context):
     except Exception as e:
         logger.error(f"Failed to generate projects report: {str(e)}", exc_info=True)
         return error(f"Failed to generate projects report: {str(e)}")
+    finally:
+        close_connection()
+
+
+def _safe_int_id(value):
+    """Coerce DB numeric types to int for config lookups."""
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def generate_all_employees_report(event, context):
+    """
+    Generate all employees roster Excel (non-deleted rows).
+    One row per active project allocation; project name and allocation % are
+    separate columns. Employees with multiple projects appear on multiple rows.
+    GET /documents/excel/all-employees
+    """
+    try:
+        # Per-project rows via LEFT JOIN so multi-project employees span multiple rows.
+        sql = """
+            SELECT
+                e.id,
+                e.epf_no,
+                e.emp_no,
+                e.global_employee_id,
+                e.name,
+                e.email,
+                e.phone_number,
+                e.track_id,
+                e.tech_stack_id,
+                e.tier_id,
+                d.name AS designation,
+                et.name AS employee_type,
+                e.status::text AS status,
+                e.joined_date,
+                e.total_allocation,
+                e.total_resource_billing,
+                e.is_external,
+                e.is_account_manager,
+                CASE
+                    WHEN p.project_code IS NOT NULL AND p.project_code <> ''
+                        THEN p.project_name || ' (' || p.project_code || ')'
+                    ELSE p.project_name
+                END AS project_name,
+                a.allocation_percentage,
+                a.billing_percentage,
+                COALESCE(
+                    bs_a.name,
+                    bs_p.name,
+                    CASE WHEN p.is_bench_project = true THEN 'Bench' ELSE 'Non-Billing' END
+                ) AS project_billing_status,
+                e.created_at,
+                e.updated_at
+            FROM employees e
+            LEFT JOIN designations d ON e.designation_id = d.id
+            LEFT JOIN employee_types et ON e.employee_type_id = et.id
+            LEFT JOIN allocations a ON a.employee_id = e.id
+                AND a.is_active = true
+                AND a.deleted_at IS NULL
+                AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
+            LEFT JOIN projects p ON a.project_id = p.id
+            LEFT JOIN billing_statuses bs_a ON a.billing_status_id = bs_a.id
+            LEFT JOIN billing_statuses bs_p ON p.billing_status_id = bs_p.id
+            WHERE e.deleted_at IS NULL
+            ORDER BY e.name ASC, p.project_name ASC NULLS LAST
+        """
+
+        data = query(sql) or []
+        unique_employee_count = len({row.get("id") for row in data})
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "All Employees"
+
+        headers = [
+            "ID",
+            "EPF No",
+            "Employee No",
+            "Global Employee ID",
+            "Name",
+            "Email",
+            "Phone",
+            "Track",
+            "Tech Stack",
+            "Tier",
+            "Designation",
+            "Employee Type",
+            "Status",
+            "Joined Date",
+            "Total Allocation %",
+            "Total Resource Billing %",
+            "Project",
+            "Allocation %",
+            "Billing %",
+            "Project billing status",
+            "External",
+            "Account Manager",
+            "Created At",
+            "Updated At",
+        ]
+
+        ncols = len(headers)
+        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=ncols)
+        title_cell = ws.cell(row=1, column=1, value="All Employees Report")
+        title_cell.font = Font(bold=True, size=16)
+        title_cell.alignment = Alignment(horizontal="center")
+
+        ws.cell(row=2, column=1, value=f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        ws.cell(
+            row=2,
+            column=12,
+            value=f"Employees: {unique_employee_count} | Rows: {len(data)}",
+        )
+
+        for col, header in enumerate(headers, 1):
+            cell = ws.cell(row=4, column=col, value=header)
+            apply_header_style(cell)
+
+        for row_idx, row in enumerate(data, 5):
+            tid = _safe_int_id(row.get("track_id"))
+            tsid = _safe_int_id(row.get("tech_stack_id"))
+            trid = _safe_int_id(row.get("tier_id"))
+
+            cells = [
+                row.get("id"),
+                row.get("epf_no") or "",
+                row.get("emp_no") or "",
+                row.get("global_employee_id") or "",
+                row.get("name") or "",
+                row.get("email") or "",
+                row.get("phone_number") or "",
+                get_track_name(tid),
+                get_tech_stack_name(tsid),
+                get_tier_name(trid),
+                row.get("designation") or "",
+                row.get("employee_type") or "",
+                row.get("status") or "",
+                str(row.get("joined_date", ""))[:10] if row.get("joined_date") else "",
+                float(row.get("total_allocation") or 0),
+                float(row.get("total_resource_billing") or 0),
+                row.get("project_name") or "",
+                float(row.get("allocation_percentage") or 0) if row.get("project_name") else "",
+                float(row.get("billing_percentage") or 0) if row.get("project_name") else "",
+                row.get("project_billing_status") or "",
+                "Yes" if row.get("is_external") else "No",
+                "Yes" if row.get("is_account_manager") else "No",
+                str(row.get("created_at", ""))[:19] if row.get("created_at") else "",
+                str(row.get("updated_at", ""))[:19] if row.get("updated_at") else "",
+            ]
+
+            for col_idx, value in enumerate(cells, 1):
+                cell = ws.cell(row=row_idx, column=col_idx, value=value)
+                apply_cell_style(cell)
+
+        auto_column_width(ws)
+
+        project_col_letter = get_column_letter(17)
+        ws.column_dimensions[project_col_letter].width = max(
+            ws.column_dimensions[project_col_letter].width or 0,
+            35,
+        )
+
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+
+        filename = f"all_employees_{datetime.now().strftime('%Y%m%d')}.xlsx"
+
+        return file_response(
+            output.getvalue(),
+            filename,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to generate all employees report: {str(e)}", exc_info=True)
+        return error(f"Failed to generate all employees report: {str(e)}")
     finally:
         close_connection()

@@ -77,7 +77,7 @@ apiClient.interceptors.response.use(
           // Bad Request - Don't show toast for 401 as it's handled separately
           if (!originalRequest.url?.includes('/auth/refresh') &&
             !originalRequest.url?.includes('/auth/login')) {
-            showErrorToast(getErrorMessage({ response: { data } }));
+            showErrorToast(getErrorMessage({ response: { status, data } }));
           }
           logger.error('Bad request', new Error(data?.message || 'Invalid request parameters'));
           break;
@@ -172,31 +172,31 @@ apiClient.interceptors.response.use(
           }
         case 403:
           // Forbidden
-          showErrorToast(getErrorMessage({ response: { data } }));
+          showErrorToast(getErrorMessage({ response: { status, data } }));
           logger.error('Access forbidden', new Error(data?.message || 'You do not have permission to access this resource'));
           break;
         case 404:
           // Not found
-          showErrorToast(getErrorMessage({ response: { data } }));
+          showErrorToast(getErrorMessage({ response: { status, data } }));
           logger.error('Resource not found', new Error(data?.message || 'The requested resource was not found'));
           break;
         case 409:
           // Conflict
-          showErrorToast(getErrorMessage({ response: { data } }));
+          showErrorToast(getErrorMessage({ response: { status, data } }));
           logger.error('Conflict', new Error(data?.message || 'Resource conflict occurred'));
           break;
         case 422:
           // Validation Error
-          showErrorToast(getErrorMessage({ response: { data } }));
+          showErrorToast(getErrorMessage({ response: { status, data } }));
           logger.error('Validation error', new Error(data?.message || 'Validation failed'));
           break;
         case 500:
           // Server error
-          showErrorToast(getErrorMessage({ response: { data } }));
+          showErrorToast(getErrorMessage({ response: { status, data } }));
           logger.error('Server error', new Error(data?.message || 'An internal server error occurred'));
           break;
         default:
-          showErrorToast(getErrorMessage({ response: { data }, message: error.message }));
+          showErrorToast(getErrorMessage({ response: { status, data, statusText: error.response?.statusText }, message: error.message }));
           logger.error('API error', new Error(data?.message || error.message));
       }
 

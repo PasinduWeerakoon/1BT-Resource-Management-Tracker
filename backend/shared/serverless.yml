@@ -2,7 +2,7 @@ service: onebt-shared
 
 provider:
   name: aws
-  runtime: nodejs22.x
+  runtime: nodejs20.x
   stage: ${opt:stage, 'dev'}
   region: ${opt:region, 'ap-southeast-1'}
 
@@ -12,13 +12,27 @@ layers:
     name: onebt-shared-libs-${self:provider.stage}
     description: Shared libraries (database, logger, middleware, utils)
     compatibleRuntimes:
-      - nodejs22.x
+      - nodejs20.x
     retain: false
 
 resources:
+  Resources:
+    # Publish the layer ARN to SSM so consumer services can resolve it at deploy
+    # time via ${ssm:/onebt/shared/layer-arn/<stage>} instead of Fn::ImportValue.
+    # ImportValue creates a hard cross-stack dependency that blocks any shared
+    # update with: "Cannot update export ... as it is in use by ...".
+    SharedLibsLayerArnParameter:
+      Type: AWS::SSM::Parameter
+      Properties:
+        Name: /onebt/shared/layer-arn/${self:provider.stage}
+        Type: String
+        Value: !Ref SharedLibsLambdaLayer
+        Description: ARN of the latest onebt-shared-libs layer version.
+
   Outputs:
     SharedLibsLayerArn:
-      Description: Shared libraries Lambda Layer ARN
+      Description: Shared libraries Lambda Layer ARN (latest version).
       Value: !Ref SharedLibsLambdaLayer
-      Export:
-        Name: onebt-shared-layer-${self:provider.stage}-arn
+    SharedLibsLayerArnSsmName:
+      Description: SSM parameter name holding the shared layer ARN.
+      Value: /onebt/shared/layer-arn/${self:provider.stage}

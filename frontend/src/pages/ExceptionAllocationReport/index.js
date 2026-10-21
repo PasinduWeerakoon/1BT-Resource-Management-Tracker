@@ -173,17 +173,16 @@ const ExceptionAllocationReport = () => {
       }
       
       const response = await reportsService.getException(queryParams);
-      
-      // Update summary from API response if available
-      if (response && response.data && response.data.summary) {
+
+      if (response?.summary) {
         setSummary({
-          total: response.data.summary.total || 0,
-          overAllocated: response.data.summary.overAllocated || 0,
-          underAllocated: response.data.summary.underAllocated || 0,
-          unallocated: response.data.summary.unallocated || 0,
+          total: response.summary.total ?? 0,
+          overAllocated: response.summary.overAllocated ?? 0,
+          underAllocated: response.summary.underAllocated ?? 0,
+          unallocated: response.summary.unallocated ?? 0,
         });
       }
-      
+
       return response;
     },
     transformReportData,

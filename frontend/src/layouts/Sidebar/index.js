@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Layout, Menu, Dropdown, Avatar, Button, Tooltip, App } from 'antd';
@@ -6,6 +6,7 @@ import { LogoutOutlined, SettingOutlined, MenuFoldOutlined, MenuUnfoldOutlined, 
 import { logoutUser } from '@redux/slices/authSlice';
 import { toggleSidebar } from '@redux/slices/layoutSlice';
 import { getMenuItems } from '@navigation/menuItems';
+import { parseGroups } from '@pages/Auth/Login/utils/authHelpers';
 import '@styles/layouts/Sidebar.scss';
 
 const { Sider } = Layout;
@@ -47,12 +48,12 @@ const Sidebar = () => {
   // Get user initials for avatar
   const getInitials = (user) => {
     if (!user) return 'U';
-    
+
     // Try to get name from various fields
     const name = user.name || user.given_name || user.preferred_username || user.email || '';
-    
+
     if (!name) return 'U';
-    
+
     const parts = name.split(' ');
     if (parts.length >= 2) {
       return (parts[0][0] + parts[1][0]).toUpperCase();
@@ -64,96 +65,121 @@ const Sidebar = () => {
   const getUserDisplayName = () => {
     const name = user?.name?.trim();
     const email = user?.email || user?.username || '';
-    
+
     if (name && name !== email) {
       return `${name} | ${email}`;
     }
     return email || 'User';
   };
 
-  const userMenuItems = [
-    {
-      key: 'user-info',
-      label: (
-        <div className="sidebar-user-info">
-          <div className="sidebar-user-name">{getUserDisplayName()}</div>
-          <div className="sidebar-user-email">{role || 'User'}</div>
-        </div>
-      ),
-      disabled: true,
-    },
-    {
+  // Check if user has Admin role in groups
+  const isAdmin = useMemo(() => {
+    if (!user) return false;
+    const groups = parseGroups(user.groups);
+    return groups.some(group => group === 'Admin' || group === 'SuperAdmin');
+  }, [user]);
+
+  const userMenuItems = useMemo(() => {
+    const items = [
+      {
+        key: 'user-info',
+        label: (
+          <div className="sidebar-user-info">
+            <div className="sidebar-user-name">{getUserDisplayName()}</div>
+            <div className="sidebar-user-email">{role || 'User'}</div>
+          </div>
+        ),
+        disabled: true,
+      },
+      {
+        type: 'divider',
+      },
+      {
+        key: 'employee-management',
+        label: 'Employee Management',
+        icon: <TeamOutlined />,
+        onClick: () => {
+          navigate('/resources');
+          if (isMobile) {
+            dispatch(toggleSidebar());
+          }
+        },
+      },
+    ];
+
+    // Only show System Users if user is Admin
+    if (isAdmin) {
+      items.push({
+        key: 'system-users',
+        label: 'System Users',
+        icon: <UserOutlined />,
+        onClick: () => {
+          navigate('/system-users');
+          if (isMobile) {
+            dispatch(toggleSidebar());
+          }
+        },
+      });
+    }
+
+    items.push({
       type: 'divider',
-    },
-    {
-      key: 'employee-management',
-      label: 'Employee Management',
-      icon: <TeamOutlined />,
-      onClick: () => {
-        navigate('/resources');
-        if (isMobile) {
-          dispatch(toggleSidebar());
+    });
+
+    // Only show Configurations and Activity Log if user is Admin
+    if (isAdmin) {
+      items.push(
+        {
+          key: 'configurations',
+          label: 'Configurations',
+          icon: <SettingOutlined />,
+          onClick: () => {
+            navigate('/configurations');
+            if (isMobile) {
+              dispatch(toggleSidebar());
+            }
+          },
+        },
+        {
+          key: 'activity-log',
+          label: 'Activity Log',
+          icon: <HistoryOutlined />,
+          onClick: () => {
+            navigate('/activity-log');
+            if (isMobile) {
+              dispatch(toggleSidebar());
+            }
+          },
         }
+      );
+    }
+
+    items.push(
+      {
+        key: 'settings',
+        label: 'Settings',
+        icon: <SettingOutlined />,
+        onClick: () => {
+          navigate('/settings');
+          if (isMobile) {
+            dispatch(toggleSidebar());
+          }
+        },
       },
-    },
-    {
-      key: 'system-users',
-      label: 'System Users',
-      icon: <UserOutlined />,
-      onClick: () => {
-        navigate('/system-users');
-        if (isMobile) {
-          dispatch(toggleSidebar());
-        }
+      {
+        type: 'divider',
       },
-    },
-    {
-      type: 'divider',
-    },
-    {
-      key: 'configurations',
-      label: 'Configurations',
-      icon: <SettingOutlined />,
-      onClick: () => {
-        navigate('/configurations');
-        if (isMobile) {
-          dispatch(toggleSidebar());
-        }
-      },
-    },
-    {
-      key: 'activity-log',
-      label: 'Activity Log',
-      icon: <HistoryOutlined />,
-      onClick: () => {
-        navigate('/activity-log');
-        if (isMobile) {
-          dispatch(toggleSidebar());
-        }
-      },
-    },
-    {
-      key: 'settings',
-      label: 'Settings',
-      icon: <SettingOutlined />,
-      onClick: () => {
-        navigate('/settings');
-        if (isMobile) {
-          dispatch(toggleSidebar());
-        }
-      },
-    },
-    {
-      type: 'divider',
-    },
-    {
-      key: 'logout',
-      label: 'Logout',
-      icon: <LogoutOutlined />,
-      onClick: handleLogout,
-      danger: true,
-    },
-  ];
+      {
+        key: 'logout',
+        label: 'Logout',
+        icon: <LogoutOutlined />,
+        onClick: handleLogout,
+        danger: true,
+      }
+    );
+
+    return items;
+  }, [user, role, isAdmin, isMobile, navigate, dispatch, handleLogout]);
 
   return (
     <Sider

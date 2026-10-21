@@ -90,8 +90,13 @@ const ProjectForm = ({
                 const selectedType = accountTypesForModal.find(at => at.id === value);
                 setAccountTypeId(value);
                 // Update client field disabled state based on account type
+                // Only clear client_id when switching to Internal, preserve it when switching to External
                 const isInternal = selectedType?.name === 'Internal';
-                form.setFieldsValue({ client_id: isInternal ? undefined : form.getFieldValue('client_id') });
+                if (isInternal) {
+                  // Clear client_id only when switching to Internal
+                  form.setFieldsValue({ client_id: undefined });
+                }
+                // When switching to External, don't modify client_id - let it keep its current value
               }}
             >
               {accountTypesForModal.map((type) => (
@@ -110,31 +115,21 @@ const ProjectForm = ({
             label="Client Name"
             name="client_id"
           >
-            <Form.Item shouldUpdate={(prevValues, currentValues) => prevValues.account_type !== currentValues.account_type} noStyle>
-              {({ getFieldValue }) => {
-                const accountTypeId = getFieldValue('account_type');
-                const accountType = accountTypesForModal.find(at => at.id === accountTypeId);
-                const isInternal = accountType?.name === 'Internal';
-
-                return (
-                  <Select
-                    placeholder="Select client"
-                    showSearch
-                    allowClear
-                    disabled={isInternal}
-                    filterOption={(input, option) =>
-                      (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
-                    }
-                  >
-                    {clients.map((client) => (
-                      <Option key={client.id} value={client.id} label={client.name}>
-                        {client.name}
-                      </Option>
-                    ))}
-                  </Select>
-                );
-              }}
-            </Form.Item>
+            <Select
+              placeholder="Select client"
+              showSearch
+              allowClear
+              disabled={accountTypeId && accountTypesForModal.find(at => at.id === accountTypeId)?.name === 'Internal'}
+              filterOption={(input, option) =>
+                (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+              }
+            >
+              {clients.map((client) => (
+                <Option key={client.id} value={client.id} label={client.name}>
+                  {client.name}
+                </Option>
+              ))}
+            </Select>
           </Form.Item>
         </Col>
         <Col xs={24} sm={12}>

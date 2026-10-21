@@ -51,6 +51,7 @@ export const getProjectColumns = () => [
     render: (status) => {
       const colorMap = {
         'Active': 'green',
+        'Inactive': 'red',
         'On Hold': 'orange',
         'Completed': 'blue',
         'Cancelled': 'red',

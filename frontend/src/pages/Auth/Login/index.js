@@ -8,7 +8,7 @@ import { fetchAllConfigData } from '@redux/slices/configSlice';
 import { authService } from '@api';
 import { storeAuth } from '@utils/auth.utils';
 import { getUserFromToken } from '@utils/jwt.utils';
-import { showErrorToast, showSuccessToast } from '@utils/toast.utils';
+import { showErrorToast, showSuccessToast, getErrorMessage } from '@utils/toast.utils';
 import logger from '@utils/logger';
 import ForgotPassword from '@pages/Auth/ForgotPassword';
 import LoginHeader from './components/LoginHeader';
@@ -153,11 +153,15 @@ const Login = () => {
           showErrorToast('Invalid response format. Please try again.');
         }
       } else {
-        showErrorToast(response?.message || 'Failed to complete invitation. Please try again.');
+        // Handle error response from API
+        const errorMessage = response?.error?.message || response?.message || 'Failed to complete invitation. Please try again.';
+        showErrorToast(errorMessage);
       }
     } catch (error) {
       logger.error('Failed to complete invite:', error);
-      showErrorToast(error?.response?.data?.message || error?.message || 'Failed to set password. Please try again.');
+      // Extract error message from various possible error structures
+      const errorMessage = getErrorMessage(error) || 'Failed to set password. Please try again.';
+      showErrorToast(errorMessage);
     } finally {
       setCompletingInvite(false);
     }
@@ -170,7 +174,7 @@ const Login = () => {
         <LoginForm
           onFinish={onFinish}
           loading={loading}
-          // onForgotPassword={() => setShowForgotPasswordModal(true)}
+        // onForgotPassword={() => setShowForgotPasswordModal(true)}
         />
       </Card>
 
@@ -220,7 +224,7 @@ const Login = () => {
             name="newPassword"
             rules={[
               { required: true, message: 'Please enter your new password!' },
-              { min: 8, message: 'Password must be at least 8 characters long!' },
+              { min: 12, message: 'Password must be at least 12 characters long!' },
               {
                 pattern: /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/,
                 message: 'Password must contain at least one uppercase letter, one lowercase letter, and one number!',

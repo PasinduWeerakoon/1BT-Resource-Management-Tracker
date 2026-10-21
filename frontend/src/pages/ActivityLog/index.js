@@ -6,6 +6,8 @@ import {
   Badge,
   Descriptions,
   Tabs,
+  Tag,
+  Button,
 } from 'antd';
 import {
   HistoryOutlined,
@@ -195,7 +197,7 @@ const ActivityLog = () => {
       render: (fields) => {
         if (!fields || fields.length === 0) return 'N/A';
         return (
-            <span>{fields.length} field{fields.length > 1 ? 's' : ''}</span>
+          <span>{fields.length} field{fields.length > 1 ? 's' : ''}</span>
         );
       },
     },
@@ -291,12 +293,12 @@ const ActivityLog = () => {
                 {/* Table Section */}
                 <LogsTable
                   auditLogs={auditLogs}
-                    columns={columns}
+                  columns={columns}
                   pagination={pagination}
                   onPaginationChange={handleTableChange}
-                    loading={loading}
+                  loading={loading}
                   onViewDetail={handleViewDetail}
-                  />
+                />
               </>
             ),
           },
@@ -335,18 +337,18 @@ const ActivityLog = () => {
                           {stats.byEntityType &&
                             (Array.isArray(stats.byEntityType)
                               ? stats.byEntityType.map((item, index) => (
-                                  <Descriptions.Item 
-                                    key={item.entity_type || item.entityType || index} 
-                                    label={item.entity_type || item.entityType || 'Unknown'}
-                                  >
-                                    <strong>{item.count || 0}</strong>
-                                  </Descriptions.Item>
-                                ))
+                                <Descriptions.Item
+                                  key={item.entity_type || item.entityType || index}
+                                  label={item.entity_type || item.entityType || 'Unknown'}
+                                >
+                                  <strong>{item.count || 0}</strong>
+                                </Descriptions.Item>
+                              ))
                               : Object.entries(stats.byEntityType).map(([entityType, count]) => (
-                                  <Descriptions.Item key={entityType} label={entityType}>
-                                    <strong>{typeof count === 'object' ? (count.count || 0) : count}</strong>
-                                  </Descriptions.Item>
-                                ))
+                                <Descriptions.Item key={entityType} label={entityType}>
+                                  <strong>{typeof count === 'object' ? (count.count || 0) : count}</strong>
+                                </Descriptions.Item>
+                              ))
                             )}
                         </Descriptions>
                       </Card>

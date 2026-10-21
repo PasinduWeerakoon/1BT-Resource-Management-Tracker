@@ -4,8 +4,8 @@
  * Centralized logic for filtering resources based on business rules
  */
 
-// Billable tracks: QA, Dev, UI, BA, PM, UX, Delivery, Functional Consultant
-export const BILLABLE_TRACK_IDS = [1, 2, 3, 4, 5, 8, 10, 11];
+// Billable tracks: QA, Dev, UI, BA, PM, Support, UX, Delivery, Functional Consultant
+export const BILLABLE_TRACK_IDS = [1, 2, 3, 4, 5, 6, 8, 10, 11];
 
 // Track names for reference
 export const TRACK_NAMES = {
@@ -26,7 +26,7 @@ export const TRACK_NAMES = {
  * 
  * Criteria:
  * - Status must be 'Active'
- * - Track must be in BILLABLE_TRACK_IDS (QA, Dev, UI, BA, PM, UX, Delivery, Functional Consultant)
+ * - Track must be in BILLABLE_TRACK_IDS (QA, Dev, UI, BA, PM, Support, UX, Delivery, Functional Consultant)
  * - Includes interns (no employee_type filter)
  * 
  * @param {Array} resources - Array of resource objects

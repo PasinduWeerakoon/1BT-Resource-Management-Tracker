@@ -2,29 +2,37 @@ service: onebt-report-service
 
 provider:
   name: aws
-  runtime: nodejs22.x
+  runtime: nodejs20.x
   stage: ${opt:stage, 'dev'}
   region: ${opt:region, 'ap-southeast-1'}
+  # Publishing a Lambda version per function balloons the CF template past the 51KB limit for large stacks.
+  versionFunctions: false
   memorySize: 512 # Reports need more memory for data processing
   timeout: 60 # Reports can take longer
   tags:
     Service: report
     Project: 1BT-Resource-Management
 
-  # VPC Configuration - Required for RDS access
+  # Use existing regional deployments bucket so CF template omits ServerlessDeploymentBucket resources (keeps template under 51KB inline limit edge cases).
+  deploymentBucket:
+    name: serverless-framework-deployments-ap-southeast-1-c03bcf0e-ef8a
+
+  # VPC Configuration - default VPC (see /onebt/<stage>/lambda-*).
+  # Moved off the onebt-infrastructure VPC exports so the app runs
+  # alongside the RDS instance in the default VPC.
   vpc:
     securityGroupIds:
-      - !ImportValue onebt-${self:provider.stage}-LambdaSecurityGroupId
-    subnetIds: !Split
-      - ","
-      - !ImportValue onebt-${self:provider.stage}-PrivateSubnetIds
+      - ${ssm:/onebt/${self:provider.stage}/lambda-security-group-id}
+    subnetIds: ${ssm:/onebt/${self:provider.stage}/lambda-subnet-ids}
 
   environment:
     NODE_ENV: ${self:provider.stage}
-    DB_HOST: !ImportValue onebt-${self:provider.stage}-RdsEndpoint
-    DB_PORT: !ImportValue onebt-${self:provider.stage}-RdsPort
-    DB_NAME: !ImportValue onebt-${self:provider.stage}-DbName
-    DB_SECRET_ARN: !ImportValue onebt-${self:provider.stage}-RdsSecretArn
+    # DB endpoint via SSM: CloudFormation forbids changing an in-use export,
+    # so repointing the DB is done by updating /onebt/<stage>/db-host.
+    DB_HOST: ${ssm:/onebt/${self:provider.stage}/db-host}
+    DB_PORT: ${ssm:/onebt/${self:provider.stage}/db-port}
+    DB_NAME: ${ssm:/onebt/${self:provider.stage}/db-name}
+    DB_SECRET_ARN: ${ssm:/onebt/${self:provider.stage}/db-secret-arn}
     AUDIT_QUEUE_URL: !ImportValue onebt-${self:provider.stage}-AuditQueueUrl
 
   iam:
@@ -33,7 +41,7 @@ provider:
         - Effect: Allow
           Action:
             - secretsmanager:GetSecretValue
-          Resource: !ImportValue onebt-${self:provider.stage}-RdsSecretArn
+          Resource: ${ssm:/onebt/${self:provider.stage}/db-secret-arn}
         - Effect: Allow
           Action:
             - sqs:SendMessage
@@ -42,8 +50,9 @@ provider:
   httpApi:
     id: !ImportValue onebt-${self:provider.stage}-HttpApiId
 
+  # Layer ARN from onebt-shared-<stage> stack export (avoids stale :version ARNs per stage).
   layers:
-    - arn:aws:lambda:ap-southeast-1:550586832874:layer:onebt-shared-libs-dev:85
+    - ${self:custom.sharedLibsLayerArn}
 
 plugins:
   - serverless-offline
@@ -59,6 +68,7 @@ package:
     - "package.json"
 
 custom:
+  sharedLibsLayerArn: ${ssm:/onebt/shared/layer-arn/${self:provider.stage}}
   authorizer:
     type: jwt
     id: !ImportValue onebt-${self:provider.stage}-CognitoAuthorizerId
@@ -147,6 +157,15 @@ functions:
           method: GET
           authorizer: ${self:custom.authorizer}
 
+  clientCostSnapshot:
+    handler: src/handlers/reports/index.getClientCostSnapshot
+    description: Get client cost snapshot by employee allocations
+    events:
+      - httpApi:
+          path: /api/v1/reports/client-cost-snapshot
+          method: GET
+          authorizer: ${self:custom.authorizer}
+
   exceptionReport:
     handler: src/handlers/reports/index.getExceptionReport
     description: Get exception allocation report
@@ -208,11 +227,14 @@ functions:
     timeout: 120 # Allow more time for complex calculations
     memorySize: 1024 # More memory for aggregations
     events:
-      # Run at midnight UTC every day
+      # 05:00 UTC = 10:30 Colombo, weekdays only. The database runs 08:00-22:00
+      # Colombo Mon-Fri and is stopped all weekend, so midnight UTC and any
+      # Sat/Sun run would hit a stopped instance. These UTC hours map to the same
+      # weekday in Colombo (+05:30), so MON-FRI means the same in both.
       - schedule:
-          rate: cron(0 0 * * ? *)
+          rate: cron(0 5 ? * MON-FRI *)
           enabled: true
-          description: Daily dashboard stats calculation at midnight UTC
+          description: Daily dashboard stats calculation (10:30 Colombo, weekdays)
       # Also expose as HTTP endpoint for manual triggers
       - httpApi:
           path: /api/v1/dashboard/calculate-stats
@@ -224,8 +246,9 @@ functions:
     description: Cleanup dashboard stats older than 365 days
     timeout: 60
     events:
-      # Run weekly on Sunday at 2 AM UTC
+      # Moved off Sunday entirely - the database is stopped at weekends now.
+      # Monday 06:00 UTC = 11:30 Colombo, after the week's first start.
       - schedule:
-          rate: cron(0 2 ? * SUN *)
+          rate: cron(0 6 ? * MON *)
           enabled: true
-          description: Weekly cleanup of old dashboard stats
+          description: Weekly cleanup of old dashboard stats (Mon 11:30 Colombo)

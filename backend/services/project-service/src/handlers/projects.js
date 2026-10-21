@@ -463,7 +463,7 @@ export const update = async (event) => {
 
         // Scenario 2: Project Status changed from Active to Inactive/Completed/On Hold
         // We implicitly treat this as "Project Ended Today" if no specific end date provided
-        const nonActiveStatuses = ['Inactive', 'Completed', 'On Hold', 'Cancelled'];
+        const nonActiveStatuses = ['Inactive', 'Completed', 'On Hold'];
         if (validated.status !== undefined &&
             existing.status === 'Active' &&
             nonActiveStatuses.includes(validated.status)) {

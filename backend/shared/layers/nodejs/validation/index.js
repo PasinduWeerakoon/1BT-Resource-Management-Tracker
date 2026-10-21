@@ -69,6 +69,13 @@ export const validateRequest = (schemaType, operation, data) => {
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+/** Accept string, null, or '' — clients PUT often sends null to clear optional DB columns */
+const clientNullableString = (maxLen) =>
+    Joi.alternatives().try(Joi.string().max(maxLen), Joi.valid(null), Joi.valid('')).optional();
+
+const clientNullableEmail = () =>
+    Joi.alternatives().try(Joi.string().pattern(emailPattern), Joi.valid(null), Joi.valid('')).optional();
+
 // Pagination schema
 const paginationSchema = {
     page: Joi.number().integer().min(1).default(1),
@@ -242,24 +249,24 @@ export const clientSchemas = {
     list: Joi.object({
         ...paginationSchema,
         search: Joi.string().allow('').optional(),
-        is_active: Joi.string().valid('true', 'false').optional(),
+        is_active: Joi.string().valid('true', 'false', 'all').optional(),
     }),
 
     create: Joi.object({
         client_name: Joi.string().max(100).required(),
-        contact_person: Joi.string().max(100).optional(),
-        contact_email: Joi.string().pattern(emailPattern).optional(),
-        contact_phone: Joi.string().max(50).optional(),
-        address: Joi.string().max(500).optional(),
+        contact_person: clientNullableString(100),
+        contact_email: clientNullableEmail(),
+        contact_phone: clientNullableString(50),
+        address: clientNullableString(500),
         is_active: Joi.boolean().default(true),
     }),
 
     update: Joi.object({
         client_name: Joi.string().max(100).optional(),
-        contact_person: Joi.string().max(100).optional(),
-        contact_email: Joi.string().pattern(emailPattern).optional(),
-        contact_phone: Joi.string().max(50).optional(),
-        address: Joi.string().max(500).optional(),
+        contact_person: clientNullableString(100),
+        contact_email: clientNullableEmail(),
+        contact_phone: clientNullableString(50),
+        address: clientNullableString(500),
         is_active: Joi.boolean().optional(),
     }),
 };
@@ -270,7 +277,7 @@ export const projectSchemas = {
         ...paginationSchema,
         search: Joi.string().allow('').optional(),
         client_id: Joi.number().integer().min(1).optional(),
-        status: Joi.string().valid('Active', 'Completed', 'On Hold', 'Cancelled').optional(),
+        status: Joi.string().valid('Active', 'Inactive', 'Completed', 'On Hold').optional(),
         project_type_id: Joi.number().integer().min(1).optional(),
         billing_status_id: Joi.number().integer().min(1).optional(),
     }),
@@ -283,7 +290,7 @@ export const projectSchemas = {
         client_id: Joi.number().integer().min(1).optional(), // References clients table
         project_start_date: Joi.date().iso().optional(),
         project_end_date: Joi.date().iso().optional(),
-        status: Joi.string().valid('Active', 'Completed', 'On Hold', 'Cancelled').default('Active'),
+        status: Joi.string().valid('Active', 'Inactive', 'Completed', 'On Hold').default('Active'),
         billing_status_id: Joi.number().integer().min(1).optional(), // References billing_statuses table
         team_size: Joi.number().integer().min(1).default(1),
         account_manager_id: Joi.number().integer().min(1).optional(), // References employees table
@@ -294,19 +301,19 @@ export const projectSchemas = {
 
     update: Joi.object({
         project_name: Joi.string().max(200).optional(),
-        project_code: Joi.string().max(50).optional(),
+        project_code: Joi.string().max(50).allow(null, '').optional(),
         project_type_id: Joi.number().integer().min(1).allow(null).optional(),
         account_type: Joi.string().valid('Internal', 'External').optional(),
         client_id: Joi.number().integer().min(1).allow(null).optional(),
-        project_start_date: Joi.date().iso().optional(),
-        project_end_date: Joi.date().iso().optional(),
-        status: Joi.string().valid('Active', 'Completed', 'On Hold', 'Cancelled').optional(),
+        project_start_date: Joi.date().iso().allow(null).optional(),
+        project_end_date: Joi.date().iso().allow(null).optional(),
+        status: Joi.string().valid('Active', 'Inactive', 'Completed', 'On Hold').optional(),
         billing_status_id: Joi.number().integer().min(1).allow(null).optional(),
         team_size: Joi.number().integer().min(1).optional(),
         account_manager_id: Joi.number().integer().min(1).allow(null).optional(),
-        account_reg_sales_owner: Joi.string().max(100).optional(),
+        account_reg_sales_owner: Joi.string().max(100).allow(null, '').optional(),
         budget: Joi.number().min(0).allow(null).optional(),
-        description: Joi.string().max(1000).optional(),
+        description: Joi.string().max(1000).allow(null, '').optional(),
         version: Joi.number().integer().min(1).optional(), // For optimistic locking
     }),
 };
@@ -338,20 +345,25 @@ export const allocationSchemas = {
                 'number.min': 'Allocation percentage must be at least 0%'
             }),
         start_date: Joi.date().iso().required(),
-        end_date: Joi.date().iso().allow(null)
-            .when('allocation_percentage', {
-                is: 0,
-                then: Joi.date().iso().required().messages({
-                    'any.required': 'End date is required when allocation percentage is 0%'
-                }),
-                otherwise: Joi.date().iso().allow(null).optional()
-            }),
+        // end_date is always optional — a 0% allocation with billing > 0 is a valid billing-only record
+        end_date: Joi.date().iso().allow(null).optional(),
         billing_percentage: Joi.number().min(0).max(100).default(100),
         billing_status_id: Joi.number().integer().min(1).required()
             .messages({ 'any.required': 'billing_status_id is required when creating an allocation' }),
         notes: Joi.string().max(500).allow('').optional(),
         effective_date: Joi.date().iso().allow(null).optional(),
         forceOverallocation: Joi.boolean().optional(),
+    }).custom((value, helpers) => {
+        // allocation_percentage and billing_percentage cannot both be 0%
+        const alloc = value.allocation_percentage;
+        // billing_percentage default (100) is applied by Joi before custom() runs
+        const billing = value.billing_percentage;
+        if (alloc === 0 && billing === 0) {
+            return helpers.message(
+                'Allocation percentage and Billing percentage cannot both be 0%. At least one must be greater than 0%.'
+            );
+        }
+        return value;
     }),
 
     update: Joi.object({
@@ -361,14 +373,7 @@ export const allocationSchemas = {
                 'number.min': 'Allocation percentage must be at least 0%'
             }),
         start_date: Joi.date().iso().optional(),
-        end_date: Joi.date().iso().allow(null)
-            .when('allocation_percentage', {
-                is: 0,
-                then: Joi.date().iso().required().messages({
-                    'any.required': 'End date is required when allocation percentage is 0%'
-                }),
-                otherwise: Joi.date().iso().allow(null).optional()
-            }),
+        end_date: Joi.date().iso().allow(null).optional(),
         billing_percentage: Joi.number().min(0).max(100).optional(),
         billing_status_id: Joi.number().integer().min(1).optional(),
         is_active: Joi.boolean().optional(),
@@ -376,6 +381,7 @@ export const allocationSchemas = {
         effective_date: Joi.date().iso().allow(null).optional(),
         forceOverallocation: Joi.boolean().optional(),
         version: Joi.number().integer().min(1).optional(),
+        // Note: cross-field both=0 check is enforced in the handler where existing values are available
     }),
 };
 

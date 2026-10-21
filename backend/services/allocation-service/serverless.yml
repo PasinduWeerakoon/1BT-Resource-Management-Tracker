@@ -11,20 +11,22 @@ provider:
     Service: allocation
     Project: 1BT-Resource-Management
 
-  # VPC Configuration - Required for RDS access
+  # VPC Configuration - default VPC (see /onebt/<stage>/lambda-*).
+  # Moved off the onebt-infrastructure VPC exports so the app runs
+  # alongside the RDS instance in the default VPC.
   vpc:
     securityGroupIds:
-      - !ImportValue onebt-${self:provider.stage}-LambdaSecurityGroupId
-    subnetIds: !Split
-      - ","
-      - !ImportValue onebt-${self:provider.stage}-PrivateSubnetIds
+      - ${ssm:/onebt/${self:provider.stage}/lambda-security-group-id}
+    subnetIds: ${ssm:/onebt/${self:provider.stage}/lambda-subnet-ids}
 
   environment:
     NODE_ENV: ${self:provider.stage}
-    DB_HOST: !ImportValue onebt-${self:provider.stage}-RdsEndpoint
-    DB_PORT: !ImportValue onebt-${self:provider.stage}-RdsPort
-    DB_NAME: !ImportValue onebt-${self:provider.stage}-DbName
-    DB_SECRET_ARN: !ImportValue onebt-${self:provider.stage}-RdsSecretArn
+    # DB endpoint via SSM: CloudFormation forbids changing an in-use export,
+    # so repointing the DB is done by updating /onebt/<stage>/db-host.
+    DB_HOST: ${ssm:/onebt/${self:provider.stage}/db-host}
+    DB_PORT: ${ssm:/onebt/${self:provider.stage}/db-port}
+    DB_NAME: ${ssm:/onebt/${self:provider.stage}/db-name}
+    DB_SECRET_ARN: ${ssm:/onebt/${self:provider.stage}/db-secret-arn}
     AUDIT_QUEUE_URL: !ImportValue onebt-${self:provider.stage}-AuditQueueUrl
 
   iam:
@@ -33,7 +35,7 @@ provider:
         - Effect: Allow
           Action:
             - secretsmanager:GetSecretValue
-          Resource: !ImportValue onebt-${self:provider.stage}-RdsSecretArn
+          Resource: ${ssm:/onebt/${self:provider.stage}/db-secret-arn}
         - Effect: Allow
           Action:
             - sqs:SendMessage
@@ -46,8 +48,9 @@ provider:
   httpApi:
     id: !ImportValue onebt-${self:provider.stage}-HttpApiId
 
+  # Layer ARN via CloudFormation export from onebt-shared-<stage> (avoids stale version numbers).
   layers:
-    - arn:aws:lambda:ap-southeast-1:550586832874:layer:onebt-shared-libs-dev:85
+    - ${self:custom.sharedLibsLayerArn}
 
 plugins:
   - serverless-offline
@@ -63,6 +66,7 @@ package:
     - "package.json"
 
 custom:
+  sharedLibsLayerArn: ${ssm:/onebt/shared/layer-arn/${self:provider.stage}}
   authorizer:
     type: jwt
     id: !ImportValue onebt-${self:provider.stage}-CognitoAuthorizerId
@@ -202,8 +206,11 @@ functions:
     description: Nightly job to detect and fill allocation gaps with Bench
     timeout: 300
     events:
+      # Hourly 03:00-16:00 UTC = 08:30-21:30 Colombo, weekdays only - the hours
+      # the database is running. A 24/7 hourly rate would fail 10 times a night
+      # and all weekend.
       - schedule:
-          rate: cron(0 * * * ? *) # Run hourly
+          rate: cron(0 3-16 ? * MON-FRI *)
           description: Enhancement 3.4 - Gap Detection & Auto-Bench Fill
           enabled: true
 
@@ -212,8 +219,10 @@ functions:
     description: Daily job to auto-transition billing status based on project type
     timeout: 300
     events:
+      # 03:00 UTC = 08:30 Colombo, weekdays only - 30 minutes after the database
+      # starts, and never at the weekend while it is stopped.
       - schedule:
-          rate: cron(0 3 * * ? *) # Run daily at 3:00 AM UTC
+          rate: cron(0 3 ? * MON-FRI *)
           description: Enhancement 3.10 - Auto-Transition Billing Status
           enabled: true
   utilizationSnapshotJob:
@@ -221,7 +230,9 @@ functions:
     description: Daily job to capture historical utilization snapshots
     timeout: 300
     events:
+      # 05:30 UTC = 11:00 Colombo, weekdays only. Moved off midnight UTC, which
+      # now falls inside the nightly shutdown, and staggered after the stats job.
       - schedule:
-          rate: cron(0 0 * * ? *) # Run daily at midnight UTC
+          rate: cron(30 5 ? * MON-FRI *)
           description: Enhancement 3.12 - Historical Utilization Snapshots
           enabled: true

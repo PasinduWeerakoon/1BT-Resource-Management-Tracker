@@ -73,7 +73,7 @@ const processRecord = async (record) => {
                 $17::jsonb,
                 $18
             )
-            ON CONFLICT (message_id) DO NOTHING
+            ON CONFLICT (message_id) WHERE message_id IS NOT NULL DO NOTHING
             RETURNING id
         `;
 

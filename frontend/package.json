@@ -5,8 +5,14 @@
   "private": true,
   "scripts": {
     "start": "webpack serve --mode development --open",
+    "start:dev": "REACT_APP_ENV=dev webpack serve --mode development --open",
+    "start:qa": "REACT_APP_ENV=qa webpack serve --mode development --open",
+    "start:prod": "REACT_APP_ENV=prod webpack serve --mode development --open",
     "build": "webpack --mode production",
-    "build:dev": "webpack --mode development",
+    "build:dev": "REACT_APP_ENV=dev webpack --mode production",
+    "build:qa": "REACT_APP_ENV=qa webpack --mode production",
+    "build:prod": "REACT_APP_ENV=prod webpack --mode production",
+    "build:dev:watch": "webpack --mode development",
     "analyze": "webpack --mode production --analyze",
     "analyze:dev": "webpack --mode development --analyze"
   },

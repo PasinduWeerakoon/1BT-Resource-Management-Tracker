@@ -19,9 +19,9 @@ import { getBenchProjectId } from './benchService.js';
 export const ALLOCATION_CONFIG = {
     OVERALLOCATION_THRESHOLDS: {
         LOW: 110,      // 101-110%: Warning only
-        MEDIUM: 120,   // 111-120%: Requires review
-        HIGH: 140,     // 121-140%: Requires notes
-        CRITICAL: 141  // >140%: Requires force flag
+        MEDIUM: 120,   // 111-120%: Warning, flagged for review
+        HIGH: 200,     // 121-200%: Warning, flagged for review (no approval needed)
+        CRITICAL: 201  // >200%: Requires notes + force flag
     },
     MINIMUM_ALLOCATION_PERCENTAGE: 5,
     BENCH_CLEANUP_THRESHOLD_HOURS: 24,
@@ -43,7 +43,7 @@ export const calculateOverallocationSeverity = (totalAllocation) => {
     } else if (totalAllocation <= thresholds.MEDIUM) {
         return { severity: 'MEDIUM', requiresReview: true, requiresNotes: false, requiresForce: false };
     } else if (totalAllocation <= thresholds.HIGH) {
-        return { severity: 'HIGH', requiresReview: true, requiresNotes: true, requiresForce: false };
+        return { severity: 'HIGH', requiresReview: true, requiresNotes: false, requiresForce: false };
     } else {
         return { severity: 'CRITICAL', requiresReview: true, requiresNotes: true, requiresForce: true };
     }
@@ -98,9 +98,9 @@ export const validateAllocation = async (resourceId, newPercentage, excludeAlloc
     if (newTotal > 100) {
         // Generate severity-appropriate warning message
         if (severityInfo.severity === 'CRITICAL') {
-            response.warning = `CRITICAL overallocation at ${newTotal}%. This requires manager approval (use forceOverallocation flag).`;
+            response.warning = `CRITICAL overallocation at ${newTotal}% (above ${ALLOCATION_CONFIG.OVERALLOCATION_THRESHOLDS.HIGH}%). This requires manager approval (use forceOverallocation flag).`;
         } else if (severityInfo.severity === 'HIGH') {
-            response.warning = `HIGH overallocation at ${newTotal}%. Notes are required to explain the business reason.`;
+            response.warning = `HIGH overallocation at ${newTotal}%. This allocation requires review.`;
         } else if (severityInfo.severity === 'MEDIUM') {
             response.warning = `MEDIUM overallocation at ${newTotal}%. This allocation requires review.`;
         } else {

@@ -3,8 +3,26 @@
  * API calls for various reports
  */
 
+import axios from 'axios';
 import apiClient from '../client';
+import { API_CONFIG } from '../config';
 import { ENDPOINTS } from '../endpoints';
+import { getStoredAuth } from '@utils/auth.utils';
+import { API_TIMEOUT } from '@constants/api';
+
+/** Axios instance without response interceptor — preserves { data, summary } for exception report */
+const reportsExceptionClient = axios.create({
+  baseURL: API_CONFIG.BASE_URL,
+  timeout: API_TIMEOUT.DEFAULT,
+  headers: { 'Content-Type': 'application/json' },
+});
+reportsExceptionClient.interceptors.request.use((config) => {
+  const auth = getStoredAuth();
+  if (auth?.accessToken) {
+    config.headers.Authorization = `Bearer ${auth.accessToken}`;
+  }
+  return config;
+});
 
 export const reportsService = {
   /**
@@ -79,16 +97,41 @@ export const reportsService = {
   },
 
   /**
+   * Get client cost snapshot report
+   * Returns employees with current allocation lines and billing fields
+   * @param {Object} params - Query parameters
+   * @param {number} params.page - Page number (optional)
+   * @param {number} params.limit - Items per page (optional)
+   * @param {string} params.billing_filter - all|billing|non_billing (optional)
+   * @param {string} params.project_ids - Comma-separated project IDs (optional)
+   * @param {string} params.q - Employee search text (optional)
+   * @returns {Promise<{success: boolean, data: {employees: Array, pagination: Object}}>}
+   */
+  getClientCostSnapshot: async (params = {}) => {
+    const response = await apiClient.get(ENDPOINTS.REPORTS.CLIENT_COST_SNAPSHOT, {
+      params,
+    });
+    return response.data || response;
+  },
+
+  /**
    * Get exception allocation report
    * Resources with allocation > 100% or anomalies
    * @param {Object} params - Query parameters (none required)
    * @returns {Promise<{success: boolean, data: Array<{id: string, name: string, total_allocation: number, is_over_allocated: boolean}>, total: number, generatedAt: string}>}
    */
   getException: async (params = {}) => {
-    const response = await apiClient.get(ENDPOINTS.REPORTS.EXCEPTION, {
-      params,
-    });
-    return response.data || response;
+    const res = await reportsExceptionClient.get(ENDPOINTS.REPORTS.EXCEPTION, { params });
+    const body = res.data;
+    if (body?.success && body.data && typeof body.data === 'object' && !Array.isArray(body.data)) {
+      const inner = body.data;
+      return {
+        data: Array.isArray(inner.data) ? inner.data : [],
+        summary: inner.summary,
+        generatedAt: inner.generatedAt,
+      };
+    }
+    return body;
   },
 
   /**

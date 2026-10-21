@@ -22,9 +22,10 @@ export const list = async (event) => {
         const { page = 1, limit = 20, search, is_active } = queryParams;
         const offset = (parseInt(page) - 1) * parseInt(limit);
 
-        log.info('Listing clients', { page, limit, search });
+        log.info('Listing clients', { page, limit, search, is_active });
 
-        // Build dynamic query
+        // Build dynamic query — by default only active clients (is_active = true).
+        // Use ?is_active=false for inactive only, ?is_active=all for every non-deleted client.
         let whereClause = 'WHERE deleted_at IS NULL';
         const params = [];
         let paramIndex = 1;
@@ -35,9 +36,15 @@ export const list = async (event) => {
             paramIndex++;
         }
 
-        if (is_active !== undefined) {
+        if (is_active === 'false') {
             whereClause += ` AND is_active = $${paramIndex}`;
-            params.push(is_active === 'true');
+            params.push(false);
+            paramIndex++;
+        } else if (is_active === 'all') {
+            // no is_active filter
+        } else {
+            whereClause += ` AND is_active = $${paramIndex}`;
+            params.push(true);
             paramIndex++;
         }
 
@@ -192,21 +199,7 @@ export const update = async (event) => {
         const body = JSON.parse(event.body || '{}');
         const validated = validate(body, clientSchemas.update);
 
-        // Get user ID from Cognito sub - need to look up in users table
-        const cognitoSub = event.requestContext?.authorizer?.jwt?.claims?.sub;
-        let userId = null;
-
-        if (cognitoSub) {
-            const userResult = await db.query(
-                'SELECT id FROM users WHERE cognito_user_id = $1',
-                [cognitoSub]
-            );
-            if (userResult.rows.length > 0) {
-                userId = userResult.rows[0].id;
-            }
-        }
-
-        log.info('Updating client', { id, userId });
+        log.info('Updating client', { id });
 
         // Check if client exists and get current data for audit
         const existingResult = await db.query(
@@ -220,7 +213,7 @@ export const update = async (event) => {
 
         const existing = existingResult.rows[0];
 
-        // Build dynamic update query
+        // Build dynamic update query (clients table has updated_at but no updated_by)
         const updates = [];
         const params = [id];
         let paramIndex = 2;
@@ -237,9 +230,6 @@ export const update = async (event) => {
             return success(existing);
         }
 
-        // Add audit fields
-        updates.push(`updated_by = $${paramIndex++}`);
-        params.push(userId);
         updates.push(`updated_at = CURRENT_TIMESTAMP`);
 
         const query = `
@@ -330,9 +320,9 @@ export const remove = async (event) => {
 
         await db.query(
             `UPDATE clients 
-             SET deleted_at = CURRENT_TIMESTAMP, updated_by = $2 
+             SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP 
              WHERE id = $1 AND deleted_at IS NULL`,
-            [id, userId]
+            [id]
         );
 
         // Send audit event for client deletion

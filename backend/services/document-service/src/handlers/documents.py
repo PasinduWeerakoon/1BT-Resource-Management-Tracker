@@ -10,7 +10,8 @@ from .excel_handler import (
     generate_summary_report,
     generate_non_billing_report,
     generate_projects_report,
-    generate_monthly_allocation_report
+    generate_monthly_allocation_report,
+    generate_all_employees_report,
 )
 from .pdf_handler import generate_report as generate_pdf_report
 
@@ -33,6 +34,12 @@ def generate_projects_excel(event, context):
 def generate_monthly_allocation_excel(event, context):
     """Generate monthly allocation report Excel"""
     return generate_monthly_allocation_report(event, context)
+
+
+def generate_all_employees_excel(event, context):
+    """Generate all employees roster Excel"""
+    return generate_all_employees_report(event, context)
+
 
 # Excel handlers
 def generate_excel(event, context):

@@ -26,15 +26,62 @@ const resolveConfigLabel = (configArray, id) => {
 };
 
 /**
+ * Parse a positive integer from query string, or null if missing/invalid.
+ */
+const parsePositiveInt = (value) => {
+    if (value === undefined || value === null || value === '') return null;
+    const n = parseInt(String(value), 10);
+    return Number.isFinite(n) && n > 0 ? n : null;
+};
+
+/**
  * Get employee allocation report
+ * Query params:
+ * - resource_id: filter by employee id (same as resources list id)
+ * - track_id: filter by track
+ * - page, limit: pagination (limit capped at 500; omit limit to return all matches)
  */
 export const getEmployeeReport = async (event) => {
     const log = logger.child({ handler: 'reports.getEmployeeReport' });
 
     try {
-        log.info('Getting employee report');
+        const queryParams = event.queryStringParameters || {};
+        const resourceId = parsePositiveInt(queryParams.resource_id);
+        const trackId = parsePositiveInt(queryParams.track_id);
+        const page = parsePositiveInt(queryParams.page) ?? 1;
+        const rawLimit = parsePositiveInt(queryParams.limit);
+        const limit = rawLimit != null ? Math.min(rawLimit, 500) : null;
 
-        const query = `
+        const filterParams = [];
+        const whereFragments = ['r.deleted_at IS NULL'];
+
+        if (resourceId != null) {
+            filterParams.push(resourceId);
+            whereFragments.push(`r.id = $${filterParams.length}`);
+        }
+        if (trackId != null) {
+            filterParams.push(trackId);
+            whereFragments.push(`r.track_id = $${filterParams.length}`);
+        }
+
+        const whereClause = whereFragments.join(' AND ');
+
+        log.info('Getting employee report', {
+            resourceId: resourceId ?? null,
+            trackId: trackId ?? null,
+            page,
+            limit: limit ?? 'all',
+        });
+
+        const countSql = `
+            SELECT COUNT(*)::int AS total
+            FROM employees r
+            WHERE ${whereClause}
+        `;
+        const countResult = await db.query(countSql, filterParams);
+        const total = countResult.rows[0]?.total ?? 0;
+
+        const selectSql = `
             SELECT 
                 r.id,
                 r.epf_no,
@@ -55,6 +102,7 @@ export const getEmployeeReport = async (event) => {
                      AND (deallocated_date IS NULL OR deallocated_date >= CURRENT_DATE)),
                     0
                 ) as total_allocation,
+                COALESCE(r.total_resource_billing, 0) as total_billing,
                 COALESCE(
                     (SELECT string_agg(p.project_name, ', ')
                      FROM allocations a
@@ -66,11 +114,21 @@ export const getEmployeeReport = async (event) => {
                 ) as current_projects
             FROM employees r
             LEFT JOIN designations d ON r.designation_id = d.id
-            WHERE r.deleted_at IS NULL
+            WHERE ${whereClause}
             ORDER BY r.name ASC
         `;
 
-        const result = await db.query(query);
+        const dataParams = [...filterParams];
+        let listSql = selectSql;
+        if (limit != null) {
+            const offset = (page - 1) * limit;
+            const limitPlaceholder = dataParams.length + 1;
+            const offsetPlaceholder = dataParams.length + 2;
+            dataParams.push(limit, offset);
+            listSql += ` LIMIT $${limitPlaceholder} OFFSET $${offsetPlaceholder}`;
+        }
+
+        const result = await db.query(listSql, dataParams);
 
         // Transform results with config resolution
         const data = result.rows.map(row => ({
@@ -82,7 +140,7 @@ export const getEmployeeReport = async (event) => {
 
         return success({
             data,
-            total: data.length,
+            total,
             generatedAt: new Date().toISOString()
         });
 
@@ -94,25 +152,43 @@ export const getEmployeeReport = async (event) => {
 
 /**
  * Get exception allocation report (over-allocated or under-allocated resources)
+ *
+ * Query params:
+ * - project_id: optional. When set, only employees with at least one **current**
+ *   active allocation on that project are returned. Totals and exception_type are
+ *   still based on **global** allocation (all active allocations), not only that
+ *   project — filtering by project must not change the math used for over/under.
  */
 export const getExceptionReport = async (event) => {
     const log = logger.child({ handler: 'reports.getExceptionReport' });
 
     try {
-        log.info('Getting exception report');
-
-        // Extract query parameters for filtering
         const queryParams = event.queryStringParameters || {};
-        const projectId = queryParams.project_id;
+        const rawProjectId = queryParams.project_id;
+        const projectIdParsed = rawProjectId !== undefined && rawProjectId !== null && rawProjectId !== ''
+            ? parseInt(String(rawProjectId), 10)
+            : NaN;
+        const projectId = Number.isFinite(projectIdParsed) && projectIdParsed > 0
+            ? projectIdParsed
+            : null;
 
-        // Build project filter clause
-        let projectFilterClause = '';
-        const params = [];
-        
-        if (projectId) {
-            projectFilterClause = 'AND a.project_id = $1';
-            params.push(parseInt(projectId));
+        const params = projectId != null ? [projectId] : [];
+
+        let projectFilterSql = '';
+        if (projectId != null) {
+            projectFilterSql = `
+            AND EXISTS (
+                SELECT 1
+                FROM allocations ap
+                WHERE ap.employee_id = r.id
+                  AND ap.project_id = $1
+                  AND ap.is_active = true
+                  AND ap.deleted_at IS NULL
+                  AND (ap.deallocated_date IS NULL OR ap.deallocated_date >= CURRENT_DATE)
+            )`;
         }
+
+        log.info('Getting exception report', { projectId: projectId ?? null });
 
         const query = `
             WITH resource_allocations AS (
@@ -120,9 +196,9 @@ export const getExceptionReport = async (event) => {
                     a.employee_id,
                     SUM(a.allocation_percentage) as total_allocation
                 FROM allocations a
-                WHERE a.is_active = true 
+                WHERE a.is_active = true
+                AND a.deleted_at IS NULL
                 AND (a.deallocated_date IS NULL OR a.deallocated_date >= CURRENT_DATE)
-                ${projectFilterClause}
                 GROUP BY a.employee_id
             )
             SELECT 
@@ -148,6 +224,7 @@ export const getExceptionReport = async (event) => {
             WHERE r.status = 'Active'
             AND r.deleted_at IS NULL
             AND (COALESCE(ra.total_allocation, 0) > 100 OR COALESCE(ra.total_allocation, 0) < 100)
+            ${projectFilterSql}
             ORDER BY ra.total_allocation DESC NULLS LAST
         `;
 

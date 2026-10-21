@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useCallback } from 'react';
+import { useSelector } from 'react-redux';
 import { FilterSection, ReportHeader, SummaryCards } from '@components/ReportLayout';
 import AccountManagerFilters from './components/AccountManagerFilters';
 import ChartsSection from './components/ChartsSection';
@@ -23,9 +24,18 @@ import {
   buildEmployeesByTierBarData,
   employeesByTierBarOptions,
 } from './utils/chartHelpers';
+import { parseGroups } from '@pages/Auth/Login/utils/authHelpers';
 import '@styles/pages/AccountManagerReport.scss';
 
 const AccountManagerReport = () => {
+  // ─── Get user from Redux to check Admin role ───
+  const user = useSelector((state) => state.auth.user);
+  const isAdmin = useMemo(() => {
+    if (!user) return false;
+    const groups = parseGroups(user.groups);
+    return groups.some(group => group === 'Admin' || group === 'SuperAdmin');
+  }, [user]);
+
   // ─── UI toggle state ───
   const [billingStatusExpanded, setBillingStatusExpanded] = useState(true);
   const [employeesByTierExpanded, setEmployeesByTierExpanded] = useState(true);
@@ -53,10 +63,15 @@ const AccountManagerReport = () => {
   });
 
   // ─── Allocation management hook ───
+  const handleAllocationCrudSuccess = useCallback(() => {
+    data.fetchAccountManagerReport();
+    data.refreshProjectAllocations();
+  }, [data.fetchAccountManagerReport, data.refreshProjectAllocations]);
+
   const allocationMgmt = useAllocationManagement({
     resourcesList: data.resourcesList,
     projectsForFilter: data.projectsForFilter,
-    onSuccess: data.fetchAccountManagerReport,
+    onSuccess: handleAllocationCrudSuccess,
   });
 
   // ─── Resource allocations hook ───
@@ -79,8 +94,9 @@ const AccountManagerReport = () => {
       getProjectColumns({
         onEdit: projectMgmt.handleEditProject,
         onAddTeamMembers: teamMgmt.handleAddTeamMembers,
+        isAdmin,
       }),
-    [projectMgmt.handleEditProject, teamMgmt.handleAddTeamMembers]
+    [projectMgmt.handleEditProject, teamMgmt.handleAddTeamMembers, isAdmin]
   );
 
   const allocationColumns = useMemo(
@@ -89,8 +105,9 @@ const AccountManagerReport = () => {
         onView: resourceAlloc.handleViewResourceAllocations,
         onEdit: allocationMgmt.handleEditAllocation,
         onDelete: allocationMgmt.handleDeleteAllocation,
+        isAdmin,
       }),
-    [resourceAlloc.handleViewResourceAllocations, allocationMgmt.handleEditAllocation, allocationMgmt.handleDeleteAllocation]
+    [resourceAlloc.handleViewResourceAllocations, allocationMgmt.handleEditAllocation, allocationMgmt.handleDeleteAllocation, isAdmin]
   );
 
   // ─── Allocation pagination handler ───
@@ -153,6 +170,7 @@ const AccountManagerReport = () => {
         projectOverviewExpanded={projectOverviewExpanded}
         onToggleExpanded={() => setProjectOverviewExpanded((e) => !e)}
         selectedAccountManagerName={data.selectedAccountManagerName}
+        isAdmin={isAdmin}
       />
 
       <AllocationsTable
@@ -166,6 +184,9 @@ const AccountManagerReport = () => {
         onRowClick={resourceAlloc.handleRowClick}
         onPaginationChange={handleAllocationPaginationChange}
         displayProjectName={data.displayProjectName}
+        allocationStatusFilter={data.allocationStatusFilter}
+        onAllocationStatusFilterChange={data.handleAllocationStatusFilterChange}
+        isAdmin={isAdmin}
       />
 
       {/* Tech Stack Chart - positioned after BY ALLOCATION table */}
@@ -229,7 +250,6 @@ const AccountManagerReport = () => {
         isSubmitting={allocationMgmt.isSubmittingAllocation}
         resourcesList={data.resourcesList}
         projectsForFilter={data.projectsForFilter}
-        resourceBillingStatuses={data.resourceBillingStatuses}
       />
 
       <DeleteAllocationModal

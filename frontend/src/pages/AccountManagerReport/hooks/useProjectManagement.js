@@ -123,10 +123,18 @@ const useProjectManagement = ({
         return;
       }
 
-      // Validate client exists if provided
-      if (values.client_id && !clientsList.find((c) => c.id === values.client_id)) {
-        showErrorToast('Selected client not found');
-        return;
+      // Validate client for External projects
+      const accountType = accountTypesList.find((at) => at.id === values.account_type);
+      if (accountType?.name === 'External') {
+        if (!values.client_id || values.client_id === null || values.client_id === undefined || values.client_id === '') {
+          showErrorToast('Client is required for External projects');
+          return;
+        }
+        // Validate client exists if provided
+        if (!clientsList.find((c) => c.id === values.client_id)) {
+          showErrorToast('Selected client not found');
+          return;
+        }
       }
 
       const basePayload = {
@@ -154,13 +162,21 @@ const useProjectManagement = ({
       const cleanPayload = { ...basePayload };
       ['project_code', 'account_reg_sales_owner', 'description', 'project_start_date', 'project_end_date'].forEach(
         (key) => {
-          if (!cleanPayload[key]) delete cleanPayload[key];
+          if (!cleanPayload[key] || cleanPayload[key] === '') delete cleanPayload[key];
         }
       );
+      
+      // Remove client_id if not provided or if Internal project
+      if (!cleanPayload.client_id || cleanPayload.client_id === null) {
+        delete cleanPayload.client_id;
+      }
+      if (accountType?.name === 'Internal') {
+        delete cleanPayload.client_id;
+      }
 
       let response;
       if (isEditMode && selectedProject) {
-        response = await projectsService.update(selectedProject.key || selectedProject.id, basePayload);
+        response = await projectsService.update(selectedProject.key || selectedProject.id, cleanPayload);
       } else {
         response = await projectsService.create(cleanPayload);
       }

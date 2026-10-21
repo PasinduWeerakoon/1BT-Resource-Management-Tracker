@@ -5,7 +5,7 @@
 
 import { useState } from 'react';
 import { resourcesService } from '@api';
-import { App } from 'antd';
+import { App, Modal } from 'antd';
 import logger from '@utils/logger';
 import dayjs from 'dayjs';
 
@@ -95,6 +95,41 @@ export const useResourceCRUD = ({ form, fetchEmployees, pagination, tiers, emplo
     form.resetFields();
     setSelectedEmployee(null);
     setIsEditMode(false);
+  };
+
+  // Handle Delete Employee (soft delete via API)
+  const handleDeleteEmployee = (record) => {
+    const name = record?.name || record?.employeeNumber || 'this employee';
+    const employeeId = record?.id ?? record?.resource_id;
+    if (employeeId == null || employeeId === '') {
+      message.error('Cannot delete: employee ID is missing.');
+      return;
+    }
+    Modal.confirm({
+      title: 'Delete Employee',
+      content: `Are you sure you want to delete ${name}? This will remove the employee from the active list. They must have no active project allocations.`,
+      okText: 'Delete',
+      okType: 'danger',
+      cancelText: 'Cancel',
+      onOk: async () => {
+        try {
+          setLoading(true);
+          const response = await resourcesService.delete(employeeId);
+          if (response && response.success !== false) {
+            message.success(response.message || 'Employee deleted successfully');
+            await fetchEmployees(pagination.current, pagination.pageSize);
+          } else {
+            message.error(response?.message || 'Failed to delete employee');
+          }
+        } catch (error) {
+          const apiMessage = error?.response?.data?.message || error?.message;
+          message.error(apiMessage || 'Failed to delete employee');
+          logger.error('Delete employee error', error);
+        } finally {
+          setLoading(false);
+        }
+      },
+    });
   };
 
   // Handle Add/Edit Employee Submit
@@ -279,6 +314,7 @@ export const useResourceCRUD = ({ form, fetchEmployees, pagination, tiers, emplo
     handleEditEmployee,
     handleCancel,
     handleEmployeeSubmit,
+    handleDeleteEmployee,
     handleToggleAccountManager,
     handleUpdateTier,
     handleUpdateTechStack,

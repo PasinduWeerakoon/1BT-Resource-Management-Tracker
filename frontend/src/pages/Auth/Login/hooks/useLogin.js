@@ -12,7 +12,7 @@ import { setCredentials } from '@redux/slices/authSlice';
 import { fetchAllConfigData } from '@redux/slices/configSlice';
 import { storeAuth } from '@utils/auth.utils';
 import { getUserFromToken } from '@utils/jwt.utils';
-import { showErrorToast } from '@utils/toast.utils';
+import { showErrorToast, getErrorMessage } from '@utils/toast.utils';
 import logger from '@utils/logger';
 import {
   hasPasswordRequiredChallenge,
@@ -45,7 +45,7 @@ export const useLogin = () => {
 
     if (!accessToken || !refreshToken || !idToken) {
       logger.error('Missing tokens in response:', tokenData);
-      message.error('Invalid response format from server');
+      showErrorToast('Invalid response format from server');
       return false;
     }
 
@@ -174,7 +174,8 @@ export const useLogin = () => {
         }
 
         logger.error('Login failed - unexpected response structure:', response);
-        message.error(response?.message || 'Invalid credentials');
+        const errorMessage = response?.error?.message || response?.message || 'Invalid credentials';
+        showErrorToast(errorMessage);
       }
     } catch (error) {
       logger.error('Login error:', error);
@@ -199,7 +200,9 @@ export const useLogin = () => {
       if (tokenData) {
         await handleSuccessfulLogin(tokenData, values.email);
       } else {
-        message.error(error.message || 'Login failed. Please try again.');
+        // Extract error message from various possible error structures
+        const errorMessage = getErrorMessage(error) || 'Login failed. Please try again.';
+        showErrorToast(errorMessage);
       }
     } finally {
       setLoading(false);

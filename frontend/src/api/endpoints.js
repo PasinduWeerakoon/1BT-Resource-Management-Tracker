@@ -20,6 +20,8 @@ export const ENDPOINTS = {
     COMPLETE_INVITE: `${BASE_URL}/auth/complete-invite`,
     ACTIVATE_USER: `${BASE_URL}/auth/activate-user`,
     USERS: `${BASE_URL}/auth/users`,
+    UPDATE_ROLE: `${BASE_URL}/auth/update-role`,
+    REVOKE_ACCESS: `${BASE_URL}/auth/revoke-access`,
   },
 
   // Resources (Employees)
@@ -191,6 +193,7 @@ export const ENDPOINTS = {
     EMPLOYEE: `${BASE_URL}/reports/employee`,
     INTERN: `${BASE_URL}/reports/intern`,
     MONTHLY_ALLOCATION: `${BASE_URL}/reports/monthly-allocation`,
+    CLIENT_COST_SNAPSHOT: `${BASE_URL}/reports/client-cost-snapshot`,
     EXCEPTION: `${BASE_URL}/reports/exception`,
     NON_BILLING: `${BASE_URL}/reports/non-billing`,
     PRE_SALE: `${BASE_URL}/reports/pre-sale`,
@@ -211,6 +214,7 @@ export const ENDPOINTS = {
     EXCEL_SUMMARY: `${BASE_URL}/documents/excel/summary`,
     EXCEL_NON_BILLING: `${BASE_URL}/documents/excel/non-billing`,
     EXCEL_PROJECTS: `${BASE_URL}/documents/excel/projects`,
+    EXCEL_ALL_EMPLOYEES: `${BASE_URL}/documents/excel/all-employees`,
     EXCEL_MONTHLY_ALLOCATION: `${BASE_URL}/documents/excel/monthly-allocation`,
   },
 

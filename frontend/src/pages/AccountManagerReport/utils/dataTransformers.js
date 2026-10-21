@@ -78,6 +78,11 @@ export const transformAllocationData = (allocationsData) => {
     const totalAllocation = parseFloat(allocation.total_allocation) || 0;
     const totalBilling = parseFloat(allocation.total_resource_billing) || 0;
 
+    const isActive =
+      allocation.is_active === true
+      || allocation.is_active === 'true'
+      || allocation.is_active === 1;
+
     return {
       key: allocation.id || `allocation-${index}`,
       id: allocation.id,
@@ -93,7 +98,9 @@ export const transformAllocationData = (allocationsData) => {
       totalBilling: `${totalBilling.toFixed(2)}%`,
       lastUpdated: allocation.updated_at ? dayjs(allocation.updated_at).format('DD MMM YYYY') : '',
       duration,
-      status: allocation.is_active !== undefined ? (allocation.is_active ? 'Active' : 'Inactive') : (allocation.status || 'Active'),
+      status: allocation.is_active !== undefined && allocation.is_active !== null
+        ? (isActive ? 'Active' : 'Inactive')
+        : (allocation.status || 'Active'),
       resource_id: resourceId,
       project_id: allocation.project_id,
       project_name: projectName,
