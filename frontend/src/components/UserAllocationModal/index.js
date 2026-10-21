@@ -368,7 +368,7 @@ const UserAllocationModal = ({
                                                     dependencies={[['allocations', allocation.key, 'billingPercentage']]}
                                                     rules={[
                                                         { required: true, message: 'Project allocation is required' },
-                                                        { type: 'number', min: 0, message: 'Must be 0 or greater' },
+                                                        { type: 'number', min: 0, max: 200, message: 'Must be between 0 and 200' },
                                                         ({ getFieldValue }) => ({
                                                             validator(_, value) {
                                                                 const billing = getFieldValue(['allocations', allocation.key, 'billingPercentage']);
@@ -386,6 +386,7 @@ const UserAllocationModal = ({
                                                         style={{ width: '100%' }}
                                                         placeholder="Enter project allocation"
                                                         min={0}
+                                                        max={200}
                                                         onChange={(value) => onFieldChange(allocation.key, 'projectAllocation', value)}
                                                         formatter={value => `${value}%`}
                                                         parser={value => value.replace('%', '')}

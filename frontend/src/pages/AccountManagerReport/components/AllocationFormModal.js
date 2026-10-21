@@ -106,7 +106,7 @@ const AllocationFormModal = ({
               dependencies={['billing_percentage']}
               rules={[
                 { required: true, message: 'Allocation percentage is required' },
-                { type: 'number', min: 0, message: 'Must be 0 or greater' },
+                { type: 'number', min: 0, max: 200, message: 'Must be between 0 and 200' },
                 ({ getFieldValue }) => ({
                   validator(_, value) {
                     const billing = getFieldValue('billing_percentage');
@@ -124,6 +124,7 @@ const AllocationFormModal = ({
                 style={{ width: '100%' }}
                 placeholder="Enter allocation percentage"
                 min={0}
+                max={200}
                 formatter={(v) => `${v}%`}
                 parser={(v) => v.replace('%', '')}
               />
